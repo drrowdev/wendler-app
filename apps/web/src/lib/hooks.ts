@@ -114,3 +114,18 @@ export function useRecentPainFlag(movementId: string | undefined) {
     return flagged[0]!.painFlag;
   }, [movementId]);
 }
+
+export function useAllSets() {
+  return useLiveQuery(() => getDb().sets.toArray(), []);
+}
+
+export function useAllSessions() {
+  return useLiveQuery(() => getDb().sessions.toArray(), []);
+}
+
+export function useAllTrainingMaxesList() {
+  return useLiveQuery(
+    () => getDb().trainingMaxes.toArray(),
+    [],
+  );
+}

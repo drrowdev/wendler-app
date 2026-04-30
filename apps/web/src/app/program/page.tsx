@@ -78,28 +78,34 @@ export default function ProgramIndex() {
             {blocks.map((b) => (
               <li
                 key={b.id}
-                className="flex items-center justify-between rounded-xl border border-border bg-card p-3"
+                className="rounded-xl border border-border bg-card p-3"
               >
-                <div>
-                  <div className="font-medium">
-                    {b.name}
-                    {active?.id === b.id && (
-                      <span className="ml-2 rounded bg-accent px-1.5 py-0.5 text-xs font-semibold text-bg">
-                        ACTIVE
-                      </span>
-                    )}
-                    {b.completedAt && (
-                      <span className="ml-2 rounded bg-card px-1.5 py-0.5 text-xs text-muted ring-1 ring-border">
-                        done
-                      </span>
-                    )}
+                <Link
+                  href={`/program/block?id=${b.id}`}
+                  className="flex items-center justify-between hover:text-accent"
+                >
+                  <div>
+                    <div className="font-medium">
+                      {b.name}
+                      {active?.id === b.id && (
+                        <span className="ml-2 rounded bg-accent px-1.5 py-0.5 text-xs font-semibold text-bg">
+                          ACTIVE
+                        </span>
+                      )}
+                      {b.completedAt && (
+                        <span className="ml-2 rounded bg-card px-1.5 py-0.5 text-xs text-muted ring-1 ring-border">
+                          done
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted">
+                      {b.kind} ·{' '}
+                      {SUPPLEMENTAL_TEMPLATES.find((s) => s.id === b.supplementalTemplate)?.name} ·{' '}
+                      created {fmtDate(b.createdAt)}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted">
-                    {b.kind} ·{' '}
-                    {SUPPLEMENTAL_TEMPLATES.find((s) => s.id === b.supplementalTemplate)?.name} ·{' '}
-                    created {fmtDate(b.createdAt)}
-                  </div>
-                </div>
+                  <span className="text-xs text-muted">→</span>
+                </Link>
               </li>
             ))}
           </ul>
