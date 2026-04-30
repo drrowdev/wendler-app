@@ -31,7 +31,7 @@ jobs:
       - name: Build api
         run: pnpm --filter @wendler/api build
       - name: Bundle api with deps (resolve workspace symlinks)
-        run: pnpm --filter @wendler/api deploy --prod ./api-bundle
+        run: pnpm --filter @wendler/api deploy --prod --legacy ./api-bundle
       - name: Copy built api into bundle
         run: cp -R apps/api/dist ./api-bundle/dist
       - name: Deploy
