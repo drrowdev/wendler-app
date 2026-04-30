@@ -4,9 +4,13 @@ import Dexie, { type Table } from 'dexie';
 import {
   SCHEMA_VERSION,
   SEED_MOVEMENTS,
+  type CardioSession,
+  type Goal,
   type Movement,
   type ProgramBlock,
   type ProgramSchedule,
+  type PushSubscriptionRecord,
+  type RecoveryEntry,
   type SessionRecord,
   type SetRecord,
   type TrainingMaxRecord,
@@ -34,6 +38,10 @@ class WendlerDb extends Dexie {
   blocks!: Table<ProgramBlock, string>;
   schedule!: Table<ProgramSchedule, 'singleton'>;
   syncMeta!: Table<SyncMetaRecord, 'syncMeta'>;
+  goals!: Table<Goal, string>;
+  cardio!: Table<CardioSession, string>;
+  recovery!: Table<RecoveryEntry, string>;
+  pushSub!: Table<PushSubscriptionRecord, 'pushSub'>;
 
   constructor() {
     super('wendler-app');
@@ -56,6 +64,17 @@ class WendlerDb extends Dexie {
       schedule: 'id',
     });
     // v3 schema (v0.5.0): add syncMeta singleton table for cloud sync cursors.
+    this.version(3).stores({
+      movements: 'id, name, equipment, pattern, isMainLift, isCustom',
+      trainingMaxes: 'id, lift, createdAt',
+      settings: 'id',
+      sets: 'id, movementId, sessionId, performedAt, kind',
+      sessions: 'id, performedAt, mainLift, week, blockId',
+      blocks: 'id, kind, startedAt, completedAt, createdAt',
+      schedule: 'id',
+      syncMeta: 'id',
+    });
+    // v4 schema (v0.6.0): goals, cardio sessions, daily recovery, push subscription.
     this.version(SCHEMA_VERSION).stores({
       movements: 'id, name, equipment, pattern, isMainLift, isCustom',
       trainingMaxes: 'id, lift, createdAt',
@@ -65,6 +84,10 @@ class WendlerDb extends Dexie {
       blocks: 'id, kind, startedAt, completedAt, createdAt',
       schedule: 'id',
       syncMeta: 'id',
+      goals: 'id, kind, deadline, createdAt, completedAt',
+      cardio: 'id, performedAt, modality',
+      recovery: 'id',
+      pushSub: 'id',
     });
   }
 }

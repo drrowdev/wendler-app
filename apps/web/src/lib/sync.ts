@@ -2,9 +2,12 @@
 
 import { getDb } from './db';
 import type {
+  CardioSession,
+  Goal,
   Movement,
   ProgramBlock,
   ProgramSchedule,
+  RecoveryEntry,
   SessionRecord,
   SetRecord,
   TrainingMaxRecord,
@@ -19,7 +22,10 @@ export type SyncKind =
   | 'block'
   | 'trainingMax'
   | 'settings'
-  | 'schedule';
+  | 'schedule'
+  | 'goal'
+  | 'cardio'
+  | 'recovery';
 
 export interface OutboundDoc {
   kind: SyncKind;
@@ -139,6 +145,24 @@ async function collectOutbound(sinceIso: string): Promise<OutboundDoc[]> {
     });
   }
 
+  const goals = await db.goals.toArray();
+  for (const g of goals) {
+    const ts = [g.completedAt, g.updatedAt, g.createdAt].filter(Boolean).sort().pop()!;
+    if (ts > since) out.push({ kind: 'goal', recordId: g.id, updatedAt: ts, payload: g });
+  }
+
+  const cardio = await db.cardio.toArray();
+  for (const c of cardio) {
+    const ts = [c.updatedAt, c.performedAt].filter(Boolean).sort().pop()!;
+    if (ts > since) out.push({ kind: 'cardio', recordId: c.id, updatedAt: ts, payload: c });
+  }
+
+  const recovery = await db.recovery.toArray();
+  for (const r of recovery) {
+    if (r.updatedAt > since)
+      out.push({ kind: 'recovery', recordId: r.id, updatedAt: r.updatedAt, payload: r });
+  }
+
   return out;
 }
 
@@ -175,6 +199,21 @@ async function applyIncoming(doc: IncomingDoc) {
       const local = await db.schedule.get('singleton');
       if (!local || incoming.updatedAt >= local.updatedAt) {
         await db.schedule.put(incoming);
+      }
+      break;
+    }
+    case 'goal':
+      await db.goals.put(doc.payload as Goal);
+      break;
+    case 'cardio':
+      await db.cardio.put(doc.payload as CardioSession);
+      break;
+    case 'recovery': {
+      const incoming = doc.payload as RecoveryEntry;
+      const local = await db.recovery.get(incoming.id);
+      // Recovery is idempotent per-day — last write wins.
+      if (!local || incoming.updatedAt >= local.updatedAt) {
+        await db.recovery.put(incoming);
       }
       break;
     }

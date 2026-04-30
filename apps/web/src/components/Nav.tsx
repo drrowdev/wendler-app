@@ -9,8 +9,8 @@ const TABS = [
   { href: '/program', label: 'Program' },
   { href: '/calendar', label: 'Calendar' },
   { href: '/analytics', label: 'Stats' },
-  { href: '/movements', label: 'Moves' },
-  { href: '/settings', label: 'Settings' },
+  { href: '/load', label: 'Load' },
+  { href: '/more', label: 'More' },
 ];
 
 export function Nav() {

@@ -48,7 +48,17 @@ export async function getSyncContainer(): Promise<Container | null> {
 export interface SyncDoc {
   id: string;            // Cosmos document id == "{userId}::{kind}::{recordId}::{updatedAt}"
   userId: string;        // partition key
-  kind: 'set' | 'session' | 'movement' | 'block' | 'trainingMax' | 'settings' | 'schedule';
+  kind:
+    | 'set'
+    | 'session'
+    | 'movement'
+    | 'block'
+    | 'trainingMax'
+    | 'settings'
+    | 'schedule'
+    | 'goal'
+    | 'cardio'
+    | 'recovery';
   recordId: string;      // domain entity id ("singleton" for settings/schedule)
   updatedAt: string;     // ISO timestamp set by client
   serverTime: string;    // ISO timestamp set by server on insert

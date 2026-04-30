@@ -129,3 +129,45 @@ export function useAllTrainingMaxesList() {
     [],
   );
 }
+
+// v0.6.0 — cross-domain hooks
+
+export function useGoals() {
+  return useLiveQuery(
+    async () => {
+      const all = await getDb().goals.toArray();
+      return all.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    },
+    [],
+  );
+}
+
+export function useCardioRecent(limit = 50) {
+  return useLiveQuery(
+    () => getDb().cardio.orderBy('performedAt').reverse().limit(limit).toArray(),
+    [limit],
+  );
+}
+
+export function useAllCardio() {
+  return useLiveQuery(() => getDb().cardio.toArray(), []);
+}
+
+export function useRecoveryRecent(days = 30) {
+  return useLiveQuery(async () => {
+    const all = await getDb().recovery.toArray();
+    return all.sort((a, b) => (a.id < b.id ? 1 : -1)).slice(0, days);
+  }, [days]);
+}
+
+export function useRecoveryFor(date: string) {
+  return useLiveQuery(() => getDb().recovery.get(date), [date]);
+}
+
+export function useAllRecovery() {
+  return useLiveQuery(() => getDb().recovery.toArray(), []);
+}
+
+export function usePushSubscription() {
+  return useLiveQuery(() => getDb().pushSub.get('pushSub'), []);
+}

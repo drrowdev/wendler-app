@@ -112,3 +112,73 @@ export interface SessionRecord {
   notes?: string;
   completedAt?: string;
 }
+
+/**
+ * Cross-domain training: cardio / running / cycling / etc. Manually logged.
+ */
+export interface CardioSession {
+  id: string;
+  performedAt: string;        // ISO
+  modality: 'run' | 'bike' | 'swim' | 'row' | 'walk' | 'other';
+  durationSec: number;
+  distanceKm?: number;
+  avgHrBpm?: number;
+  /** RPE 1-10, subjective */
+  rpe?: number;
+  notes?: string;
+  source?: 'manual' | 'garmin' | 'runna' | 'gpx';
+  updatedAt: string;
+}
+
+/**
+ * Daily recovery checkin. One row per date (YYYY-MM-DD).
+ */
+export interface RecoveryEntry {
+  /** Date "YYYY-MM-DD" — used as primary key (one entry per day). */
+  id: string;
+  /** Sleep duration in hours (decimal, e.g. 7.5). */
+  sleepHours?: number;
+  /** Heart Rate Variability in ms (rMSSD or your wearable's value). */
+  hrv?: number;
+  /** Subjective fatigue 1 (fresh) – 10 (wrecked). */
+  fatigue?: number;
+  /** Overall soreness 1-10. */
+  soreness?: number;
+  /** Mood 1-10. */
+  mood?: number;
+  notes?: string;
+  updatedAt: string;
+}
+
+/**
+ * Long-running training goal with target and deadline.
+ */
+export interface Goal {
+  id: string;
+  kind: 'strength-pr' | 'race-time' | 'body-comp' | 'habit' | 'custom';
+  title: string;
+  /** Numeric target (kg / sec / kg / sessions / etc.). */
+  target?: number;
+  /** Unit label, displayed alongside. */
+  targetUnit?: string;
+  /** ISO date the goal should be achieved by. */
+  deadline?: string;
+  createdAt: string;
+  completedAt?: string;
+  notes?: string;
+  updatedAt: string;
+}
+
+/**
+ * A Web Push subscription stored locally so we can re-render UI state
+ * (subscribed / not subscribed) and re-send to the server if needed.
+ */
+export interface PushSubscriptionRecord {
+  id: 'pushSub';
+  endpoint: string;
+  /** Base64URL p256dh key. */
+  p256dh: string;
+  /** Base64URL auth key. */
+  auth: string;
+  createdAt: string;
+}

@@ -1,4 +1,4 @@
-export const VERSION = '0.4.0';
+export const VERSION = '0.6.0';
 
 export * from './types';
 export * from './rounding';
@@ -11,3 +11,4 @@ export * from './pr-detection';
 export * from './supplemental';
 export * from './blocks';
 export * from './analytics';
+export * from './load';
