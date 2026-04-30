@@ -14,6 +14,17 @@ import {
 } from '@wendler/db-schema';
 import { DEFAULT_DAY_ORDER } from '@wendler/domain';
 
+/**
+ * Singleton key/value rows persisted in Dexie for the sync engine.
+ * Currently used keys: 'syncMeta' -> { lastPulledServerTime, lastPushedAt, deviceId }.
+ */
+export interface SyncMetaRecord {
+  id: 'syncMeta';
+  lastPulledServerTime: string; // ISO of last server cursor we pulled to
+  lastPushedAt: string;         // ISO clock at last successful push
+  deviceId: string;             // random per-install id
+}
+
 class WendlerDb extends Dexie {
   movements!: Table<Movement, string>;
   trainingMaxes!: Table<TrainingMaxRecord, string>;
@@ -22,6 +33,7 @@ class WendlerDb extends Dexie {
   sessions!: Table<SessionRecord, string>;
   blocks!: Table<ProgramBlock, string>;
   schedule!: Table<ProgramSchedule, 'singleton'>;
+  syncMeta!: Table<SyncMetaRecord, 'syncMeta'>;
 
   constructor() {
     super('wendler-app');
@@ -34,6 +46,16 @@ class WendlerDb extends Dexie {
       sessions: 'id, performedAt, mainLift, week',
     });
     // v2 schema (v0.2.0): add blocks, schedule; index blockId on sessions.
+    this.version(2).stores({
+      movements: 'id, name, equipment, pattern, isMainLift, isCustom',
+      trainingMaxes: 'id, lift, createdAt',
+      settings: 'id',
+      sets: 'id, movementId, sessionId, performedAt, kind',
+      sessions: 'id, performedAt, mainLift, week, blockId',
+      blocks: 'id, kind, startedAt, completedAt, createdAt',
+      schedule: 'id',
+    });
+    // v3 schema (v0.5.0): add syncMeta singleton table for cloud sync cursors.
     this.version(SCHEMA_VERSION).stores({
       movements: 'id, name, equipment, pattern, isMainLift, isCustom',
       trainingMaxes: 'id, lift, createdAt',
@@ -42,6 +64,7 @@ class WendlerDb extends Dexie {
       sessions: 'id, performedAt, mainLift, week, blockId',
       blocks: 'id, kind, startedAt, completedAt, createdAt',
       schedule: 'id',
+      syncMeta: 'id',
     });
   }
 }

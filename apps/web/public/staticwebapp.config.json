@@ -2,9 +2,45 @@
   "platform": {
     "apiRuntime": "node:20"
   },
+  "auth": {
+    "identityProviders": {
+      "azureActiveDirectory": {
+        "registration": {
+          "openIdIssuer": "https://login.microsoftonline.com/common/v2.0",
+          "clientIdSettingName": "AAD_CLIENT_ID",
+          "clientSecretSettingName": "AAD_CLIENT_SECRET"
+        }
+      }
+    }
+  },
+  "routes": [
+    {
+      "route": "/api/sync/*",
+      "allowedRoles": ["authenticated"]
+    },
+    {
+      "route": "/api/me",
+      "allowedRoles": ["anonymous", "authenticated"]
+    },
+    {
+      "route": "/login",
+      "redirect": "/.auth/login/aad?post_login_redirect_uri=/",
+      "statusCode": 302
+    },
+    {
+      "route": "/logout",
+      "redirect": "/.auth/logout?post_logout_redirect_uri=/",
+      "statusCode": 302
+    }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/api/*", "/*.{png,jpg,jpeg,gif,svg,webp,ico,webmanifest}", "/manifest.webmanifest"]
+    "exclude": [
+      "/api/*",
+      "/.auth/*",
+      "/*.{png,jpg,jpeg,gif,svg,webp,ico,webmanifest}",
+      "/manifest.webmanifest"
+    ]
   },
   "mimeTypes": {
     ".webmanifest": "application/manifest+json"
@@ -13,3 +49,4 @@
     "Service-Worker-Allowed": "/"
   }
 }
+

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { AuthBadge } from './AuthBadge';
 
 const TABS = [
   { href: '/', label: 'Today' },
@@ -16,7 +17,7 @@ export function Nav() {
   const path = usePathname();
   return (
     <nav className="sticky bottom-0 z-30 border-t border-border bg-card/90 backdrop-blur md:top-0 md:bottom-auto md:border-b md:border-t-0">
-      <div className="mx-auto flex max-w-3xl items-center justify-between px-2 py-2 md:px-6 md:py-3">
+      <div className="mx-auto flex max-w-3xl items-center justify-between gap-2 px-2 py-2 md:px-6 md:py-3">
         <Link href="/" className="hidden text-lg font-semibold tracking-tight md:block">
           5 / 3 / 1
         </Link>
@@ -36,6 +37,12 @@ export function Nav() {
             );
           })}
         </div>
+        <div className="hidden md:block">
+          <AuthBadge />
+        </div>
+      </div>
+      <div className="mx-auto flex max-w-3xl justify-end px-3 pb-2 md:hidden">
+        <AuthBadge />
       </div>
     </nav>
   );

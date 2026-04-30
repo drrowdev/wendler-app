@@ -12,6 +12,7 @@
     "lint": "echo \"(no lint yet)\""
   },
   "dependencies": {
+    "@azure/cosmos": "^4.2.0",
     "@azure/functions": "^4.6.0"
   },
   "devDependencies": {
