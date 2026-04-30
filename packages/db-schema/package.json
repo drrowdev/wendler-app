@@ -11,6 +11,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "echo \"(no lint yet)\""
   },
+  "dependencies": {
+    "@wendler/domain": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.7.3"
   }
