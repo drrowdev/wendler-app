@@ -30,6 +30,10 @@ jobs:
         run: pnpm --filter @wendler/web build
       - name: Build api
         run: pnpm --filter @wendler/api build
+      - name: Bundle api with deps (resolve workspace symlinks)
+        run: pnpm --filter @wendler/api deploy --prod ./api-bundle
+      - name: Copy built api into bundle
+        run: cp -R apps/api/dist ./api-bundle/dist
       - name: Deploy
         uses: Azure/static-web-apps-deploy@v1
         with:
@@ -37,7 +41,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
           app_location: apps/web/out
-          api_location: apps/api
+          api_location: api-bundle
           output_location: ""
           skip_app_build: true
           skip_api_build: true
