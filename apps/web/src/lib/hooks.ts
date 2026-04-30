@@ -69,3 +69,29 @@ export function useSetsForSession(sessionId: string | undefined) {
     [sessionId],
   );
 }
+
+export function useBlocks() {
+  return useLiveQuery(
+    () => getDb().blocks.orderBy('createdAt').reverse().toArray(),
+    [],
+  );
+}
+
+export function useBlock(blockId: string | undefined) {
+  return useLiveQuery(
+    async () => (blockId ? await getDb().blocks.get(blockId) : undefined),
+    [blockId],
+  );
+}
+
+export function useSchedule() {
+  return useLiveQuery(() => getDb().schedule.get('singleton'));
+}
+
+export function useActiveBlock() {
+  return useLiveQuery(async () => {
+    const sched = await getDb().schedule.get('singleton');
+    if (!sched?.activeBlockId) return undefined;
+    return await getDb().blocks.get(sched.activeBlockId);
+  });
+}

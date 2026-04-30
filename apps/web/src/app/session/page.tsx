@@ -5,19 +5,24 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { nanoid } from 'nanoid';
 import {
   buildMainSets,
+  buildSupplementalSets,
   buildWarmupSets,
   calculatePlates,
   detectPrs,
   epley1RM,
   suggestNewTrainingMax,
+  SUPPLEMENTAL_TEMPLATES,
   type PrescribedSet,
+  type SupplementalTemplateId,
   type WendlerWeek,
 } from '@wendler/domain';
 import type { MainLift, SetRecord } from '@wendler/db-schema';
-import { fmtDate, fmtKg, liftLabel, MAIN_LIFTS } from '@/lib/format';
+import { fmtDate, fmtKg, liftLabel } from '@/lib/format';
 import {
+  useActiveBlock,
   useCurrentTrainingMax,
   useMainLiftMovement,
+  useSchedule,
   useSession,
   useSetsForMovement,
   useSetsForSession,
@@ -46,11 +51,14 @@ function SessionPage() {
         ? (Number(weekRaw) as 1 | 2 | 3)
         : null;
   const sessionId = params.get('id');
+  const supplementalParam = params.get('supplemental') as SupplementalTemplateId | null;
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(sessionId);
 
   const settings = useSettings();
   const existing = useSession(activeSessionId ?? undefined);
+  const activeBlock = useActiveBlock();
+  const schedule = useSchedule();
   const lift: MainLift | null = liftParam ?? existing?.mainLift ?? null;
   const finalWeek: WendlerWeek | null = week ?? existing?.week ?? null;
   const tm = useCurrentTrainingMax(lift ?? 'squat');
@@ -58,19 +66,26 @@ function SessionPage() {
   const loggedSets = useSetsForSession(activeSessionId ?? undefined);
   const movementHistory = useSetsForMovement(movement?.id ?? '');
 
+  const supplementalId: SupplementalTemplateId =
+    supplementalParam ?? existing?.supplementalTemplateId ?? activeBlock?.supplementalTemplate ?? 'none';
+
   // Auto-create session if we have lift+week but no session id
   useEffect(() => {
     if (activeSessionId || !lift || !finalWeek || !settings) return;
     const id = nanoid();
+    const dayIndex = schedule?.dayOrder.indexOf(lift) ?? 0;
     void getDb()
       .sessions.add({
         id,
         performedAt: new Date().toISOString(),
         mainLift: lift,
         week: finalWeek,
+        blockId: activeBlock?.id,
+        dayIndex,
+        supplementalTemplateId: supplementalId,
       })
       .then(() => setActiveSessionId(id));
-  }, [activeSessionId, lift, finalWeek, settings]);
+  }, [activeSessionId, lift, finalWeek, settings, activeBlock?.id, schedule, supplementalId]);
 
   const prescribed = useMemo<PrescribedSet[]>(() => {
     if (!settings || !tm || !finalWeek) return [];
@@ -84,8 +99,14 @@ function SessionPage() {
       percents: settings.warmupPercents,
       reps: settings.warmupReps,
     });
-    return [...warmups, ...main];
-  }, [settings, tm, finalWeek]);
+    const supplemental = buildSupplementalSets({
+      templateId: supplementalId,
+      trainingMaxKg: tm.trainingMaxKg,
+      week: finalWeek,
+      roundingKg: settings.roundingKg,
+    });
+    return [...warmups, ...main, ...supplemental];
+  }, [settings, tm, finalWeek, supplementalId]);
 
   if (!lift) {
     return (
@@ -111,6 +132,13 @@ function SessionPage() {
     );
   }
 
+  const supplementalName = SUPPLEMENTAL_TEMPLATES.find((s) => s.id === supplementalId)?.name;
+
+  // Group prescribed sets visually
+  const warmupSets = prescribed.filter((p) => p.kind === 'warmup');
+  const mainSets = prescribed.filter((p) => p.kind === 'main' || p.kind === 'amrap');
+  const suppSets = prescribed.filter((p) => p.kind === 'supplemental');
+
   return (
     <div className="space-y-4">
       <header>
@@ -121,15 +149,24 @@ function SessionPage() {
           </div>
         </div>
         <p className="text-sm text-muted">
-          TM <span className="font-mono text-fg">{fmtKg(tm.trainingMaxKg)}</span> ·{' '}
-          {fmtDate(existing?.performedAt ?? new Date().toISOString())}
+          TM <span className="font-mono text-fg">{fmtKg(tm.trainingMaxKg)}</span>
+          {activeBlock && (
+            <>
+              {' '}· {activeBlock.name}{' '}
+              <span className="rounded bg-card px-1.5 py-0.5 text-xs ring-1 ring-border">
+                {activeBlock.kind}
+              </span>
+            </>
+          )}{' '}
+          · {fmtDate(existing?.performedAt ?? new Date().toISOString())}
         </p>
       </header>
 
+      <SectionHeader title="Warm-up" count={warmupSets.length} />
       <ol className="space-y-2">
-        {prescribed.map((set, i) => (
+        {warmupSets.map((set, i) => (
           <SetRow
-            key={i}
+            key={`w${i}`}
             index={i}
             set={set}
             settings={settings!}
@@ -137,29 +174,94 @@ function SessionPage() {
             movementId={movement?.id ?? ''}
             tmAtTime={tm.trainingMaxKg}
             history={movementHistory ?? []}
-            existing={loggedSets?.find(
-              (s) => !s.deletedAt && Math.round(s.weightKg * 100) === Math.round(set.weightKg * 100) && s.kind === set.kind,
-            )}
+            existing={findExisting(loggedSets, set)}
           />
         ))}
       </ol>
 
-      {/* AMRAP analysis */}
+      <SectionHeader title="Working sets" count={mainSets.length} />
+      <ol className="space-y-2">
+        {mainSets.map((set, i) => (
+          <SetRow
+            key={`m${i}`}
+            index={i}
+            set={set}
+            settings={settings!}
+            sessionId={activeSessionId}
+            movementId={movement?.id ?? ''}
+            tmAtTime={tm.trainingMaxKg}
+            history={movementHistory ?? []}
+            existing={findExisting(loggedSets, set)}
+          />
+        ))}
+      </ol>
+
+      {suppSets.length > 0 && (
+        <>
+          <SectionHeader
+            title={`Supplemental — ${supplementalName ?? supplementalId}`}
+            count={suppSets.length}
+          />
+          <ol className="space-y-2">
+            {suppSets.map((set, i) => (
+              <SetRow
+                key={`s${i}`}
+                index={i}
+                set={set}
+                settings={settings!}
+                sessionId={activeSessionId}
+                movementId={movement?.id ?? ''}
+                tmAtTime={tm.trainingMaxKg}
+                history={movementHistory ?? []}
+                existing={findExisting(loggedSets, set)}
+              />
+            ))}
+          </ol>
+        </>
+      )}
+
       <AmrapAnalysis
+        lift={lift}
         prescribed={prescribed}
         logged={loggedSets ?? []}
         currentTmKg={tm.trainingMaxKg}
       />
 
-      {/* Other lifts on this page (assistance/supplemental) — defer to v0.2 */}
-
       <button
-        onClick={() => router.push('/')}
+        onClick={async () => {
+          if (activeSessionId) {
+            await getDb().sessions.update(activeSessionId, {
+              completedAt: new Date().toISOString(),
+            });
+          }
+          router.push('/');
+        }}
         className="mt-6 w-full rounded-lg bg-card py-3 ring-1 ring-border"
       >
         Done
       </button>
     </div>
+  );
+}
+
+function SectionHeader({ title, count }: { title: string; count: number }) {
+  if (count === 0) return null;
+  return (
+    <h2 className="mt-4 text-sm font-semibold uppercase tracking-wide text-muted">
+      {title}{' '}
+      <span className="ml-1 rounded bg-card px-1.5 py-0.5 text-xs text-fg ring-1 ring-border">
+        {count}
+      </span>
+    </h2>
+  );
+}
+
+function findExisting(loggedSets: SetRecord[] | undefined, set: PrescribedSet): SetRecord | undefined {
+  return loggedSets?.find(
+    (s) =>
+      !s.deletedAt &&
+      Math.round(s.weightKg * 100) === Math.round(set.weightKg * 100) &&
+      s.kind === set.kind,
   );
 }
 
@@ -225,13 +327,13 @@ function SetRow({
     setWeight(String(Math.max(0, w + delta)));
   };
 
-  // PR detection (preview before logging)
-  const previewPrs = isFinite(parseFloat(weight)) && isFinite(parseInt(reps, 10))
-    ? detectPrs(
-        { weightKg: parseFloat(weight), reps: parseInt(reps, 10) },
-        { sets: history.filter((s) => !s.deletedAt && s.id !== existing?.id) },
-      )
-    : [];
+  const previewPrs =
+    isFinite(parseFloat(weight)) && isFinite(parseInt(reps, 10))
+      ? detectPrs(
+          { weightKg: parseFloat(weight), reps: parseInt(reps, 10) },
+          { sets: history.filter((s) => !s.deletedAt && s.id !== existing?.id) },
+        )
+      : [];
 
   const newE1rm =
     set.isAmrap && isFinite(parseFloat(weight)) && isFinite(parseInt(reps, 10))
@@ -354,24 +456,46 @@ function SetRow({
 }
 
 function AmrapAnalysis({
+  lift,
   prescribed,
   logged,
   currentTmKg,
 }: {
+  lift: MainLift;
   prescribed: PrescribedSet[];
   logged: SetRecord[];
   currentTmKg: number;
 }) {
-  const amrapTarget = prescribed.find((s) => s.isAmrap);
+  const settings = useSettings();
+  const amrapTarget = prescribed.find((s) => s.isAmrap && s.kind !== 'supplemental');
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState(false);
+
   if (!amrapTarget) return null;
   const amrapLogged = logged
-    .filter((s) => !s.deletedAt && s.isAmrap)
+    .filter((s) => !s.deletedAt && s.isAmrap && s.kind !== 'supplemental')
     .sort((a, b) => (a.performedAt < b.performedAt ? 1 : -1))[0];
   if (!amrapLogged) return null;
 
   const e1rm = epley1RM(amrapLogged.weightKg, amrapLogged.reps);
   const newTm = suggestNewTrainingMax(amrapLogged.weightKg, amrapLogged.reps);
   const delta = newTm - currentTmKg;
+  const tmPercent = settings?.defaultTmPercent ?? 0.85;
+
+  const onApply = async () => {
+    setApplying(true);
+    await getDb().trainingMaxes.add({
+      id: nanoid(),
+      lift,
+      trainingMaxKg: newTm,
+      tmPercent,
+      createdAt: new Date().toISOString(),
+      source: 'amrap-suggestion',
+      note: `From AMRAP ${amrapLogged.weightKg}×${amrapLogged.reps}`,
+    });
+    setApplying(false);
+    setApplied(true);
+  };
 
   return (
     <section className="rounded-xl border border-accent/40 bg-accent/5 p-4">
@@ -391,9 +515,13 @@ function AmrapAnalysis({
           {delta.toFixed(1)} kg)
         </span>
       </p>
-      <p className="mt-2 text-xs text-muted">
-        TM updates land in v0.2 (block-aware). For now this is informational only.
-      </p>
+      <button
+        onClick={onApply}
+        disabled={applying || applied}
+        className="mt-3 w-full rounded-lg bg-accent py-2 font-semibold text-bg disabled:opacity-50"
+      >
+        {applied ? 'New TM applied ✓' : `Apply new TM (${newTm.toFixed(1)} kg)`}
+      </button>
     </section>
   );
 }

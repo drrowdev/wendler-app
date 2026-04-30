@@ -4,6 +4,9 @@ import type {
   Movement,
   MovementPattern,
   MuscleGroup,
+  ProgramBlock,
+  ProgramSchedule,
+  SupplementalTemplateId,
 } from '@wendler/domain';
 
 export type {
@@ -12,6 +15,9 @@ export type {
   Movement,
   MovementPattern,
   MuscleGroup,
+  ProgramBlock,
+  ProgramSchedule,
+  SupplementalTemplateId,
 };
 
 /**
@@ -78,6 +84,12 @@ export interface SessionRecord {
   mainLift?: MainLift;
   /** 5/3/1 week if applicable. */
   week?: 1 | 2 | 3 | 'deload';
+  /** Block this session belongs to (v0.2+). */
+  blockId?: string;
+  /** Day index within the rotation when this session was logged (0..3 typically). */
+  dayIndex?: number;
+  /** Supplemental template active for this session. */
+  supplementalTemplateId?: SupplementalTemplateId;
   notes?: string;
   completedAt?: string;
 }

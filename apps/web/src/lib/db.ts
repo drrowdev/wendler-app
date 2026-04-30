@@ -5,11 +5,14 @@ import {
   SCHEMA_VERSION,
   SEED_MOVEMENTS,
   type Movement,
+  type ProgramBlock,
+  type ProgramSchedule,
   type SessionRecord,
   type SetRecord,
   type TrainingMaxRecord,
   type UserSettings,
 } from '@wendler/db-schema';
+import { DEFAULT_DAY_ORDER } from '@wendler/domain';
 
 class WendlerDb extends Dexie {
   movements!: Table<Movement, string>;
@@ -17,15 +20,28 @@ class WendlerDb extends Dexie {
   settings!: Table<UserSettings, 'singleton'>;
   sets!: Table<SetRecord, string>;
   sessions!: Table<SessionRecord, string>;
+  blocks!: Table<ProgramBlock, string>;
+  schedule!: Table<ProgramSchedule, 'singleton'>;
 
   constructor() {
     super('wendler-app');
-    this.version(SCHEMA_VERSION).stores({
+    // v1 schema (v0.1.0)
+    this.version(1).stores({
       movements: 'id, name, equipment, pattern, isMainLift, isCustom',
       trainingMaxes: 'id, lift, createdAt',
       settings: 'id',
       sets: 'id, movementId, sessionId, performedAt, kind',
       sessions: 'id, performedAt, mainLift, week',
+    });
+    // v2 schema (v0.2.0): add blocks, schedule; index blockId on sessions.
+    this.version(SCHEMA_VERSION).stores({
+      movements: 'id, name, equipment, pattern, isMainLift, isCustom',
+      trainingMaxes: 'id, lift, createdAt',
+      settings: 'id',
+      sets: 'id, movementId, sessionId, performedAt, kind',
+      sessions: 'id, performedAt, mainLift, week, blockId',
+      blocks: 'id, kind, startedAt, completedAt, createdAt',
+      schedule: 'id',
     });
   }
 }
@@ -59,6 +75,14 @@ async function seedIfEmpty(db: WendlerDb) {
       warmupReps: [5, 5, 3],
       defaultTmPercent: 0.85,
       units: 'kg',
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  const schedule = await db.schedule.get('singleton');
+  if (!schedule) {
+    await db.schedule.put({
+      id: 'singleton',
+      dayOrder: [...DEFAULT_DAY_ORDER],
       updatedAt: new Date().toISOString(),
     });
   }
