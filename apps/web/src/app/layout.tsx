@@ -27,7 +27,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="flex min-h-dvh flex-col">
-        <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-24 pt-4 md:pt-20">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-accent focus:px-3 focus:py-2 focus:text-bg"
+        >
+          Skip to content
+        </a>
+        <main id="main" className="mx-auto w-full max-w-3xl flex-1 px-4 pb-24 pt-4 md:pt-20">
           {children}
         </main>
         <Nav />

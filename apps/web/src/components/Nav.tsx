@@ -16,7 +16,10 @@ const TABS = [
 export function Nav() {
   const path = usePathname();
   return (
-    <nav className="sticky bottom-0 z-30 border-t border-border bg-card/90 backdrop-blur md:top-0 md:bottom-auto md:border-b md:border-t-0">
+    <nav
+      aria-label="Primary"
+      className="sticky bottom-0 z-30 border-t border-border bg-card/90 backdrop-blur md:top-0 md:bottom-auto md:border-b md:border-t-0"
+    >
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-2 px-2 py-2 md:px-6 md:py-3">
         <Link href="/" className="hidden text-lg font-semibold tracking-tight md:block">
           5 / 3 / 1
@@ -28,6 +31,7 @@ export function Nav() {
               <Link
                 key={t.href}
                 href={t.href}
+                aria-current={active ? 'page' : undefined}
                 className={`rounded-lg px-3 py-2 text-sm transition ${
                   active ? 'bg-accent text-bg font-semibold' : 'text-muted hover:text-fg'
                 }`}

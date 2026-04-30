@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { MAIN_LIFTS, fmtDate, fmtKg, liftLabel } from '@/lib/format';
 import { useAllTrainingMaxes, useSessionsRecent } from '@/lib/hooks';
+import { TaperBanner } from '@/components/TaperBanner';
 
 export default function Home() {
   const tms = useAllTrainingMaxes();
@@ -23,6 +24,8 @@ export default function Home() {
           {hasTms ? 'Edit TMs' : 'Set up TMs'}
         </Link>
       </header>
+
+      <TaperBanner />
 
       {!hasTms ? (
         <div className="rounded-2xl border border-border bg-card p-6 text-center">

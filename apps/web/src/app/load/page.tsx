@@ -10,6 +10,7 @@ import {
 } from '@wendler/domain';
 import { useAllCardio, useAllRecovery, useAllSets, useAllSessions } from '@/lib/hooks';
 import { BarChart } from '@/components/charts/BarChart';
+import { TaperBanner } from '@/components/TaperBanner';
 
 function fmtDate(id: string) {
   const [y, m, d] = id.split('-');
@@ -57,6 +58,8 @@ export default function LoadPage() {
           Weekly stress score combining strength tonnage, cardio time, RPE, fatigue and sleep.
         </p>
       </header>
+
+      <TaperBanner expanded />
 
       <section
         className={`rounded-lg border p-4 ${RECO_STYLES[reco.recommendation]?.tone ?? ''}`}

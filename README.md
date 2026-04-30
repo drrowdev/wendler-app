@@ -38,5 +38,21 @@ Node 20.18+ and pnpm 10+ required.
 
 ## Versioning
 
-SemVer with Conventional Commits. See `plan.md` (in the session workspace) for the
-versioned milestone breakdown.
+SemVer with Conventional Commits.
+
+| Version | Theme |
+|---|---|
+| v0.1.0 | Core 5/3/1 engine (waves, TM, plate math) |
+| v0.2.0 | Blocks + supplemental templates (FSL, BBB, PB) |
+| v0.3.0 | In-gym UX (timer, AMRAP capture, joker sets) |
+| v0.4.0 | Calendar, analytics, body heatmap |
+| v0.5.0 | MSA auth + Cosmos DB cloud sync |
+| v0.6.0 | Goals, cardio, recovery, weekly load + deload coach |
+| **v1.0.0** | **GA — race-taper detection, a11y pass, methodology docs** |
+| v1.1.0+ | Integrations (Garmin, GPX/FIT, Apple Health) |
+
+## Documentation
+
+- [`docs/methodology.md`](docs/methodology.md) — feature ↔ 5/3/1 chapter mapping
+- [`docs/architecture.md`](docs/architecture.md) — stack, sync model, build/deploy
+
