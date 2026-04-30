@@ -1,0 +1,21 @@
+{
+  "name": "@wendler/api",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/src/functions/*.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "start": "func start",
+    "test": "echo \"(no tests yet)\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"(no lint yet)\""
+  },
+  "dependencies": {
+    "@azure/functions": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://aka.ms/azure/static-web-apps-cli/schema",
+  "configurations": {
+    "wendler": {
+      "appLocation": "apps/web",
+      "apiLocation": "apps/api",
+      "outputLocation": ".next",
+      "appBuildCommand": "pnpm --filter @wendler/web build",
+      "apiBuildCommand": "pnpm --filter @wendler/api build"
+    }
+  }
+}
