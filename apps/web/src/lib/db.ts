@@ -75,6 +75,16 @@ async function seedIfEmpty(db: WendlerDb) {
       warmupReps: [5, 5, 3],
       defaultTmPercent: 0.85,
       units: 'kg',
+      restSecondsByKind: {
+        warmup: 60,
+        main: 180,
+        amrap: 240,
+        supplemental: 90,
+        assistance: 60,
+        joker: 240,
+      },
+      autoStartRestTimer: true,
+      jokerRpeThreshold: 8,
       updatedAt: new Date().toISOString(),
     });
   }

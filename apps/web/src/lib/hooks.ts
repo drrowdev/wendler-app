@@ -95,3 +95,22 @@ export function useActiveBlock() {
     return await getDb().blocks.get(sched.activeBlockId);
   });
 }
+
+/**
+ * Returns the most recent unresolved pain flag for a movement (within the last 90 days).
+ * Used to show a caution badge on the movement going forward.
+ */
+export function useRecentPainFlag(movementId: string | undefined) {
+  return useLiveQuery(async () => {
+    if (!movementId) return undefined;
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const flagged = await getDb()
+      .sets.where('movementId')
+      .equals(movementId)
+      .filter((s) => !!s.painFlag && !s.deletedAt && s.performedAt >= since)
+      .toArray();
+    if (flagged.length === 0) return undefined;
+    flagged.sort((a, b) => (a.performedAt < b.performedAt ? 1 : -1));
+    return flagged[0]!.painFlag;
+  }, [movementId]);
+}

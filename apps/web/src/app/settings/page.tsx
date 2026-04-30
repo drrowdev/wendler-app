@@ -3,6 +3,16 @@
 import { useState } from 'react';
 import { useSettings } from '@/lib/hooks';
 import { getDb } from '@/lib/db';
+import { ensureNotificationPermission } from '@/components/RestTimer';
+
+const REST_KINDS: { id: 'warmup' | 'main' | 'amrap' | 'supplemental' | 'assistance' | 'joker'; label: string; default: number }[] = [
+  { id: 'warmup', label: 'Warm-up', default: 60 },
+  { id: 'main', label: 'Working sets', default: 180 },
+  { id: 'amrap', label: 'AMRAP', default: 240 },
+  { id: 'supplemental', label: 'Supplemental', default: 90 },
+  { id: 'assistance', label: 'Assistance', default: 60 },
+  { id: 'joker', label: 'Joker', default: 240 },
+];
 
 export default function SettingsPage() {
   const settings = useSettings();
@@ -13,6 +23,10 @@ export default function SettingsPage() {
   const [warmupP, setWarmupP] = useState('40,60,80');
   const [warmupR, setWarmupR] = useState('5,5,3');
   const [plates, setPlates] = useState('25:2, 20:2, 15:1, 10:2, 5:2, 2.5:2, 1.25:2');
+  const [autoStartRest, setAutoStartRest] = useState(true);
+  const [restByKind, setRestByKind] = useState<Record<string, string>>({});
+  const [jokerThresh, setJokerThresh] = useState('8');
+  const [notifStatus, setNotifStatus] = useState<string | null>(null);
 
   if (!settings) return <p className="text-muted">Loading…</p>;
 
@@ -28,6 +42,13 @@ export default function SettingsPage() {
         .map(([w, c]) => `${w}:${c}`)
         .join(', '),
     );
+    const rest: Record<string, string> = {};
+    for (const k of REST_KINDS) {
+      rest[k.id] = String(settings.restSecondsByKind?.[k.id] ?? k.default);
+    }
+    setRestByKind(rest);
+    setAutoStartRest(settings.autoStartRestTimer ?? true);
+    setJokerThresh(String(settings.jokerRpeThreshold ?? 8));
     setEditing(true);
   };
 
@@ -39,6 +60,11 @@ export default function SettingsPage() {
       const cn = Number(c);
       if (isFinite(wn) && wn > 0 && isFinite(cn) && cn > 0) pairs[wn] = cn;
     }
+    const rest: Record<string, number> = {};
+    for (const k of REST_KINDS) {
+      const n = Number(restByKind[k.id]);
+      rest[k.id] = isFinite(n) && n > 0 ? n : k.default;
+    }
     await getDb().settings.put({
       id: 'singleton',
       barWeightKg: Number(bar),
@@ -48,9 +74,17 @@ export default function SettingsPage() {
       warmupReps: warmupR.split(',').map((s) => Number(s.trim())),
       pairsByWeight: pairs,
       units: 'kg',
+      restSecondsByKind: rest as never,
+      autoStartRestTimer: autoStartRest,
+      jokerRpeThreshold: Number(jokerThresh),
       updatedAt: new Date().toISOString(),
     });
     setEditing(false);
+  };
+
+  const onEnableNotifs = async () => {
+    const ok = await ensureNotificationPermission();
+    setNotifStatus(ok ? 'Enabled ✓' : 'Permission denied or unsupported');
   };
 
   return (
@@ -75,6 +109,30 @@ export default function SettingsPage() {
               {settings.warmupPercents.map((p) => `${Math.round(p * 100)}%`).join(' / ')}
             </Row>
             <Row label="Warm-up reps">{settings.warmupReps.join(' / ')}</Row>
+          </Section>
+          <Section title="Rest timer">
+            <Row label="Auto-start after each set">
+              {settings.autoStartRestTimer ?? true ? 'On' : 'Off'}
+            </Row>
+            {REST_KINDS.map((k) => (
+              <Row key={k.id} label={k.label}>
+                {settings.restSecondsByKind?.[k.id] ?? k.default} s
+              </Row>
+            ))}
+          </Section>
+          <Section title="Joker sets">
+            <Row label="Auto-prompt when AMRAP RPE ≤">
+              {settings.jokerRpeThreshold ?? 8}
+            </Row>
+          </Section>
+          <Section title="Notifications">
+            <button
+              onClick={onEnableNotifs}
+              className="rounded-lg bg-card px-3 py-2 text-sm ring-1 ring-border"
+            >
+              Enable rest notifications
+            </button>
+            {notifStatus && <p className="mt-2 text-xs text-muted">{notifStatus}</p>}
           </Section>
           <button
             onClick={startEdit}
@@ -105,6 +163,34 @@ export default function SettingsPage() {
               label="Warm-up reps (comma-separated)"
               value={warmupR}
               onChange={setWarmupR}
+            />
+          </div>
+          <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted">
+              Rest timer
+            </h3>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={autoStartRest}
+                onChange={(e) => setAutoStartRest(e.target.checked)}
+              />
+              Auto-start timer after each logged set
+            </label>
+            {REST_KINDS.map((k) => (
+              <Field
+                key={k.id}
+                label={`${k.label} (seconds)`}
+                value={restByKind[k.id] ?? String(k.default)}
+                onChange={(v) => setRestByKind({ ...restByKind, [k.id]: v })}
+              />
+            ))}
+          </div>
+          <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+            <Field
+              label="Joker auto-prompt RPE threshold (≤)"
+              value={jokerThresh}
+              onChange={setJokerThresh}
             />
           </div>
           <div className="flex gap-2">

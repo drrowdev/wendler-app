@@ -46,6 +46,14 @@ export interface UserSettings {
   warmupReps: number[];
   defaultTmPercent: number;
   units: 'kg';
+  /** Rest timer defaults in seconds, per set kind. */
+  restSecondsByKind?: Partial<
+    Record<'warmup' | 'main' | 'amrap' | 'supplemental' | 'assistance' | 'joker', number>
+  >;
+  /** Auto-start rest timer when a set is logged. */
+  autoStartRestTimer?: boolean;
+  /** Joker set prompt threshold: prompt when AMRAP RPE <= this value. */
+  jokerRpeThreshold?: number;
   updatedAt: string;
 }
 
@@ -61,6 +69,7 @@ export interface SetRecord {
   performedAt: string;
   weightKg: number;
   reps: number;
+  /** Rated Perceived Exertion 1-10 (Wendler / Tuchscherer scale). */
   rpe?: number;
   /** "warmup" | "main" | "amrap" | "supplemental" | "assistance" | "joker" */
   kind: 'warmup' | 'main' | 'amrap' | 'supplemental' | 'assistance' | 'joker';
@@ -70,6 +79,16 @@ export interface SetRecord {
   trainingMaxKgAtTime?: number;
   /** Free-text note attached to this specific set. */
   note?: string;
+  /** Was this set skipped vs. completed. */
+  skipped?: boolean;
+  /** Why a set was skipped or modified. */
+  skipReason?: 'pain' | 'fatigue' | 'time' | 'equipment' | 'other';
+  /** Pain/injury flag tagged to this set. Carries forward as a caution indicator. */
+  painFlag?: {
+    area: string;
+    severity: 1 | 2 | 3 | 4 | 5;
+    note?: string;
+  };
   /** True if this row supersedes another set (amendment). */
   amendsSetId?: string;
   /** Soft-delete marker. */
