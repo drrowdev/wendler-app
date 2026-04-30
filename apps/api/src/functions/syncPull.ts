@@ -43,7 +43,7 @@ export async function syncPull(
       .query<SyncDoc>(
         {
           query:
-            'SELECT TOP @max c.id, c.userId, c.kind, c.recordId, c.updatedAt, c.serverTime, c.payload, c.deviceId, c.schemaVersion FROM c WHERE c.userId = @uid AND c.serverTime > @since ORDER BY c.serverTime ASC',
+            "SELECT TOP @max c.id, c.userId, c.kind, c.recordId, c.updatedAt, c.serverTime, c.payload, c.deviceId, c.schemaVersion FROM c WHERE c.userId = @uid AND c.serverTime > @since AND c.kind != 'stravaAuth' ORDER BY c.serverTime ASC",
           parameters: [
             { name: '@uid', value: userId },
             { name: '@since', value: since },

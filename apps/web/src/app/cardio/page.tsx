@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useCardioRecent } from '@/lib/hooks';
 import { getDb } from '@/lib/db';
 import type { CardioSession } from '@wendler/db-schema';
+import { formatDistance, formatPaceTime, pacePRs, RACE_DISTANCES_M } from '@wendler/domain';
 
 const MODALITIES: { id: CardioSession['modality']; label: string; emoji: string }[] = [
   { id: 'run', label: 'Run', emoji: '🏃' },
@@ -83,6 +84,12 @@ export default function CardioPage() {
   const list = recent ?? [];
   const totalMin = list.reduce((acc, c) => acc + c.durationSec, 0) / 60;
   const totalKm = list.reduce((acc, c) => acc + (c.distanceKm ?? 0), 0);
+  const prs = pacePRs(list.map((c) => ({
+    id: c.id,
+    performedAt: c.performedAt,
+    modality: c.modality,
+    bestEffortsSec: c.bestEffortsSec,
+  })));
 
   return (
     <div className="space-y-6">
@@ -191,10 +198,11 @@ export default function CardioPage() {
 
       <section className="space-y-2">
         {list.length === 0 && (
-          <p className="text-sm text-muted">No cardio logged yet. Tap + to add some.</p>
+          <p className="text-sm text-muted">No cardio logged yet. Tap + to add some, or connect Strava in Settings.</p>
         )}
         {list.map((c) => {
           const m = MODALITIES.find((x) => x.id === c.modality);
+          const totalZoneSec = (c.hrZoneSeconds ?? []).reduce((a, b) => a + b, 0);
           return (
             <div
               key={c.id}
@@ -204,6 +212,11 @@ export default function CardioPage() {
                 <div className="flex items-center gap-2 font-medium">
                   <span className="text-xl">{m?.emoji}</span>
                   {m?.label}
+                  {c.source === 'strava' && (
+                    <span className="rounded bg-[#fc4c02]/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#fc4c02]">
+                      STRAVA
+                    </span>
+                  )}
                   <span className="text-sm font-normal text-muted">
                     · {formatDate(c.performedAt)}
                   </span>
@@ -212,14 +225,35 @@ export default function CardioPage() {
                   {formatDuration(c.durationSec)}
                   {c.distanceKm !== undefined && ` · ${c.distanceKm.toFixed(2)} km`}
                   {c.avgHrBpm !== undefined && ` · ${c.avgHrBpm} bpm`}
+                  {c.elevGainM !== undefined && c.elevGainM > 0 && ` · ↑ ${Math.round(c.elevGainM)} m`}
                   {c.rpe !== undefined && ` · RPE ${c.rpe}`}
+                  {c.sufferScore !== undefined && ` · suffer ${Math.round(c.sufferScore)}`}
                 </div>
+                {c.hrZoneSeconds && totalZoneSec > 0 && (
+                  <div className="mt-1 flex gap-0.5 overflow-hidden rounded text-[10px]" title="Time in HR zones">
+                    {c.hrZoneSeconds.map((sec, i) => {
+                      const pct = (sec / totalZoneSec) * 100;
+                      const colors = ['#475569', '#0ea5e9', '#22c55e', '#f59e0b', '#ef4444'];
+                      if (pct < 1) return null;
+                      return (
+                        <div
+                          key={i}
+                          style={{ width: `${pct}%`, backgroundColor: colors[i] }}
+                          className="py-1 text-center text-white"
+                        >
+                          Z{i + 1}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 {c.notes && <div className="mt-1 text-sm">{c.notes}</div>}
               </div>
               <button
                 type="button"
                 onClick={() => remove(c)}
                 className="rounded-md border border-border px-2 py-1 text-xs text-muted hover:text-fg"
+                aria-label="Delete cardio entry"
               >
                 ✕
               </button>
@@ -227,6 +261,27 @@ export default function CardioPage() {
           );
         })}
       </section>
+
+      {prs.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
+            Pace PRs
+          </h2>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {RACE_DISTANCES_M.map((d) => {
+              const pr = prs.find((p) => p.distanceM === d);
+              if (!pr) return null;
+              return (
+                <div key={d} className="rounded-lg border border-border bg-card p-3 text-center">
+                  <div className="text-xs text-muted">{formatDistance(d)}</div>
+                  <div className="text-lg font-semibold">{formatPaceTime(pr.timeSec)}</div>
+                  <div className="text-[10px] text-muted">{formatDate(pr.performedAt)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

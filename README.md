@@ -48,11 +48,13 @@ SemVer with Conventional Commits.
 | v0.4.0 | Calendar, analytics, body heatmap |
 | v0.5.0 | MSA auth + Cosmos DB cloud sync |
 | v0.6.0 | Goals, cardio, recovery, weekly load + deload coach |
-| **v1.0.0** | **GA — race-taper detection, a11y pass, methodology docs** |
-| v1.1.0+ | Integrations (Garmin, GPX/FIT, Apple Health) |
+| v1.0.0 | GA — race-taper detection, a11y pass, methodology docs |
+| **v1.1.0** | **Strava integration — HR-zone stress, pace PRs** |
+| v1.1.0+ | Future: GPX/FIT upload, Apple Health bridge |
 
 ## Documentation
 
 - [`docs/methodology.md`](docs/methodology.md) — feature ↔ 5/3/1 chapter mapping
 - [`docs/architecture.md`](docs/architecture.md) — stack, sync model, build/deploy
+- [`docs/strava-setup.md`](docs/strava-setup.md) — registering a Strava app + connecting
 

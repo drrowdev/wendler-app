@@ -75,7 +75,7 @@ class WendlerDb extends Dexie {
       syncMeta: 'id',
     });
     // v4 schema (v0.6.0): goals, cardio sessions, daily recovery, push subscription.
-    this.version(SCHEMA_VERSION).stores({
+    this.version(4).stores({
       movements: 'id, name, equipment, pattern, isMainLift, isCustom',
       trainingMaxes: 'id, lift, createdAt',
       settings: 'id',
@@ -86,6 +86,21 @@ class WendlerDb extends Dexie {
       syncMeta: 'id',
       goals: 'id, kind, deadline, createdAt, completedAt',
       cardio: 'id, performedAt, modality',
+      recovery: 'id',
+      pushSub: 'id',
+    });
+    // v5 schema (v1.1.0): index Strava externalId on cardio for de-dup.
+    this.version(SCHEMA_VERSION).stores({
+      movements: 'id, name, equipment, pattern, isMainLift, isCustom',
+      trainingMaxes: 'id, lift, createdAt',
+      settings: 'id',
+      sets: 'id, movementId, sessionId, performedAt, kind',
+      sessions: 'id, performedAt, mainLift, week, blockId',
+      blocks: 'id, kind, startedAt, completedAt, createdAt',
+      schedule: 'id',
+      syncMeta: 'id',
+      goals: 'id, kind, deadline, createdAt, completedAt',
+      cardio: 'id, performedAt, modality, externalId',
       recovery: 'id',
       pushSub: 'id',
     });

@@ -58,7 +58,8 @@ export interface SyncDoc {
     | 'schedule'
     | 'goal'
     | 'cardio'
-    | 'recovery';
+    | 'recovery'
+    | 'stravaAuth';
   recordId: string;      // domain entity id ("singleton" for settings/schedule)
   updatedAt: string;     // ISO timestamp set by client
   serverTime: string;    // ISO timestamp set by server on insert

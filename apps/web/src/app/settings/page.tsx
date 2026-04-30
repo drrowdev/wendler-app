@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useSettings } from '@/lib/hooks';
 import { getDb } from '@/lib/db';
 import { ensureNotificationPermission } from '@/components/RestTimer';
+import { StravaPanel } from '@/components/StravaPanel';
 
 const REST_KINDS: { id: 'warmup' | 'main' | 'amrap' | 'supplemental' | 'assistance' | 'joker'; label: string; default: number }[] = [
   { id: 'warmup', label: 'Warm-up', default: 60 },
@@ -133,6 +134,9 @@ export default function SettingsPage() {
               Enable rest notifications
             </button>
             {notifStatus && <p className="mt-2 text-xs text-muted">{notifStatus}</p>}
+          </Section>
+          <Section title="Strava">
+            <StravaPanel />
           </Section>
           <button
             onClick={startEdit}

@@ -114,7 +114,8 @@ export interface SessionRecord {
 }
 
 /**
- * Cross-domain training: cardio / running / cycling / etc. Manually logged.
+ * Cross-domain training: cardio / running / cycling / etc. Manually logged
+ * or auto-imported from Strava.
  */
 export interface CardioSession {
   id: string;
@@ -123,10 +124,33 @@ export interface CardioSession {
   durationSec: number;
   distanceKm?: number;
   avgHrBpm?: number;
+  maxHrBpm?: number;
+  /** Total elevation gain in metres. */
+  elevGainM?: number;
   /** RPE 1-10, subjective */
   rpe?: number;
+  /** Strava's "perceived_exertion" (1-10) when set on the activity. */
+  perceivedExertion?: number;
+  /** Strava's HR-derived "suffer score" / relative effort. */
+  sufferScore?: number;
+  /**
+   * Seconds spent in each Strava HR zone, indexed Z1..Z5 (length 5).
+   * Computed from the heart-rate stream + athlete zone definitions.
+   */
+  hrZoneSeconds?: number[];
+  /**
+   * Best efforts for runs: distance (m) → time (s).
+   * Common keys: 1000, 1609 (mile), 5000, 10000, 21097 (HM), 42195 (M).
+   */
+  bestEffortsSec?: Record<number, number>;
+  /** Encoded polyline for the route (low-res from summary, hi-res from detailed). */
+  polyline?: string;
+  /** Original sport code from the source (e.g. 'TrailRun', 'VirtualRide'). */
+  sport?: string;
   notes?: string;
-  source?: 'manual' | 'garmin' | 'runna' | 'gpx';
+  source?: 'manual' | 'strava' | 'gpx';
+  /** External provider id, e.g. Strava activity id, used for de-dup. */
+  externalId?: string;
   updatedAt: string;
 }
 

@@ -19,6 +19,13 @@ export interface LoadCardio {
   performedAt: string;
   durationSec: number;
   rpe?: number;
+  /**
+   * Optional Strava-style HR zone seconds, indexed Z1..Z5 (length 5).
+   * When present, used in place of duration to weight stress contribution.
+   */
+  hrZoneSeconds?: number[];
+  /** Optional Strava suffer / relative effort score. */
+  sufferScore?: number;
 }
 
 export interface LoadRecovery {
@@ -87,6 +94,23 @@ export function weeklyLoad(
   const strengthTonnageKg = wkSets.reduce((acc, s) => acc + s.weightKg * s.reps, 0);
   const cardioMinutes = wkCardio.reduce((acc, c) => acc + c.durationSec, 0) / 60;
 
+  /**
+   * HR-zone-weighted cardio minutes (used when streams available):
+   *   Z1 × 0.5, Z2 × 1.0, Z3 × 1.5, Z4 × 2.0, Z5 × 3.0 (per minute)
+   * Falls back to plain duration when no zones reported.
+   */
+  const ZONE_WEIGHTS = [0.5, 1.0, 1.5, 2.0, 3.0];
+  const weightedCardioMinutes = wkCardio.reduce((acc, c) => {
+    if (c.hrZoneSeconds && c.hrZoneSeconds.length >= 5) {
+      let m = 0;
+      for (let i = 0; i < 5; i += 1) {
+        m += ((c.hrZoneSeconds[i] ?? 0) / 60) * (ZONE_WEIGHTS[i] ?? 1);
+      }
+      return acc + m;
+    }
+    return acc + c.durationSec / 60;
+  }, 0);
+
   const days = new Set<string>();
   for (const s of wkSets) days.add(s.performedAt.slice(0, 10));
   for (const c of wkCardio) days.add(c.performedAt.slice(0, 10));
@@ -103,7 +127,8 @@ export function weeklyLoad(
 
   let score = 0;
   score += Math.min(50, strengthTonnageKg / 200);
-  score += Math.min(20, cardioMinutes / 15);
+  // HR-zone weighting can push cardio cap to 30 (vs 20 when only duration known).
+  score += Math.min(30, weightedCardioMinutes / 15);
   if (avgRpe !== undefined) score += Math.max(0, (avgRpe - 6) * 5);
   if (avgFatigue !== undefined) score += Math.max(0, (avgFatigue - 5) * 2);
   if (avgSleep !== undefined) score -= Math.max(0, (avgSleep - 7) * 2);
