@@ -389,18 +389,36 @@ export function SuggestAssistanceForBlock({
         crossWeekUsedMovementIds,
       );
       if (!response.ok) {
-        // One corrective retry: tell Claude what went wrong.
-        const corrective =
-          'Your previous response failed validation with these errors: ' +
-          response.errors.join('; ') +
-          '. Return ONLY valid JSON matching the schema. No prose. No code fences.';
+        // Corrective retry. If the only failures are cross-week-dedup
+        // violations, drop that constraint on the retry — repeating a
+        // specific movementId across weeks is preferable to falling
+        // through to the deterministic suggester, which doesn't know
+        // about marathon-prep / current goal flavors / cross-week
+        // context at all. We still give the model targeted guidance so
+        // the retry has the best chance of actually varying.
+        const isOnlyCrossWeekDup = response.errors.every((err) =>
+          err.includes('already used in another week of this block'),
+        );
+        const retryCrossWeekIds = isOnlyCrossWeekDup ? undefined : crossWeekUsedMovementIds;
+        const correctiveLines: string[] = [
+          'Your previous response failed validation with these errors:',
+          ...response.errors.map((e) => `  - ${e}`),
+        ];
+        if (isOnlyCrossWeekDup) {
+          correctiveLines.push(
+            '',
+            'These are cross-week dedup violations. **This retry RELAXES the cross-week dedup rule** — if you cannot pick a different specific movementId from the same family AND cannot safely propose a `newMovement`, you may now re-use the prior week\'s movementId. Strongly prefer variation if it\'s safely possible (system rule 5 + rule 10), but variety is preferred over fallback. State in the rationale which case applies.',
+          );
+        }
+        correctiveLines.push('', 'Return ONLY valid JSON matching the schema. No prose. No code fences.');
+        const corrective = correctiveLines.join('\n');
         try {
           response = await callAi(
             builtPrompt.systemPrompt,
             builtPrompt.userPrompt,
             movementIds,
             availableEquipment,
-            crossWeekUsedMovementIds,
+            retryCrossWeekIds,
             corrective,
           );
         } catch (err) {
