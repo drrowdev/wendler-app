@@ -24,6 +24,12 @@ interface RequestBody {
    * Omit to skip equipment validation entirely.
    */
   availableEquipment?: string[];
+  /**
+   * MovementIds already used in OTHER weeks of the same block. The parser
+   * treats a re-used id as a validation error so the corrective-retry path
+   * can ask the model to vary. Optional — omit on first-week generation.
+   */
+  crossWeekUsedMovementIds?: string[];
 }
 
 /**
@@ -70,7 +76,7 @@ export async function suggestAssistance(
     };
   }
 
-  const { systemPrompt, userPrompt, movementIds, maxDayIndex, availableEquipment } =
+  const { systemPrompt, userPrompt, movementIds, maxDayIndex, availableEquipment, crossWeekUsedMovementIds } =
     body ?? ({} as RequestBody);
   if (typeof systemPrompt !== 'string' || systemPrompt.length < 50) {
     return { status: 400, jsonBody: { error: 'bad-request', detail: 'systemPrompt missing or too short' } };
@@ -155,6 +161,10 @@ export async function suggestAssistance(
     availableEquipment:
       Array.isArray(availableEquipment) && availableEquipment.length > 0
         ? new Set(availableEquipment)
+        : undefined,
+    crossWeekUsedMovementIds:
+      Array.isArray(crossWeekUsedMovementIds) && crossWeekUsedMovementIds.length > 0
+        ? new Set(crossWeekUsedMovementIds)
         : undefined,
   });
 

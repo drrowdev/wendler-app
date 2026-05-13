@@ -158,6 +158,16 @@ export interface ParseAssistanceResponseOptions {
    * which is fine for server-side use where the catalog isn't shipped.
    */
   existingNamesLowercase?: ReadonlyMap<string, string>;
+  /**
+   * Set of movementIds already used in OTHER weeks of the same block.
+   * When provided, validateEntry treats a re-used id as an error so the
+   * corrective-retry path can prompt the model to vary its picks
+   * (matching system rule 5 "prefer fresh movements across weeks").
+   *
+   * Family-dedup INSIDE the week being generated is handled separately
+   * (no two day-mates may share a movementId, regardless of this set).
+   */
+  crossWeekUsedMovementIds?: ReadonlySet<string>;
 }
 
 /**
@@ -291,6 +301,11 @@ function validateEntry(
     ) {
       errors.push(
         `${where}.movementId=${JSON.stringify(e.movementId)} is not in the supplied movement library.`,
+      );
+      bad = true;
+    } else if (options.crossWeekUsedMovementIds?.has(e.movementId)) {
+      errors.push(
+        `${where}.movementId=${JSON.stringify(e.movementId)} is already used in another week of this block. Pick a different specific movementId from the same family, or propose a newMovement (system rule 5 + rule 10).`,
       );
       bad = true;
     } else {

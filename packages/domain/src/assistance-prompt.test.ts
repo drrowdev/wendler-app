@@ -291,7 +291,7 @@ describe('buildAssistancePrompt', () => {
     it('emits the section with each scope and asks for fresh selections this week', () => {
       const { userPrompt } = buildAssistancePrompt({ ...baseInput, otherWeeksContext });
       expect(userPrompt).toContain('## Cross-week context (other weeks in this same block)');
-      expect(userPrompt).toMatch(/Prefer fresh selections this week/i);
+      expect(userPrompt).toMatch(/MUST NOT re-use these specific movementIds/i);
       expect(userPrompt).toContain('### Default plan');
       expect(userPrompt).toContain('### Week 1');
       expect(userPrompt).toContain('Dumbbell Curl (curl)');
@@ -305,15 +305,16 @@ describe('buildAssistancePrompt', () => {
 
     it('asks the model to rotate within the same family across weeks, not mirror', () => {
       const { userPrompt } = buildAssistancePrompt({ ...baseInput, otherWeeksContext });
-      // No longer says "prefer to reuse the same movements" or treats mirroring as equally fine.
+      // Old neutral framing is gone.
       expect(userPrompt).not.toMatch(/prefer to reuse the same movements/i);
       expect(userPrompt).not.toMatch(/canonical Wendler pattern is identical/i);
       expect(userPrompt).not.toMatch(/MAY mirror these picks/i);
-      // Asks for a different specific movement per week from the same family.
-      expect(userPrompt).toMatch(/different specific movement than the other weeks/i);
-      expect(userPrompt).toMatch(/within the same movement family/i);
-      // Allows repetition only when no equally-good same-family alternative exists.
-      expect(userPrompt).toMatch(/only when.*no equally-good same-family alternative/i);
+      expect(userPrompt).not.toMatch(/for context only/i);
+      // New explicit "do not re-use" rule, with the same-family rotation
+      // example, and the only-when-no-alternative escape hatch.
+      expect(userPrompt).toMatch(/MUST NOT re-use these specific movementIds/i);
+      expect(userPrompt).toMatch(/same-family rotation across weeks/i);
+      expect(userPrompt).toMatch(/no equally-good same-family alternative exists/i);
     });
 
     it('skips scopes that have no entries at all', () => {

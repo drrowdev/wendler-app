@@ -299,6 +299,7 @@ export function SuggestAssistanceForBlock({
     userPrompt: string,
     movementIds: string[],
     availableEquipment: string[] | undefined,
+    crossWeekUsedMovementIds: string[] | undefined,
     extraSystem?: string,
   ): Promise<AiResponse> => {
     const res = await authFetch('/api/suggestAssistance', {
@@ -311,6 +312,7 @@ export function SuggestAssistanceForBlock({
         movementIds,
         maxDayIndex: days.length - 1,
         availableEquipment,
+        crossWeekUsedMovementIds,
       }),
     });
     if (!res.ok) {
@@ -350,6 +352,22 @@ export function SuggestAssistanceForBlock({
     const movementIds = movements.map((m) => m.id);
     const availableEquipment = promptInput.availableEquipment;
 
+    // MovementIds already used in OTHER weeks of this block — sent to the
+    // server so the validator can reject responses that re-use them
+    // (system rule 5: prefer same-family rotation across weeks).
+    const crossWeekUsedMovementIds = (() => {
+      const set = new Set<string>();
+      for (const ctx of otherWeeksContext ?? []) {
+        for (const entries of ctx.perDay) {
+          if (!entries) continue;
+          for (const e of entries) {
+            if (e.movementId) set.add(e.movementId);
+          }
+        }
+      }
+      return set.size > 0 ? Array.from(set) : undefined;
+    })();
+
     let response: AiResponse | undefined;
     let hardError: Error | undefined;
 
@@ -359,6 +377,7 @@ export function SuggestAssistanceForBlock({
         builtPrompt.userPrompt,
         movementIds,
         availableEquipment,
+        crossWeekUsedMovementIds,
       );
       if (!response.ok) {
         // One corrective retry: tell Claude what went wrong.
@@ -372,6 +391,7 @@ export function SuggestAssistanceForBlock({
             builtPrompt.userPrompt,
             movementIds,
             availableEquipment,
+            crossWeekUsedMovementIds,
             corrective,
           );
         } catch (err) {

@@ -161,6 +161,12 @@ export interface ParseAssistanceResponseOptions {
   maxDayIndex?: number;
   /** When provided, every newMovement.equipment must be in this set (bodyweight always allowed). */
   availableEquipment?: ReadonlySet<string>;
+  /**
+   * MovementIds already used in OTHER weeks of the same block. When set,
+   * the validator treats re-use of any id in this set as an error so the
+   * corrective-retry path can prompt the model to vary picks.
+   */
+  crossWeekUsedMovementIds?: ReadonlySet<string>;
 }
 
 function stripCodeFence(raw: string): string {
@@ -271,6 +277,11 @@ function validateEntry(
     } else if (options.allowedMovementIds && !options.allowedMovementIds.has(e.movementId)) {
       errors.push(
         `${where}.movementId=${JSON.stringify(e.movementId)} is not in the supplied movement library.`,
+      );
+      bad = true;
+    } else if (options.crossWeekUsedMovementIds?.has(e.movementId)) {
+      errors.push(
+        `${where}.movementId=${JSON.stringify(e.movementId)} is already used in another week of this block. Pick a different specific movementId from the same family, or propose a newMovement (system rule 5 + rule 10).`,
       );
       bad = true;
     } else {
