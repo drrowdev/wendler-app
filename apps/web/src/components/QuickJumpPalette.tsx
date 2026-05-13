@@ -61,6 +61,7 @@ const PAGES: PageDef[] = [
   { href: '/load', label: 'Load', aliases: ['banister', 'fitness fatigue', 'form'] },
   { href: '/history', label: 'History', aliases: ['log', 'past sessions'] },
   { href: '/races', label: 'Races' },
+  { href: '/chat', label: 'AI chat', aliases: ['chat', 'ai', 'ask', 'coach'] },
   { href: '/goals', label: 'Goals' },
   { href: '/profile', label: 'Training Profile', aliases: ['training profile', 'profile', 'phase', 'emphasis', 'filters', 'ai notes'] },
   { href: '/cardio', label: 'Cardio' },

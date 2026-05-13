@@ -6,6 +6,7 @@ import {
   SEED_MOVEMENTS,
   type AiGeneration,
   type CardioSession,
+  type Chat,
   type Goal,
   type Movement,
   type Notification,
@@ -58,6 +59,7 @@ class WendlerDb extends Dexie {
   wellness!: Table<WellnessFlag, string>;
   notifications!: Table<Notification, string>;
   aiGenerations!: Table<AiGeneration, string>;
+  chats!: Table<Chat, string>;
 
   constructor() {
     super('wendler-app');
@@ -330,6 +332,31 @@ class WendlerDb extends Dexie {
     // the prompt-history page and the "Copy as AI prompt" export. Indexes
     // on blockId + createdAt for per-block listings, on outcome for
     // filtering (applied vs undone vs error). Synced via LWW pipeline.
+    this.version(15).stores({
+      movements: 'id, name, equipment, pattern, isMainLift, isCustom',
+      trainingMaxes: 'id, lift, createdAt',
+      settings: 'id',
+      sets: 'id, movementId, sessionId, performedAt, kind',
+      sessions: 'id, performedAt, mainLift, week, blockId',
+      blocks: 'id, kind, startedAt, completedAt, createdAt, programId',
+      programs: 'id, createdAt, completedAt',
+      schedule: 'id',
+      syncMeta: 'id',
+      goals: 'id, kind, deadline, createdAt, completedAt',
+      cardio: 'id, performedAt, modality, externalId',
+      recovery: 'id',
+      pushSub: 'id',
+      tombstones: 'id, kind, recordId, deletedAt',
+      runPlan: 'id',
+      strengthHr: 'id, performedAt, externalId',
+      races: 'id, date, priority, completedAt, createdAt',
+      wellness: 'id, kind, startedAt, recoveredAt, updatedAt',
+      notifications: 'id, createdAt, channel, severity, readAt, updatedAt',
+      aiGenerations: 'id, createdAt, blockId, weekScope, outcome, source, updatedAt',
+    });
+    // v16 schema: add `chats` table. User-AI chat conversations grounded
+    // in the training-data snapshot built by buildChatContext. Indexes on
+    // createdAt + updatedAt for the conversation list. Synced via LWW.
     this.version(SCHEMA_VERSION).stores({
       movements: 'id, name, equipment, pattern, isMainLift, isCustom',
       trainingMaxes: 'id, lift, createdAt',
@@ -351,6 +378,7 @@ class WendlerDb extends Dexie {
       wellness: 'id, kind, startedAt, recoveredAt, updatedAt',
       notifications: 'id, createdAt, channel, severity, readAt, updatedAt',
       aiGenerations: 'id, createdAt, blockId, weekScope, outcome, source, updatedAt',
+      chats: 'id, createdAt, updatedAt',
     });
   }
 }

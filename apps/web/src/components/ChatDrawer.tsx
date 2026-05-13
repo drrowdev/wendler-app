@@ -1,0 +1,107 @@
+'use client';
+
+// ChatDrawer — slide-up panel on mobile, right-anchored drawer on desktop.
+// Hosts a `ChatPanel`. Owns its own ephemeral conversation-id state so the
+// user can chat without leaving the page; "Expand" opens the full-screen
+// /chat route preserving the conversation id via query string.
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { ChatConversationList, ChatPanel } from './ChatPanel';
+import { useChatList } from '@/lib/useChat';
+
+export function ChatDrawer({ pathname, onClose }: { pathname: string; onClose: () => void }) {
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const conversations = useChatList();
+
+  // Auto-select most recent conversation on open (better than starting fresh
+  // every time — most users continue a thread).
+  useEffect(() => {
+    if (chatId) return;
+    if (conversations && conversations.length > 0) {
+      setChatId(conversations[0]!.id);
+    }
+  }, [conversations, chatId]);
+
+  // Escape closes drawer.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-end justify-end bg-black/40 md:items-stretch"
+      onClick={onClose}
+    >
+      <aside
+        role="dialog"
+        aria-label="AI chat"
+        onClick={(e) => e.stopPropagation()}
+        className="flex w-full flex-col rounded-t-2xl border border-border bg-card shadow-2xl md:h-full md:w-[480px] md:rounded-l-2xl md:rounded-tr-none"
+        style={{ maxHeight: '92dvh' }}
+      >
+        {historyOpen ? (
+          <ChatConversationList
+            selectedId={chatId}
+            conversations={conversations}
+            onSelect={(id) => {
+              setChatId(id);
+              setHistoryOpen(false);
+            }}
+            onNew={() => {
+              setChatId(null);
+              setHistoryOpen(false);
+            }}
+          />
+        ) : (
+          <ChatPanel
+            chatId={chatId}
+            contextPath={pathname}
+            onChatIdChange={setChatId}
+            headerSlot={
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(true)}
+                  aria-label="Chat history"
+                  title="History"
+                  className="rounded-md p-1.5 text-muted hover:bg-bg/50 hover:text-fg"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                    <path d="M3 6h18M3 12h18M3 18h18" strokeLinecap="round" />
+                  </svg>
+                </button>
+                <Link
+                  href={chatId ? `/chat?id=${chatId}` : '/chat'}
+                  onClick={onClose}
+                  aria-label="Open full screen"
+                  title="Open full screen"
+                  className="rounded-md p-1.5 text-muted hover:bg-bg/50 hover:text-fg"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                    <path d="M3 10V3h7M21 14v7h-7M3 21l8-8M21 3l-8 8" strokeLinecap="round" />
+                  </svg>
+                </Link>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Close chat"
+                  className="rounded-md p-1.5 text-muted hover:bg-bg/50 hover:text-fg"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                    <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+            }
+          />
+        )}
+      </aside>
+    </div>
+  );
+}

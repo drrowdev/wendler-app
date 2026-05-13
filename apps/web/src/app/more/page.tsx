@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 const ITEMS = [
+  { href: '/chat', label: 'Chat', desc: 'AI coach grounded in your training data', icon: '💬' },
   { href: '/goals', label: 'Goals', desc: 'PR targets, race times, habits', icon: '🎯' },
   { href: '/profile', label: 'Training Profile', desc: 'Movement focus, phase, filters, AI notes, bodyweight', icon: '🧭' },
   { href: '/races', label: 'Races', desc: 'Race calendar, taper priority, results', icon: '🏁' },

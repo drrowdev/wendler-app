@@ -5,6 +5,7 @@ import { getDb } from './db';
 import type {
   AiGeneration,
   CardioSession,
+  Chat,
   Goal,
   Movement,
   Notification,
@@ -40,7 +41,8 @@ export type SyncKind =
   | 'strengthHr'
   | 'wellness'
   | 'notification'
-  | 'aiGeneration';
+  | 'aiGeneration'
+  | 'chat';
 
 export interface OutboundDoc {
   kind: SyncKind;
@@ -397,6 +399,17 @@ async function collectOutbound(sinceIso: string): Promise<OutboundDoc[]> {
     }
   }
 
+  // Chat conversations (v16) — LWW on updatedAt. Each row contains the full
+  // message thread; volume is small (one row per conversation, typically
+  // <50KB even with long threads).
+  const chats = await db.chats.toArray();
+  for (const c of chats) {
+    const ts = latestTimestamp(c.updatedAt, c.createdAt)!;
+    if (ts > since) {
+      out.push({ kind: 'chat', recordId: c.id, updatedAt: ts, payload: c });
+    }
+  }
+
   // Tombstones — propagate deletes. Push every tombstone touched since lastPushedAt.
   const tombstones = await db.tombstones.toArray();
   for (const t of tombstones) {
@@ -439,6 +452,7 @@ async function applyIncoming(doc: IncomingDoc) {
       case 'wellness': await db.wellness.delete(doc.recordId); break;
       case 'notification': await db.notifications.delete(doc.recordId); break;
       case 'aiGeneration': await db.aiGenerations.delete(doc.recordId); break;
+      case 'chat': await db.chats.delete(doc.recordId); break;
       // settings/schedule are singletons — never deleted.
     }
     if (
@@ -467,7 +481,8 @@ async function applyIncoming(doc: IncomingDoc) {
     doc.kind === 'program' || doc.kind === 'trainingMax' || doc.kind === 'movement' ||
     doc.kind === 'goal' || doc.kind === 'cardio' || doc.kind === 'recovery' ||
     doc.kind === 'race' || doc.kind === 'strengthHr' || doc.kind === 'wellness' ||
-    doc.kind === 'notification' || doc.kind === 'aiGeneration'
+    doc.kind === 'notification' || doc.kind === 'aiGeneration' ||
+    doc.kind === 'chat'
   ) {
     const tomb = await db.tombstones.get(`${doc.kind}:${doc.recordId}`);
     if (tomb && tomb.deletedAt >= doc.updatedAt) {
@@ -607,6 +622,11 @@ async function applyIncoming(doc: IncomingDoc) {
     case 'aiGeneration': {
       const incoming = doc.payload as AiGeneration;
       await lwwPut(db.aiGenerations, incoming, incoming.id);
+      break;
+    }
+    case 'chat': {
+      const incoming = doc.payload as Chat;
+      await lwwPut(db.chats, incoming, incoming.id);
       break;
     }
   }

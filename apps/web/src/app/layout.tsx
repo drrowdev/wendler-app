@@ -13,6 +13,7 @@ import { KeepScreenOn } from '@/components/KeepScreenOn';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { OnboardingMount } from '@/components/OnboardingWizard';
 import { QuickJumpPalette } from '@/components/QuickJumpPalette';
+import { ChatFab } from '@/components/ChatFab';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -54,6 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Nav />
             <OnboardingMount />
             <QuickJumpPalette />
+            <ChatFab />
           </AuthGuard>
         </AuthProvider>
         <ServiceWorkerRegister />

@@ -1079,3 +1079,43 @@ export interface AiGeneration {
   /** Soft-delete via tombstone. */
   deletedAt?: string;
 }
+
+
+// ---------------------------------------------------------------------------
+// Chat conversations (v16)
+// ---------------------------------------------------------------------------
+//
+// User-AI chat conversations grounded in the training data snapshot. Synced
+// across devices via the existing LWW pipeline. Each Chat row holds the
+// full message thread; messages are not synced as separate rows because
+// a conversation is appended-to only on the device that's actively
+// chatting, so LWW on the parent row is sufficient.
+
+export type ChatRole = 'user' | 'assistant';
+
+export interface ChatMessage {
+  id: string;
+  role: ChatRole;
+  /** Plain-text body. Assistant messages may contain markdown. */
+  content: string;
+  /** ISO timestamp the message was created. */
+  createdAt: string;
+  /**
+   * Optional pathname the user was on when sending this message. Set on the
+   * first user message of a turn; assistant messages inherit it from the
+   * preceding user message during prompt construction.
+   */
+  contextPath?: string;
+}
+
+export interface Chat {
+  /** Stable id (nanoid). */
+  id: string;
+  /** ISO timestamp of conversation creation. */
+  createdAt: string;
+  /** ISO timestamp of last message append; drives the conversation list ordering. */
+  updatedAt: string;
+  /** Derived from the first user message (≤80 chars). */
+  title: string;
+  messages: ChatMessage[];
+}

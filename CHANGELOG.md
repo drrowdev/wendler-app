@@ -8,8 +8,19 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
-### Changed
-- **Relocate the readiness inputs (SW v316).** Three small moves to put each input where the user actually thinks about it:
+### Added
+- **AI chat — grounded conversational coaching (SW v317).** New floating action button (bottom-right, hidden on /day, /session, /chat) opens a slide-up drawer/right-drawer with a Claude Sonnet 4.6 chat grounded in your training data. Also reachable as full-screen at `/chat?id=…`, via `/more → Chat`, and via Quick-jump (aliases: chat, ai, ask, coach). The drawer is page-aware — the system prompt includes the current pathname so questions like "is this block too volume-heavy?" resolve correctly. Conversations persist to Dexie (`chats` table, schema v16) and sync across devices via the existing LWW pipeline.
+  - **Context strategy is multi-resolution** so the LLM gets both fine-grained recency and trend signal without blowing the context window:
+    - Last 90 days: full per-day detail (every cardio activity, every working set, every recovery entry)
+    - 90 days – 1 year: weekly aggregates (mileage, tonnage per lift, avg HR, avg fatigue)
+    - Older than 1 year: monthly aggregates
+    - Race results and lift PRs are always emitted verbatim regardless of age
+  - **Pure domain function `buildChatContext`** (`packages/domain/src/chat-context.ts`) produces the snapshot; `renderChatContextAsText` formats it as a YAML-ish text block for prompt embedding. 7 new tests cover aggregation correctness, status classification, and empty-input edge cases.
+  - **New API `POST /api/chat`** (`apps/api/src/functions/chat.ts`) verifies the request, accepts `{ context, messages[], contextPath? }`, calls Anthropic with the rendered snapshot in the system prompt + full message history, returns `{ ok, content, modelInfo }`. Same auth pattern as `suggestAssistance`; bounded message length (20K each) and history depth (100 messages).
+  - **New Dexie table `chats`** at schema v16. Per-conversation row holding `{ id, createdAt, updatedAt, title, messages[] }`. Sync.ts updated: outbound collection, apply-incoming case, tombstone-guard inclusion, and `delete.ts` kind routing all extended.
+  - **UI components** (`apps/web/src/components/`): `ChatFab`, `ChatDrawer`, `ChatPanel`, plus `app/chat/page.tsx` for the full-screen route. `useChat` + `useChatSender` hooks (`apps/web/src/lib/useChat.ts`) own the live-query + sender pipeline. Empty conversations surface 5 suggested-prompt chips (running history, A-race readiness, stalling lifts, next-block planning, year-over-year comparison).
+
+- **Relocate the readiness inputs (SW v316).**Three small moves to put each input where the user actually thinks about it:
   - **Fatigue + soreness** check-in is now on the **Today** page (under "Up next", above "Recent activity"). It's a daily question — it belongs on the daily landing page, not nested two clicks deep inside Load → Recovery tab.
   - **Bodyweight** input is now on the **Training Profile** (`/profile`) page. Bodyweight is a slow-changing personal-stats input, not a recovery metric.
   - **Recovery menu entry removed from `/more`.** It was redundant: clicking it just opened `/load?tab=recovery`, and `Load` is already on the primary nav. /more no longer lists Recovery; users land on the Recovery tab via Load → Recovery instead.
