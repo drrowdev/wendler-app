@@ -2,6 +2,13 @@
   "platform": {
     "apiRuntime": "node:20"
   },
+  "routes": [
+    {
+      "route": "/analytics",
+      "redirect": "/stats",
+      "statusCode": 301
+    }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": [

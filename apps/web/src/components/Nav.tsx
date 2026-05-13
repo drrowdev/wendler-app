@@ -59,7 +59,7 @@ const PRIMARY_TABS: Tab[] = [
   { href: '/', label: 'Today', icon: <Icon>{I.today}</Icon> },
   { href: '/program', label: 'Program', icon: <Icon>{I.program}</Icon> },
   { href: '/calendar', label: 'Calendar', icon: <Icon>{I.calendar}</Icon> },
-  { href: '/analytics', label: 'Stats', icon: <Icon>{I.stats}</Icon> },
+  { href: '/stats', label: 'Stats', icon: <Icon>{I.stats}</Icon> },
   { href: '/load', label: 'Load', icon: <Icon>{I.load}</Icon> },
 ];
 

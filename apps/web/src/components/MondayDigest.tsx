@@ -173,7 +173,7 @@ async function maybeEmit(now: Date): Promise<void> {
     channel: 'system',
     title: `Last week: ${sessionsLast7.length} sessions · ${Math.round(last7CardioMin)} min cardio`,
     body: bodyLines.join('\n'),
-    deepLink: { href: '/analytics', label: 'Open analytics' },
+    deepLink: { href: '/stats', label: 'Open stats' },
     context: {
       weekKey: isoWeekKey(new Date(now.getTime() - 7 * dayMs)),
       sessionsLast7: sessionsLast7.length,

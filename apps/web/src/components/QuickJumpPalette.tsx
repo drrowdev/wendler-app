@@ -57,7 +57,7 @@ const PAGES: PageDef[] = [
   { href: '/program', label: 'Program', aliases: ['blocks', 'plan'] },
   { href: '/program/new', label: 'New program', aliases: ['create program', 'generate block'] },
   { href: '/calendar', label: 'Calendar', aliases: ['schedule', 'week'] },
-  { href: '/analytics', label: 'Analytics', aliases: ['stats', 'charts', 'graphs'] },
+  { href: '/stats', label: 'Stats', aliases: ['analytics', 'charts', 'graphs'] },
   { href: '/load', label: 'Load', aliases: ['banister', 'fitness fatigue', 'form'] },
   { href: '/history', label: 'History', aliases: ['log', 'past sessions'] },
   { href: '/races', label: 'Races' },

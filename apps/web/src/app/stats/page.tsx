@@ -29,7 +29,7 @@ import { TrainingCalendarCard } from '@/components/analytics/TrainingCalendarCar
 
 type Mode = 'all' | 'strength' | 'cardio';
 
-export default function AnalyticsPage() {
+export default function StatsPage() {
   const setsRaw = useAllSets();
   const cardioRaw = useAllCardio();
   const workoutDays = useRecentWorkoutDays(9999);
