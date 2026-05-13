@@ -283,13 +283,23 @@ function BlockDetailPage() {
   const blockPhaseInfo = useMemo(() => {
     if (!block) return null;
     const profile = settings?.trainingProfile ?? DEFAULT_TRAINING_PROFILE;
+    // Only treat this block as the phase-derivation source when it is the
+    // schedule's currently-active block AND not yet completed. Viewing a
+    // historical or future block (e.g. opening last cycle's deload block
+    // from the program detail) must not retroactively shift the global
+    // phase — the user could be deep in the next Anchor block and we'd be
+    // claiming they're still deloading.
+    const isLiveBlock =
+      schedule?.activeBlockId === block.id && !block.completedAt;
     return effectiveTrainingPhaseInfo(
       profile,
       upcomingRaces ?? [],
       new Date(),
-      { kind: block.kind, seventhWeekKind: block.seventhWeekKind },
+      isLiveBlock
+        ? { kind: block.kind, seventhWeekKind: block.seventhWeekKind }
+        : undefined,
     );
-  }, [settings?.trainingProfile, upcomingRaces, block]);
+  }, [settings?.trainingProfile, upcomingRaces, block, schedule?.activeBlockId]);
 
   if (!id) {
     return (

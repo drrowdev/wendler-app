@@ -426,7 +426,12 @@ export function useActiveBlock() {
   return useLiveQuery(async () => {
     const sched = await getDb().schedule.get('singleton');
     if (!sched?.activeBlockId) return undefined;
-    return await getDb().blocks.get(sched.activeBlockId);
+    const block = await getDb().blocks.get(sched.activeBlockId);
+    // Completed blocks must not act as the "active" block for phase
+    // derivation — there's a small window between marking complete and the
+    // schedule pointer advancing where this row could still be returned.
+    if (block?.completedAt) return undefined;
+    return block;
   });
 }
 
