@@ -108,6 +108,12 @@ export default function CalendarPage() {
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [linkTarget, setLinkTarget] = useState<{ slotDate: string; slotKind: RunPlannedKind } | null>(null);
+  // Visual filter for the month grid. 'all' shows every event class;
+  // 'strength' hides cardio (logged + planned + fulfilled-elsewhere);
+  // 'cardio' hides strength (logged + upcoming + Strava-imported).
+  const [filter, setFilter] = useState<'all' | 'strength' | 'cardio'>('all');
+  const showStrength = filter !== 'cardio';
+  const showCardio = filter !== 'strength';
   // ISO dates that the user has clicked "+N" on. Expanded cells render the
   // full list of strength workouts / upcoming / cardio / imported instead of
   // capping at 2-3 entries. Click again to collapse.
@@ -286,10 +292,29 @@ export default function CalendarPage() {
         </button>
       </header>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <button onClick={goPrev} className="rounded-lg bg-card px-3 py-1 ring-1 ring-border" aria-label="Previous month">◀</button>
         <h2 className="text-lg font-semibold">{MONTHS[month]} {year}</h2>
         <button onClick={goNext} className="rounded-lg bg-card px-3 py-1 ring-1 ring-border" aria-label="Next month">▶</button>
+      </div>
+
+      <div role="tablist" aria-label="Filter calendar by event type" className="flex w-fit gap-1 rounded-lg border border-border bg-card p-0.5 text-xs">
+        {(['all', 'strength', 'cardio'] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={filter === v}
+            onClick={() => setFilter(v)}
+            className={`rounded-md px-3 py-1 font-medium capitalize transition ${
+              filter === v
+                ? 'bg-accent/15 text-accent'
+                : 'text-muted hover:text-fg'
+            }`}
+          >
+            {v}
+          </button>
+        ))}
       </div>
 
       <div className="rounded-xl border border-border bg-card p-2">
@@ -299,11 +324,12 @@ export default function CalendarPage() {
         <div className="mt-1 grid grid-cols-7 gap-1">
           {grid.map((c, i) => {
             if (!c.date) return <div key={i} className="min-h-[80px] md:min-h-[104px]" />;
-            const ws = byDay.get(c.iso!) ?? [];
-            const ups = ws.length === 0 ? upcomingByDay.get(c.iso!) ?? [] : [];
-            const cs = cardioByDay.get(c.iso!) ?? [];
-            const imp = importedStrengthByDay.get(c.iso!) ?? [];
+            const ws = showStrength ? (byDay.get(c.iso!) ?? []) : [];
+            const ups = showStrength && ws.length === 0 ? upcomingByDay.get(c.iso!) ?? [] : [];
+            const cs = showCardio ? (cardioByDay.get(c.iso!) ?? []) : [];
+            const imp = showStrength ? (importedStrengthByDay.get(c.iso!) ?? []) : [];
             const plannedRun: RunPlannedKind | null =
+              showCardio &&
               cs.length === 0 &&
               c.date &&
               c.iso! >= backfillStartIso &&
@@ -316,6 +342,7 @@ export default function CalendarPage() {
             // with a run on a different day (linked via the picker). Tiny
             // chip so the user can see the slot was honored.
             const fulfilledElsewhere =
+              showCardio &&
               cs.length === 0 &&
               c.date &&
               planByDayOfWeek.has(isoDayOfWeek(c.date)) &&
@@ -588,32 +615,25 @@ export default function CalendarPage() {
         <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-muted">
           <span className="flex items-center gap-1">
             <span className="inline-block h-2 w-3 rounded border border-violet-700/50 bg-violet-900/30" />
-            Completed strength
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2 w-3 rounded border border-amber-600/50 bg-amber-900/30" />
-            In-progress strength
+            Strength · done
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block h-2 w-3 rounded border border-dashed border-violet-500/60" />
-            Upcoming strength
+            Strength · planned
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block h-2 w-3 rounded border border-sky-700/50 bg-sky-900/30" />
-            Completed cardio
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2 w-3 rounded border border-violet-700/50 bg-violet-900/15" />
-            Imported strength
+            Cardio · done
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block h-2 w-3 rounded border border-dashed border-sky-400/70 bg-transparent" />
-            Planned cardio
+            Cardio · planned
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block h-2 w-3 rounded border border-dashed border-rose-400/50 bg-transparent" />
             Past unfulfilled — tap to link
           </span>
+          <span className="text-muted/70">· Strava badge on event = imported</span>
         </div>
       </div>
       {linkTarget && (
