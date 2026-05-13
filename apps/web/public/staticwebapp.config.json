@@ -10,7 +10,7 @@
     },
     {
       "route": "/recovery",
-      "rewrite": "/load",
+      "redirect": "/load?tab=recovery",
       "statusCode": 301
     }
   ],
