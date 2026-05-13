@@ -62,6 +62,7 @@ const PAGES: PageDef[] = [
   { href: '/history', label: 'History', aliases: ['log', 'past sessions'] },
   { href: '/races', label: 'Races' },
   { href: '/goals', label: 'Goals' },
+  { href: '/profile', label: 'Training Profile', aliases: ['training profile', 'profile', 'phase', 'emphasis', 'filters', 'ai notes'] },
   { href: '/cardio', label: 'Cardio' },
   { href: '/program?tab=cardio', label: 'Cardio plan', aliases: ['running plan', 'run plan'] },
   { href: '/recovery', label: 'Recovery', aliases: ['hrv', 'sleep'] },

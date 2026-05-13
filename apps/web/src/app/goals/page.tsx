@@ -687,7 +687,14 @@ export default function GoalsPage() {
         </p>
       </header>
 
-      <TrainingGoalsSection />
+      <div className="rounded-lg border border-border bg-card p-3 text-xs text-muted">
+        Training emphasis, phase, filters, and notes that shape the AI
+        assistance suggester now live on the{' '}
+        <Link href="/profile" className="font-medium text-accent underline-offset-2 hover:underline">
+          Training Profile
+        </Link>{' '}
+        page.
+      </div>
 
       {open && (
         <div className="space-y-4 rounded-lg border border-border bg-card p-4">
