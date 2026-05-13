@@ -38,3 +38,8 @@ test-results/
 
 # azure
 .azure/
+
+# Python (scanner scripts)
+__pycache__/
+*.pyc
+

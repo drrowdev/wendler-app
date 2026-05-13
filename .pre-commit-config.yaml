@@ -1,0 +1,22 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: block-sensitive-staged
+        name: Block sensitive patterns (staged content)
+        entry: python Scripts/check_sensitive_patterns.py --staged
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        always_run: true
+      - id: block-sensitive-tree
+        name: Block sensitive patterns (full tree, pre-push)
+        entry: python Scripts/check_sensitive_patterns.py --all
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        always_run: true
