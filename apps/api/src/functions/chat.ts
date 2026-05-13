@@ -24,17 +24,24 @@ interface RequestBody {
   messages: IncomingMessage[];
   /** Optional pathname the user was on when sending — included in system prompt. */
   contextPath?: string;
+  /**
+   * Client-supplied "today" ISO string in the user's local timezone. Used for
+   * the date line in the system prompt so the model can reason about
+   * "upcoming half-marathon in 3 weeks" without guessing.
+   */
+  todayLocal?: string;
 }
 
 const SYSTEM_PROMPT_BASE = `You are Martin's personal training coach assistant inside the Wendler 5/3/1 PWA. You have access to a snapshot of his training data (cardio sessions, strength logs, training maxes, races, recovery entries, training profile). Your job is to give grounded, data-backed answers to his questions about his training.
 
 Rules:
 - Cite specific numbers from the snapshot when relevant ("over the last 8 weeks your weekly run mileage averaged 18km").
-- Distinguish what the data shows versus your training-science opinion. Mark opinions explicitly.
-- Be concise. Default to short, direct answers. Expand only when the question demands it.
+- Distinguish data from opinion. Label data-backed statements with [Data] and interpretive or coaching opinions with [Opinion] inline (not as section headers). Example: "[Data] Your last four long runs averaged 5:42/km. [Opinion] That pace puts a sub-2hr half within reach if you sharpen the final 3 weeks."
+- Match response depth to question complexity. Short factual questions get one-sentence answers. Diagnostic or planning questions get structured multi-paragraph analysis — don't underdeliver on those.
 - If the snapshot is missing info you need, say so plainly. Don't invent.
 - Use kilograms and kilometres. Pace as min:sec/km.
-- Markdown is fine for headings, lists, and code blocks.
+- Markdown is appropriate for headings, bullet lists, and bold emphasis. Avoid tables unless specifically useful for comparing data. Don't use code blocks — this is a coaching conversation, not a programming one.
+- Conversation history is provided in full. Refer back to earlier questions in the session when relevant.
 
 The snapshot is grouped by resolution: last 90 days at daily detail, 90 days–1 year as weekly aggregates, anything older as monthly aggregates. Race results and lift PRs are listed in full timelines regardless of age.`;
 
@@ -77,7 +84,7 @@ export async function chat(
     };
   }
 
-  const { context, messages, contextPath } = body ?? ({} as RequestBody);
+  const { context, messages, contextPath, todayLocal } = body ?? ({} as RequestBody);
   if (typeof context !== 'string' || context.length < 20) {
     return { status: 400, jsonBody: { error: 'bad-request', detail: 'context missing' } };
   }
@@ -98,11 +105,15 @@ export async function chat(
 
   const model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
   const maxTokens = Number(process.env.ANTHROPIC_CHAT_MAX_TOKENS ?? '4000');
-  const temperature = Number(process.env.ANTHROPIC_CHAT_TEMPERATURE ?? '0.5');
+  const temperature = Number(process.env.ANTHROPIC_CHAT_TEMPERATURE ?? '0.3');
+
+  const dateLine = todayLocal ? `Today's date: ${todayLocal}.` : '';
+  const pathLine = contextPath ? `Current page: ${contextPath}.` : '';
+  const headerLines = [dateLine, pathLine].filter((l) => l.length > 0).join('\n');
 
   const systemPrompt = `${SYSTEM_PROMPT_BASE}
 
-${contextPath ? `Current page: ${contextPath}\n` : ''}<training-data-snapshot>
+${headerLines}${headerLines ? '\n\n' : ''}<training-data-snapshot>
 ${context}
 </training-data-snapshot>`;
 

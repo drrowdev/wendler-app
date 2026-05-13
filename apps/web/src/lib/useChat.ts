@@ -138,12 +138,24 @@ export function useChatSender(initialId: string | null): UseChatSender {
 
         const contextBlob = await buildContextBlob();
 
+        // Today's date in the user's local timezone (YYYY-MM-DD). The API
+        // injects this verbatim into the system prompt so the model can
+        // reason about "race in N weeks" without guessing.
+        const todayLocal = (() => {
+          const d = new Date();
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        })();
+
         const resp = await authFetch('/api/chat', {
           method: 'POST',
           headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
           body: JSON.stringify({
             context: contextBlob,
             contextPath: opts.contextPath,
+            todayLocal,
             messages: messagesSoFar.map((m) => ({ role: m.role, content: m.content })),
           }),
         });

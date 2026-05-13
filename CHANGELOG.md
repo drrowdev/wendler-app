@@ -9,6 +9,13 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 ## [Unreleased]
 
 ### Changed
+- **Chat system prompt tuning (SW v319).** Round of upgrades to the chat prompt based on a review:
+  - **Today's date injected.** Client sends `todayLocal` (YYYY-MM-DD in user's local timezone) on every turn; API adds `Today's date: …` to the system prompt so "race in 3 weeks" reasoning works without guessing.
+  - **Response depth guidance.** Replaced "be concise" with "match response depth to question complexity. Short factual questions get one-sentence answers. Diagnostic or planning questions get structured multi-paragraph analysis — don't underdeliver." The half-marathon-readiness style of question now gets the substance it asks for.
+  - **[Data] vs [Opinion] labels.** Mandated inline labels: `[Data]` for snapshot-cited statements, `[Opinion]` for interpretive coaching. Standardised format makes claims auditable and opens the door to styling them in UI later.
+  - **Multi-turn guidance.** "Conversation history is provided in full. Refer back to earlier questions in the session when relevant." Prevents the model from treating each turn as stateless.
+  - **Markdown rules tightened.** Headings, bullet lists, bold emphasis are appropriate; tables only when comparing data; code blocks dropped (this is coaching, not programming).
+  - **Temperature lowered 0.5 → 0.3.** Default for `ANTHROPIC_CHAT_TEMPERATURE`. Same numbers should produce consistent interpretations across similar questions; 0.5 added unhelpful variance.
 - **Chat polish: streaming, markdown, rename, prettier prompt cards (SW v318).**
   - **SSE streaming.** `POST /api/chat` now streams the response as `text/event-stream`. The API switched to `client.messages.stream()` + an async generator wrapped in a Node `Readable`; events are JSON-encoded `{type:'delta'|'done'|'error'}` records. The client parses the SSE buffer in `useChatSender` and exposes `streaming` for live render — the assistant bubble fills in word by word with a blinking caret instead of waiting 10s for the whole response.
   - **Markdown rendering.** Assistant messages now render via `react-markdown` + `remark-gfm`. Headings, lists, tables, code blocks, links, blockquotes — all styled inline (no global CSS additions). The streaming bubble also renders markdown live as the bytes arrive.
