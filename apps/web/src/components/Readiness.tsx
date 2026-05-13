@@ -84,7 +84,7 @@ export function FatigueSorenessCard() {
         <div className="rounded-md border border-border/60 bg-bg/40 p-3">
           <ReadinessScale
             label="Fatigue"
-            hint="1 fresh · 10 wrecked"
+            hint="1 fresh · 5 wrecked"
             value={entry?.fatigue}
             onChange={(v) => void setFatigue(v)}
           />
@@ -92,7 +92,7 @@ export function FatigueSorenessCard() {
         <div className="rounded-md border border-border/60 bg-bg/40 p-3">
           <ReadinessScale
             label="Soreness"
-            hint="1 none · 10 severe"
+            hint="1 none · 5 severe"
             value={entry?.soreness}
             onChange={(v) => void setSoreness(v)}
           />

@@ -37,6 +37,17 @@ export default function ChatPage() {
     <div className="flex items-center gap-1">
       <button
         type="button"
+        onClick={() => select(null)}
+        aria-label="New chat"
+        title="New chat"
+        className="rounded-md p-1.5 text-muted hover:bg-bg/50 hover:text-fg"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+          <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+        </svg>
+      </button>
+      <button
+        type="button"
         onClick={() => setMobileListOpen((v) => !v)}
         aria-label="Show conversations"
         title="Conversations"

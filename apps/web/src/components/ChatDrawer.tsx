@@ -13,16 +13,23 @@ import { useChatList } from '@/lib/useChat';
 export function ChatDrawer({ pathname, onClose }: { pathname: string; onClose: () => void }) {
   const [chatId, setChatId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [userTouched, setUserTouched] = useState(false);
   const conversations = useChatList();
 
-  // Auto-select most recent conversation on open (better than starting fresh
-  // every time — most users continue a thread).
+  // Auto-select most recent conversation on FIRST open only. Once the user
+  // touches anything (picks a different chat or hits "+ New"), we respect
+  // their choice — even if they explicitly chose `null` (= start fresh).
   useEffect(() => {
-    if (chatId) return;
+    if (userTouched || chatId) return;
     if (conversations && conversations.length > 0) {
       setChatId(conversations[0]!.id);
     }
-  }, [conversations, chatId]);
+  }, [conversations, chatId, userTouched]);
+
+  const selectChat = (id: string | null) => {
+    setUserTouched(true);
+    setChatId(id);
+  };
 
   // Escape closes drawer.
   useEffect(() => {
@@ -50,11 +57,11 @@ export function ChatDrawer({ pathname, onClose }: { pathname: string; onClose: (
             selectedId={chatId}
             conversations={conversations}
             onSelect={(id) => {
-              setChatId(id);
+              selectChat(id);
               setHistoryOpen(false);
             }}
             onNew={() => {
-              setChatId(null);
+              selectChat(null);
               setHistoryOpen(false);
             }}
           />
@@ -62,9 +69,23 @@ export function ChatDrawer({ pathname, onClose }: { pathname: string; onClose: (
           <ChatPanel
             chatId={chatId}
             contextPath={pathname}
-            onChatIdChange={setChatId}
+            onChatIdChange={(id) => {
+              setUserTouched(true);
+              setChatId(id);
+            }}
             headerSlot={
               <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => selectChat(null)}
+                  aria-label="New chat"
+                  title="New chat"
+                  className="rounded-md p-1.5 text-muted hover:bg-bg/50 hover:text-fg"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                    <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+                  </svg>
+                </button>
                 <button
                   type="button"
                   onClick={() => setHistoryOpen(true)}
