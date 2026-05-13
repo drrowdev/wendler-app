@@ -26,6 +26,34 @@ function makeSchedule(overrides: Partial<ProgramSchedule> = {}): ProgramSchedule
 }
 
 describe('projectUpcomingWorkouts', () => {
+  it('mid-week activation places later-in-week days into the current week', () => {
+    // Schedule has Mon/Thu sessions. Activated mid-week on Wednesday.
+    // Expected: Wk1 Day 1 (Thu) lands on THIS Thursday (today+1).
+    // Wk1 Day 0 (Mon) skips to NEXT Mon (since this Mon is past).
+    // Output is sorted chronologically so Thu comes first.
+    // Without this, the whole block would shift to next week (incident
+    // 2026-05-13 — Anchor activated on a Wednesday surfaced no Wk1
+    // sessions in the current week).
+    const block = makeBlock();
+    const schedule = makeSchedule({
+      dayGroups: [
+        { mainLifts: ['press'], weekday: 0, label: 'Mon' },
+        { mainLifts: ['bench'], weekday: 3, label: 'Thu' },
+      ],
+      cursor: { blockId: 'b1', week: 1, groupIndex: 0 },
+    });
+    // Wed 2026-05-13.
+    const from = new Date(2026, 4, 13);
+    const out = projectUpcomingWorkouts(block, schedule, from, { maxItems: 4 });
+    // Sorted by date: Thu (this week May 14) before Mon (next week May 18).
+    expect(out[0]?.date).toBe('2026-05-14');
+    expect(out[0]?.week).toBe(1);
+    expect(out[0]?.dayIndex).toBe(1); // Thursday slot
+    expect(out[1]?.date).toBe('2026-05-18');
+    expect(out[1]?.week).toBe(1);
+    expect(out[1]?.dayIndex).toBe(0); // Monday slot
+  });
+
   it('projects each weekday-anchored day onto the next matching calendar date', () => {
     // Mon=0 Press, Tue=1 Deadlift, Thu=3 Bench, Fri=4 Squat. From cursor at week1/group0.
     const block = makeBlock();

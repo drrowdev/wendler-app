@@ -223,6 +223,15 @@ export function projectUpcomingWorkouts(
   let resolvedByGroup = resolveWeekdays(activeBlock, plan);
 
   let pointer = start;
+  // The Monday of the calendar week containing `start`. Used as a
+  // secondary projection origin so a block activated mid-week can still
+  // schedule its later-in-week days into the SAME week (e.g. activate
+  // on Wed, Day 1 = Thu lands on this Thu rather than next Thu).
+  function startOfIsoWeek(d: Date): Date {
+    const wd = jsDayToIsoWeekday(d.getDay()); // 0=Mon..6=Sun
+    return addDays(d, -wd);
+  }
+  const currentWeekStart = startOfIsoWeek(start);
   const out: UpcomingWorkout[] = [];
   const queue: ProgramBlock[] = [...subsequentBlocks];
 
@@ -242,7 +251,29 @@ export function projectUpcomingWorkouts(
     const weekday = resolvedByGroup.get(cursor.groupIndex);
 
     if (typeof weekday === 'number') {
-      const date = nextDateOnWeekday(pointer, weekday);
+      // Project the slot. Default: next matching weekday at-or-after the
+      // pointer. But for slots whose current-calendar-week date is today-
+      // or-future AND not yet occupied by an emitted entry, use that
+      // earlier date instead. This lets a block activated mid-week
+      // surface its later-in-week days IN this same week (e.g. activate
+      // Wed, Day 0 Mon = next Mon, Day 1 Thu = this Thu).
+      const fwd = nextDateOnWeekday(pointer, weekday);
+      const currentWeekCandidate = nextDateOnWeekday(currentWeekStart, weekday);
+      const usedDates = new Set(out.map((u) => u.date));
+      let date: Date;
+      if (
+        currentWeekCandidate >= start &&
+        currentWeekCandidate < fwd &&
+        !usedDates.has(toLocalIsoDate(currentWeekCandidate))
+      ) {
+        date = currentWeekCandidate;
+        // Don't update `pointer` past `date` — later slots may still need
+        // to look back into the current week. The "not in usedDates"
+        // check above prevents duplicate emission.
+      } else {
+        date = fwd;
+        pointer = addDays(date, 1);
+      }
       if (date > horizonEnd) break;
       const dateIso = toLocalIsoDate(date);
       const key = dayGroupFulfilledKey(activeBlock.id, cursor.week, cursor.groupIndex, dateIso);
@@ -259,11 +290,13 @@ export function projectUpcomingWorkouts(
           mainLifts: planDay?.mainLifts ?? scheduleDay?.mainLifts ?? [],
         });
       }
-      pointer = addDays(date, 1);
     }
 
     cursor = advanceCursor(cursor, activeBlock, numGroups);
   }
 
+  // Sort by date so look-back inserts (current-week catches after a
+  // future-projected slot) come out in chronological order.
+  out.sort((a, b) => a.date.localeCompare(b.date));
   return out;
 }

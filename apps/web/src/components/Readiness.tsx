@@ -63,22 +63,83 @@ export function ReadinessScale({
 
 export function FatigueSorenessCard() {
   const entry = useRecoveryEntry();
+  const [editing, setEditing] = useState(false);
   const setFatigue = async (val: number) => {
     await upsertRecoveryEntry({ fatigue: val });
   };
   const setSoreness = async (val: number) => {
     await upsertRecoveryEntry({ soreness: val });
   };
+  const reset = async () => {
+    await upsertRecoveryEntry({ fatigue: undefined, soreness: undefined });
+    setEditing(false);
+  };
+  const bothAnswered = entry?.fatigue != null && entry?.soreness != null;
+  // Map the internal 1/3/5/7/9 schema values back to the 1-5 display so the
+  // collapsed summary matches what the buttons show.
+  const displayBucket = (v: number | undefined): number | undefined => {
+    if (v == null) return undefined;
+    if (v <= 1) return 1;
+    if (v <= 3) return 2;
+    if (v <= 5) return 3;
+    if (v <= 7) return 4;
+    return 5;
+  };
+
+  if (bothAnswered && !editing) {
+    return (
+      <section className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+        <div className="flex items-center gap-4 text-muted">
+          <span className="text-xs font-semibold uppercase tracking-wide">Logged</span>
+          <span>
+            Fatigue <span className="font-mono text-fg">{displayBucket(entry?.fatigue)}</span>/5
+          </span>
+          <span>
+            Soreness <span className="font-mono text-fg">{displayBucket(entry?.soreness)}</span>/5
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="rounded-md border border-border px-2 py-0.5 text-xs text-muted hover:text-fg"
+          >
+            Change
+          </button>
+          <button
+            type="button"
+            onClick={() => void reset()}
+            className="rounded-md px-2 py-0.5 text-xs text-muted/70 hover:text-rose-300"
+            title="Clear today's answers"
+          >
+            Reset
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-3 rounded-lg border border-border bg-card p-3">
-      <header>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
-          How recovered?
-        </h2>
-        <p className="text-xs text-muted">
-          Today&apos;s fatigue and soreness feed the stress score and bias the
-          AI suggester. Tap to log.
-        </p>
+      <header className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
+            How recovered?
+          </h2>
+          <p className="text-xs text-muted">
+            Today&apos;s fatigue and soreness feed the stress score and bias the
+            AI suggester. Tap to log.
+          </p>
+        </div>
+        {editing && (
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="rounded-md border border-border px-2 py-0.5 text-xs text-muted hover:text-fg"
+          >
+            Done
+          </button>
+        )}
       </header>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-md border border-border/60 bg-bg/40 p-3">
