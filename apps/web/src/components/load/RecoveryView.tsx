@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import Link from 'next/link';
 import {
   banister,
   cardioMuscleImpact,
@@ -244,13 +245,13 @@ function TodayReadinessForm() {
   return (
     <section className="rounded-lg border border-border bg-card p-3 text-xs text-muted">
       Bodyweight is set on the{' '}
-      <a href="/profile" className="text-accent underline-offset-2 hover:underline">
+      <Link href="/profile" className="text-accent underline-offset-2 hover:underline">
         Training Profile
-      </a>{' '}
+      </Link>{' '}
       page. Fatigue + soreness check-in lives on{' '}
-      <a href="/" className="text-accent underline-offset-2 hover:underline">
+      <Link href="/" className="text-accent underline-offset-2 hover:underline">
         Today
-      </a>
+      </Link>
       .
     </section>
   );
