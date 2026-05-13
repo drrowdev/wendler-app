@@ -167,12 +167,24 @@ async function lwwPut<T extends { updatedAt?: string }>(
 
 function isBareScheduleShape(s: ProgramSchedule | undefined | null): boolean {
   if (!s) return true;
+  // "Rich" means the user has actually configured the program shape. Only
+  // the *config* fields count — `activeBlockId` and `cursor` are tiny
+  // pointers that any block-completion or block-activation flow sets
+  // automatically, so they are NOT evidence that the row was authored.
+  //
+  // Including them was a real bug: a freshly-seeded row that had only
+  // `dayOrder + activeBlockId + cursor` (path: iOS PWA evicts IDB → seed
+  // → user clicks "Make active" → activeBlockId/cursor written) would
+  // pass this check, get pushed to the server, and then wipe every other
+  // device's rich row via LWW. See incident 2026-05-13.
+  //
+  // Also tightened: `liftsPerDay: 1` is the install default and shouldn't
+  // alone count as evidence (it doesn't even need a user write to appear
+  // — completeDayWorkout reads `schedule.liftsPerDay ?? 1` defensively).
   const hasUserConfig =
     (Array.isArray((s as { dayGroups?: unknown[] }).dayGroups) &&
       ((s as { dayGroups: unknown[] }).dayGroups.length > 0)) ||
-    (s as { liftsPerDay?: number }).liftsPerDay != null ||
-    !!(s as { cursor?: unknown }).cursor ||
-    !!(s as { activeBlockId?: string }).activeBlockId ||
+    ((s as { liftsPerDay?: number }).liftsPerDay ?? 0) >= 2 ||
     !!(s as { supplementalTemplate?: string }).supplementalTemplate ||
     (s as { supplementalSetsOverride?: number }).supplementalSetsOverride != null;
   return !hasUserConfig;

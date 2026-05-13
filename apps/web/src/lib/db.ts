@@ -414,9 +414,21 @@ export function getDb(): WendlerDb {
  * upgraded to write-time as a result).
  */
 function installSingletonWriteBreadcrumbs(db: WendlerDb) {
-  const isBareSchedule = (payload: Record<string, unknown>) =>
-    !payload.dayGroups && payload.liftsPerDay == null && !payload.cursor &&
-    !payload.activeBlockId && !payload.supplementalTemplate;
+  // Definition of "bare" must match `isBareScheduleShape` in sync.ts.
+  // Only the actual config fields count as evidence of user authorship —
+  // activeBlockId/cursor/dayOrder are tiny pointers that downstream flows
+  // set automatically and that don't carry program shape on their own.
+  // See incident 2026-05-13.
+  const isBareSchedule = (payload: Record<string, unknown>) => {
+    const dayGroups = payload.dayGroups as unknown[] | undefined;
+    const liftsPerDay = payload.liftsPerDay as number | undefined;
+    const hasUserConfig =
+      (Array.isArray(dayGroups) && dayGroups.length > 0) ||
+      (liftsPerDay ?? 0) >= 2 ||
+      !!payload.supplementalTemplate ||
+      payload.supplementalSetsOverride != null;
+    return !hasUserConfig;
+  };
   const isBareSettings = (payload: Record<string, unknown>) => {
     const pairs = (payload.pairsByWeight as Record<string, number>) ?? {};
     const vals = Object.values(pairs);
