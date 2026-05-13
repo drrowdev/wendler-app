@@ -9,7 +9,10 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 ## [Unreleased]
 
 ### Fixed
-- **Inline LLM Prompt+Response disclosure resets on week-tab switch (SW v327).** `SuggestAssistanceForBlock` kept its last-generation `lastAiResponseRaw` and `status` in component state across `weekScope` changes — so after generating Wk1, switching to Wk2 still showed Wk1's prompt + response in the disclosure (and the applied banner). Added a `useEffect` that clears both whenever `weekScope` changes.
+- **Suggester: implement-prefix dedup for novel movements (SW v328).** With cross-week dedup live the model now proposes more `newMovement` entries. Some of those duplicate existing library rows because the model prefixed the implement word into the name — e.g. it invented "Dumbbell Step-up" when the library already has "Step-up" (with `equipment: dumbbell`). Two-layer fix:
+  - **Prompt rule 10** explicitly tells the model not to prefix the implement into a `newMovement.name` (it's already encoded in the `equipment` field) with concrete examples ("Dumbbell Step-up" → "Step-up", "Kettlebell Goblet Squat" → "Goblet Squat", etc.).
+  - **Client-side dedup** in `SuggestAssistanceForBlock` now does a normalized-name match in addition to exact lowercased match. Normalization strips common implement prefixes (dumbbell, barbell, kettlebell, sandbag, trap-bar, etc.), hyphens/underscores collapse to spaces, and dup spaces collapse. A normalized-name hit logs a console warning and reuses the existing `movementId` instead of inserting a new row. Catches the case where the LLM ignores the prompt rule.
+- **Inline LLM Prompt+Response disclosure resets on week-tab switch (SW v327).**`SuggestAssistanceForBlock` kept its last-generation `lastAiResponseRaw` and `status` in component state across `weekScope` changes — so after generating Wk1, switching to Wk2 still showed Wk1's prompt + response in the disclosure (and the applied banner). Added a `useEffect` that clears both whenever `weekScope` changes.
 
 ### Changed
 - **AI suggester: hard cross-week dedup (prompt + server validator) (SW v326).**v325's soft "prefer fresh selections" wasn't biting — the model still mirrored picks across weeks because the previous framing left both options open and the temperature-0.5 sampler defaulted to the highest-confidence (cached-style) movement each time.

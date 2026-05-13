@@ -428,8 +428,61 @@ export function SuggestAssistanceForBlock({
     // existing library AND within this batch) so every entry written to
     // the block carries a real, library-backed movementId. e1RM history
     // works from the very first set, identical to seeded movements.
+    //
+    // Dedup is two-level:
+    //  (1) exact lowercased name match — catches "Step-up" vs "step-up".
+    //  (2) normalized name match — strips implement words ("Dumbbell",
+    //      "Barbell", etc.), punctuation variants, and obvious filler so
+    //      "Dumbbell Step-up" maps to existing "Step-up". The implement
+    //      is already encoded in `equipment` on the library row, so the
+    //      LLM occasionally re-prefixing it on novel proposals would
+    //      otherwise create true duplicates. Equipment match is a
+    //      sanity tiebreaker — if the normalized names match but the
+    //      LLM proposed a different implement than the library has, we
+    //      log and still dedup (the library row's equipment wins; the
+    //      LLM may have just been sloppy about the prefix word).
+    const IMPLEMENT_WORDS = [
+      'dumbbell',
+      'barbell',
+      'kettlebell',
+      'sandbag',
+      'trap-bar',
+      'trapbar',
+      'cable',
+      'band',
+      'machine',
+      'bodyweight',
+      'goblet',
+      'double-kb',
+      'double',
+      'single-arm',
+      'single arm',
+    ];
+    const normalizeName = (name: string): string => {
+      let n = name.trim().toLowerCase();
+      // Collapse hyphens/underscores to spaces, strip duplicate spaces.
+      n = n.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+      // Strip implement prefix words (only at the start, only once each).
+      for (const w of IMPLEMENT_WORDS) {
+        const prefix = w + ' ';
+        if (n.startsWith(prefix)) {
+          n = n.slice(prefix.length);
+        }
+      }
+      return n;
+    };
     const lowerNameToId = new Map<string, string>();
-    for (const m of movements) lowerNameToId.set(m.name.trim().toLowerCase(), m.id);
+    const normalizedNameToId = new Map<string, string>();
+    for (const m of movements) {
+      const lower = m.name.trim().toLowerCase();
+      lowerNameToId.set(lower, m.id);
+      const norm = normalizeName(m.name);
+      // First write wins so the bare-form library row is preferred over a
+      // later prefixed dup if any exists.
+      if (norm && !normalizedNameToId.has(norm)) {
+        normalizedNameToId.set(norm, m.id);
+      }
+    }
     const newMovementsAdded: { id: string; name: string }[] = [];
     let novelResolveError: string | undefined;
 
@@ -437,7 +490,18 @@ export function SuggestAssistanceForBlock({
       for (const e of dp.entries) {
         if (e.movementId || !e.newMovement) continue;
         const key = e.newMovement.name.trim().toLowerCase();
-        const existingId = lowerNameToId.get(key);
+        let existingId = lowerNameToId.get(key);
+        if (!existingId) {
+          const norm = normalizeName(e.newMovement.name);
+          if (norm) existingId = normalizedNameToId.get(norm);
+          if (existingId) {
+            console.warn(
+              `[suggester] Normalized-name dedup: mapping novel "${e.newMovement.name}" to existing movement "${
+                movements.find((m) => m.id === existingId)?.name ?? existingId
+              }". The implement is already encoded in the library row's equipment field.`,
+            );
+          }
+        }
         if (existingId) {
           e.movementId = existingId;
           e.newMovement = undefined;
@@ -463,6 +527,10 @@ export function SuggestAssistanceForBlock({
           break;
         }
         lowerNameToId.set(key, newId);
+        const norm = normalizeName(e.newMovement.name);
+        if (norm && !normalizedNameToId.has(norm)) {
+          normalizedNameToId.set(norm, newId);
+        }
         newMovementsAdded.push({ id: newId, name: e.newMovement.name.trim() });
         e.movementId = newId;
         e.newMovement = undefined;
