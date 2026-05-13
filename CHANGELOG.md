@@ -8,8 +8,15 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Changed
+- **Chat polish: streaming, markdown, rename, prettier prompt cards (SW v318).**
+  - **SSE streaming.** `POST /api/chat` now streams the response as `text/event-stream`. The API switched to `client.messages.stream()` + an async generator wrapped in a Node `Readable`; events are JSON-encoded `{type:'delta'|'done'|'error'}` records. The client parses the SSE buffer in `useChatSender` and exposes `streaming` for live render — the assistant bubble fills in word by word with a blinking caret instead of waiting 10s for the whole response.
+  - **Markdown rendering.** Assistant messages now render via `react-markdown` + `remark-gfm`. Headings, lists, tables, code blocks, links, blockquotes — all styled inline (no global CSS additions). The streaming bubble also renders markdown live as the bytes arrive.
+  - **Conversation rename.** Click the title in the chat header to edit inline. Enter saves, Escape cancels, blur saves. The new title syncs across devices like any other Chat row.
+  - **Suggested-prompt cards.** The empty-state pickers are now narrower (max-width 28rem, centred), card-styled with a 2-line title + description summary + leading emoji. Header now has a "💬 Ask your training coach" intro. Replaced the wide-as-the-window buttons with a small grid that fits the drawer width naturally.
+
 ### Added
-- **AI chat — grounded conversational coaching (SW v317).** New floating action button (bottom-right, hidden on /day, /session, /chat) opens a slide-up drawer/right-drawer with a Claude Sonnet 4.6 chat grounded in your training data. Also reachable as full-screen at `/chat?id=…`, via `/more → Chat`, and via Quick-jump (aliases: chat, ai, ask, coach). The drawer is page-aware — the system prompt includes the current pathname so questions like "is this block too volume-heavy?" resolve correctly. Conversations persist to Dexie (`chats` table, schema v16) and sync across devices via the existing LWW pipeline.
+- **AI chat — grounded conversational coaching (SW v317).**New floating action button (bottom-right, hidden on /day, /session, /chat) opens a slide-up drawer/right-drawer with a Claude Sonnet 4.6 chat grounded in your training data. Also reachable as full-screen at `/chat?id=…`, via `/more → Chat`, and via Quick-jump (aliases: chat, ai, ask, coach). The drawer is page-aware — the system prompt includes the current pathname so questions like "is this block too volume-heavy?" resolve correctly. Conversations persist to Dexie (`chats` table, schema v16) and sync across devices via the existing LWW pipeline.
   - **Context strategy is multi-resolution** so the LLM gets both fine-grained recency and trend signal without blowing the context window:
     - Last 90 days: full per-day detail (every cardio activity, every working set, every recovery entry)
     - 90 days – 1 year: weekly aggregates (mileage, tonnage per lift, avg HR, avg fatigue)

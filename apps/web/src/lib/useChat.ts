@@ -1,10 +1,10 @@
 'use client';
 
 // useChat — Dexie-backed hook that owns a single conversation thread, sends
-// new user messages to /api/chat, and persists the result. The drawer + the
-// full-screen route both consume this hook. State lives in Dexie so the
-// conversation survives reloads and syncs across devices via the LWW
-// pipeline (see sync.ts → chat kind).
+// new user messages to /api/chat (SSE-streaming), and persists the result.
+// The drawer + the full-screen route both consume this hook. State lives in
+// Dexie so the conversation survives reloads and syncs across devices via
+// the LWW pipeline (see sync.ts → chat kind).
 
 import { useCallback, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -23,25 +23,9 @@ import { getDb } from './db';
 import { kickSync } from './sync';
 import { authFetch } from './auth';
 
-export interface UseChatOptions {
-  /** Existing conversation id, or null to create on first send. */
-  id: string | null;
-}
-
 export interface SendOptions {
   /** Path the user was on when invoking the chat (for context). */
   contextPath?: string;
-}
-
-interface ChatApiOk {
-  ok: true;
-  content: string;
-  modelInfo: { model: string; elapsedMs: number; inputTokens?: number; outputTokens?: number };
-}
-
-interface ChatApiErr {
-  error: string;
-  detail?: string;
 }
 
 /** Live conversation read straight from Dexie (or null when not yet created). */
@@ -95,19 +79,21 @@ export interface UseChatSender {
   /** Conversation id (existing or newly minted on first send). */
   id: string | null;
   sending: boolean;
+  /** In-progress streaming text (assistant turn being received). */
+  streaming: string;
   error: string | null;
 }
 
 /**
- * useChatSender — handles new-message submission. Splits from `useChat` so the
- * drawer can render the live conversation while sending in parallel.
- *
- * On first `send`, mints a new Chat row and returns its id (so the caller can
- * pin it to URL state). On subsequent sends, appends to the same row.
+ * useChatSender — handles new-message submission with SSE streaming. Splits
+ * from `useChat` so the drawer can render the live conversation while a
+ * response streams in. The pre-final assistant text is exposed as
+ * `streaming` and rendered as a pending bubble by the panel.
  */
 export function useChatSender(initialId: string | null): UseChatSender {
   const [id, setId] = useState<string | null>(initialId);
   const [sending, setSending] = useState(false);
+  const [streaming, setStreaming] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const send = useCallback(
@@ -117,6 +103,7 @@ export function useChatSender(initialId: string | null): UseChatSender {
       if (!trimmed) throw new Error('Empty message');
       setError(null);
       setSending(true);
+      setStreaming('');
       try {
         const db = getDb();
         const now = new Date().toISOString();
@@ -149,28 +136,70 @@ export function useChatSender(initialId: string | null): UseChatSender {
         await db.chats.put(chatRow);
         kickSync();
 
-        // Build context fresh per turn so newly logged data is always seen.
         const contextBlob = await buildContextBlob();
 
         const resp = await authFetch('/api/chat', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
           body: JSON.stringify({
             context: contextBlob,
             contextPath: opts.contextPath,
             messages: messagesSoFar.map((m) => ({ role: m.role, content: m.content })),
           }),
         });
-        if (!resp.ok) {
-          const body = (await resp.json().catch(() => ({}))) as ChatApiErr;
+        if (!resp.ok || !resp.body) {
+          const body = (await resp.json().catch(() => ({}))) as { error?: string; detail?: string };
           throw new Error(body.detail ?? body.error ?? `HTTP ${resp.status}`);
         }
-        const body = (await resp.json()) as ChatApiOk;
+
+        // Parse the SSE stream. Each event is `data: {json}\n\n`. We
+        // accumulate `delta` events into `accumulated`, mirror to local
+        // `streaming` for live render, and finalize on `done`.
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let accumulated = '';
+        let streamErr: string | null = null;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          // Split on the SSE event delimiter; keep partial trailing data
+          // in the buffer for the next iteration.
+          let idx: number;
+          while ((idx = buffer.indexOf('\n\n')) >= 0) {
+            const eventBlock = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            const dataLine = eventBlock
+              .split('\n')
+              .find((l) => l.startsWith('data:'));
+            if (!dataLine) continue;
+            const json = dataLine.slice(5).trim();
+            if (!json) continue;
+            try {
+              const evt = JSON.parse(json) as
+                | { type: 'delta'; text: string }
+                | { type: 'done'; modelInfo: unknown }
+                | { type: 'error'; detail: string };
+              if (evt.type === 'delta') {
+                accumulated += evt.text;
+                setStreaming(accumulated);
+              } else if (evt.type === 'error') {
+                streamErr = evt.detail;
+              }
+            } catch {
+              // Tolerate keep-alives or malformed lines without aborting.
+            }
+          }
+        }
+        if (streamErr) throw new Error(streamErr);
+        if (!accumulated.trim()) throw new Error('Empty response from model');
+
         const replyTs = new Date().toISOString();
         const assistantMsg: ChatMessage = {
           id: nanoid(),
           role: 'assistant',
-          content: body.content,
+          content: accumulated,
           createdAt: replyTs,
         };
         const finalMessages = [...messagesSoFar, assistantMsg];
@@ -186,12 +215,28 @@ export function useChatSender(initialId: string | null): UseChatSender {
         throw e;
       } finally {
         setSending(false);
+        setStreaming('');
       }
     },
     [id, sending],
   );
 
-  return { send, id, sending, error };
+  return { send, id, sending, streaming, error };
+}
+
+/** Rename a chat conversation. */
+export async function renameChat(id: string, title: string): Promise<void> {
+  const trimmed = title.trim();
+  if (!trimmed) return;
+  const db = getDb();
+  const row = await db.chats.get(id);
+  if (!row) return;
+  await db.chats.put({
+    ...row,
+    title: trimmed.length <= 80 ? trimmed : trimmed.slice(0, 77) + '…',
+    updatedAt: new Date().toISOString(),
+  });
+  kickSync();
 }
 
 /** Delete a chat conversation. */

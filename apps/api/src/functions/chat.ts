@@ -4,6 +4,7 @@ import {
   type HttpResponseInit,
   type InvocationContext,
 } from '@azure/functions';
+import { Readable } from 'node:stream';
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyRequest } from '../auth';
 
@@ -107,42 +108,48 @@ ${context}
 
   const client = new Anthropic({ apiKey });
   const startedAt = Date.now();
-  let raw = '';
-  let usage: { input_tokens?: number; output_tokens?: number } | undefined;
-  try {
-    const msg = await client.messages.create({
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      system: systemPrompt,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    });
-    raw = msg.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n');
-    usage = msg.usage;
-  } catch (err) {
-    ctx.log(`chat: LLM call failed: ${(err as Error).message}`);
-    return {
-      status: 502,
-      jsonBody: { error: 'llm-call-failed', detail: (err as Error).message },
-    };
+
+  // Stream the response as SSE. Each event is a single JSON object:
+  // {type:'delta', text:'…'} for content chunks, {type:'done', modelInfo}
+  // as the final event, {type:'error', detail} for upstream failure
+  // mid-stream. The client reads via response.body + TextDecoder and
+  // appends `text` chunks to the live message bubble.
+  async function* sseGenerator(): AsyncGenerator<string, void, unknown> {
+    try {
+      const upstream = await client.messages.stream({
+        model,
+        max_tokens: maxTokens,
+        temperature,
+        system: systemPrompt,
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      });
+      for await (const ev of upstream) {
+        if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') {
+          yield `data: ${JSON.stringify({ type: 'delta', text: ev.delta.text })}\n\n`;
+        }
+      }
+      const finalMsg = await upstream.finalMessage();
+      const modelInfo = {
+        model,
+        elapsedMs: Date.now() - startedAt,
+        inputTokens: finalMsg.usage?.input_tokens,
+        outputTokens: finalMsg.usage?.output_tokens,
+      };
+      yield `data: ${JSON.stringify({ type: 'done', modelInfo })}\n\n`;
+    } catch (err) {
+      ctx.log(`chat: LLM stream failed: ${(err as Error).message}`);
+      yield `data: ${JSON.stringify({ type: 'error', detail: (err as Error).message })}\n\n`;
+    }
   }
 
-  const elapsedMs = Date.now() - startedAt;
   return {
     status: 200,
-    jsonBody: {
-      ok: true,
-      content: raw,
-      modelInfo: {
-        model,
-        elapsedMs,
-        inputTokens: usage?.input_tokens,
-        outputTokens: usage?.output_tokens,
-      },
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      'x-accel-buffering': 'no',
     },
+    body: Readable.from(sseGenerator()),
   };
 }
 

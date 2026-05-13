@@ -2,20 +2,36 @@
 
 // ChatPanel — the reusable conversation widget. Same body renders both inside
 // the FAB drawer and the full-screen /chat route. Owns the user-input box,
-// message rendering, suggested-prompt chips on empty state, and the loading
-// indicator. Conversation persistence lives in `useChat` / `useChatSender`.
+// message rendering (with markdown), suggested-prompt chips on empty state,
+// the streaming/loading indicator, and inline title rename.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { Chat, ChatMessage } from '@wendler/db-schema';
-import { useChat, useChatSender, deleteChat } from '@/lib/useChat';
+import { useChat, useChatSender, renameChat } from '@/lib/useChat';
 
 const SUGGESTED_PROMPTS = [
-  'Analyze my running history and tell me what you see.',
-  'Given my upcoming A-race, am I on track for my target time?',
-  'Where are my strength gains stalling? What should I change?',
-  'Plan my next training block given everything you know.',
-  'How does my last 4 weeks compare to the same period last year?',
+  {
+    title: 'Half-marathon readiness',
+    body: 'Analyze my running history. Can I run my upcoming half-marathon under 2 hours, or do I need to increase my volume — and what kind of running given my overall load?',
+    icon: '🏃',
+  },
+  {
+    title: 'Race target check',
+    body: 'Given my upcoming A-race, am I on track for the target time? What should I change in the next 4 weeks?',
+    icon: '🎯',
+  },
+  {
+    title: 'Where am I stalling?',
+    body: 'Where are my strength gains stalling on the four main lifts? What should I change?',
+    icon: '🪨',
+  },
+  {
+    title: 'Plan next block',
+    body: 'Plan my next training block given my current TMs, recent fatigue, race calendar, and Training Profile.',
+    icon: '🧭',
+  },
 ];
 
 interface ChatPanelProps {
@@ -32,24 +48,25 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
   const chat = useChat(chatId);
   const sender = useChatSender(chatId);
   const [draft, setDraft] = useState('');
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const onChatIdChangeRef = useRef(onChatIdChange);
   useEffect(() => {
     onChatIdChangeRef.current = onChatIdChange;
   }, [onChatIdChange]);
 
-  // Bubble the new id back to the URL once after first send.
   useEffect(() => {
     if (sender.id && sender.id !== chatId) {
       onChatIdChangeRef.current?.(sender.id);
     }
   }, [sender.id, chatId]);
 
-  // Auto-scroll on new messages.
+  // Auto-scroll on new messages or streaming chunks.
   useEffect(() => {
     if (!listRef.current) return;
     listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [chat?.messages.length, sender.sending]);
+  }, [chat?.messages.length, sender.sending, sender.streaming]);
 
   const submit = async (text: string) => {
     if (!text.trim() || sender.sending) return;
@@ -57,9 +74,20 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
     try {
       await sender.send(text, { contextPath });
     } catch {
-      // Error is surfaced via sender.error; leave the draft empty so the
-      // user can retype if they want.
+      // Surfaced via sender.error.
     }
+  };
+
+  const startRename = () => {
+    if (!chat) return;
+    setTitleDraft(chat.title);
+    setEditingTitle(true);
+  };
+  const commitRename = async () => {
+    if (chat && titleDraft.trim()) {
+      await renameChat(chat.id, titleDraft);
+    }
+    setEditingTitle(false);
   };
 
   const isEmpty = !chat || chat.messages.length === 0;
@@ -67,8 +95,34 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between gap-2 border-b border-border bg-card/80 px-3 py-2 backdrop-blur">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{chat?.title ?? 'New chat'}</h2>
+        <div className="min-w-0 flex-1">
+          {editingTitle ? (
+            <input
+              autoFocus
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={() => void commitRename()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void commitRename();
+                } else if (e.key === 'Escape') {
+                  setEditingTitle(false);
+                }
+              }}
+              className="w-full rounded-md border border-border bg-bg px-2 py-1 text-sm focus:border-accent focus:outline-none"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={chat ? startRename : undefined}
+              disabled={!chat}
+              title={chat ? 'Click to rename' : undefined}
+              className="block w-full truncate text-left text-sm font-semibold hover:text-accent disabled:cursor-default disabled:hover:text-fg"
+            >
+              {chat?.title ?? 'New chat'}
+            </button>
+          )}
           <p className="text-[10px] text-muted">
             Grounded in your training snapshot · Sonnet 4.6
           </p>
@@ -84,7 +138,9 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
             {chat!.messages.map((m) => (
               <MessageBubble key={m.id} message={m} />
             ))}
-            {sender.sending && <PendingBubble />}
+            {sender.sending && (
+              <StreamingBubble text={sender.streaming} />
+            )}
           </ul>
         )}
         {sender.error && (
@@ -106,26 +162,37 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
 
 function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
   return (
-    <div className="space-y-3 text-sm">
-      <p className="text-muted">
-        Ask anything about your training. Some ideas:
-      </p>
-      <ul className="space-y-1.5">
+    <div className="mx-auto max-w-md space-y-4 px-1 py-2 text-sm">
+      <div className="space-y-1 text-center">
+        <div className="text-2xl">💬</div>
+        <h3 className="text-base font-semibold">Ask your training coach</h3>
+        <p className="text-xs text-muted">
+          Grounded in your strength, cardio, recovery, race, and profile data.
+        </p>
+      </div>
+      <ul className="space-y-2">
         {SUGGESTED_PROMPTS.map((p) => (
-          <li key={p}>
+          <li key={p.title}>
             <button
               type="button"
-              onClick={() => onPick(p)}
-              className="w-full rounded-md border border-border bg-card px-3 py-2 text-left text-sm text-fg hover:border-accent hover:bg-accent/10"
+              onClick={() => onPick(p.body)}
+              className="group flex w-full items-start gap-3 rounded-xl border border-border bg-bg/40 px-3 py-2.5 text-left transition hover:border-accent hover:bg-accent/5"
             >
-              {p}
+              <span aria-hidden className="mt-0.5 text-base">{p.icon}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-medium text-fg group-hover:text-accent">
+                  {p.title}
+                </span>
+                <span className="mt-0.5 line-clamp-2 block text-[11px] leading-snug text-muted">
+                  {p.body}
+                </span>
+              </span>
             </button>
           </li>
         ))}
       </ul>
-      <p className="pt-1 text-[11px] text-muted">
-        Your data stays private. Each turn sends a fresh snapshot to Claude
-        and the response is logged on your devices via the existing sync.
+      <p className="pt-1 text-center text-[10px] text-muted">
+        Your data stays private — sent to Claude per turn, never stored server-side.
       </p>
     </div>
   );
@@ -136,30 +203,94 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   return (
     <li className={isUser ? 'flex justify-end' : 'flex justify-start'}>
       <div
-        className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-relaxed ${
+        className={`max-w-[90%] rounded-lg px-3 py-2 text-sm leading-relaxed ${
           isUser
-            ? 'bg-accent/15 text-fg'
+            ? 'whitespace-pre-wrap bg-accent/15 text-fg'
             : 'border border-border bg-card text-fg'
         }`}
       >
-        {message.content}
+        {isUser ? message.content : <MarkdownBody content={message.content} />}
       </div>
     </li>
   );
 }
 
-function PendingBubble() {
+function StreamingBubble({ text }: { text: string }) {
   return (
     <li className="flex justify-start">
-      <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted">
-        <span className="inline-flex gap-0.5">
-          <span className="animate-pulse">•</span>
-          <span className="animate-pulse [animation-delay:120ms]">•</span>
-          <span className="animate-pulse [animation-delay:240ms]">•</span>
-        </span>
-        <span className="ml-2">Thinking…</span>
+      <div className="max-w-[90%] rounded-lg border border-border bg-card px-3 py-2 text-sm text-fg">
+        {text ? (
+          <>
+            <MarkdownBody content={text} />
+            <span className="ml-0.5 inline-block h-3 w-2 animate-pulse bg-accent align-middle" aria-hidden />
+          </>
+        ) : (
+          <span className="text-muted">
+            <span className="inline-flex gap-0.5">
+              <span className="animate-pulse">•</span>
+              <span className="animate-pulse [animation-delay:120ms]">•</span>
+              <span className="animate-pulse [animation-delay:240ms]">•</span>
+            </span>
+            <span className="ml-2">Thinking…</span>
+          </span>
+        )}
       </div>
     </li>
+  );
+}
+
+function MarkdownBody({ content }: { content: string }) {
+  return (
+    <div className="chat-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: (props) => <h1 className="mt-3 mb-1 text-base font-semibold" {...props} />,
+          h2: (props) => <h2 className="mt-3 mb-1 text-sm font-semibold" {...props} />,
+          h3: (props) => <h3 className="mt-2 mb-1 text-sm font-semibold" {...props} />,
+          p: (props) => <p className="my-1.5 leading-relaxed" {...props} />,
+          ul: (props) => <ul className="my-1.5 list-disc space-y-0.5 pl-5" {...props} />,
+          ol: (props) => <ol className="my-1.5 list-decimal space-y-0.5 pl-5" {...props} />,
+          li: (props) => <li className="leading-relaxed" {...props} />,
+          strong: (props) => <strong className="font-semibold text-fg" {...props} />,
+          em: (props) => <em className="italic" {...props} />,
+          code: ({ className, children, ...props }) => {
+            const isBlock = className?.includes('language-');
+            if (isBlock) {
+              return (
+                <code className="block whitespace-pre-wrap rounded-md bg-bg/80 p-2 text-[12px] font-mono" {...props}>
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <code className="rounded bg-bg/70 px-1 py-0.5 text-[12px] font-mono" {...props}>
+                {children}
+              </code>
+            );
+          },
+          pre: (props) => <pre className="my-2 overflow-x-auto" {...props} />,
+          blockquote: (props) => (
+            <blockquote className="my-2 border-l-2 border-accent/50 pl-3 text-muted" {...props} />
+          ),
+          table: (props) => (
+            <div className="my-2 overflow-x-auto">
+              <table className="w-full border-collapse text-[12px]" {...props} />
+            </div>
+          ),
+          th: (props) => (
+            <th className="border-b border-border px-2 py-1 text-left font-semibold" {...props} />
+          ),
+          td: (props) => <td className="border-b border-border/40 px-2 py-1 align-top" {...props} />,
+          a: (props) => (
+            <a className="text-accent underline-offset-2 hover:underline" target="_blank" rel="noreferrer" {...props} />
+          ),
+          hr: () => <hr className="my-3 border-border" />,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 }
 
@@ -208,8 +339,8 @@ function Composer({
 }
 
 /**
- * Conversation list — used on the full-screen route's sidebar. The drawer
- * exposes a "history" affordance that pops this in place.
+ * Conversation list — used on the full-screen route's sidebar and the
+ * drawer's history affordance.
  */
 export function ChatConversationList({
   selectedId,
@@ -249,7 +380,9 @@ export function ChatConversationList({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (confirm('Delete this conversation?')) void deleteChat(c.id);
+                  if (confirm('Delete this conversation?')) {
+                    void import('@/lib/useChat').then((m) => m.deleteChat(c.id));
+                  }
                 }}
                 className="ml-2 text-[10px] text-muted/70 hover:text-rose-300"
                 aria-label="Delete"
@@ -263,11 +396,6 @@ export function ChatConversationList({
           <li className="px-3 py-3 text-xs text-muted">No conversations yet.</li>
         )}
       </ul>
-      <footer className="border-t border-border px-3 py-2 text-[10px] text-muted">
-        <Link href="/chat" className="hover:text-fg">
-          Open full screen →
-        </Link>
-      </footer>
     </div>
   );
 }
