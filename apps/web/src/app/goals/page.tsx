@@ -1,8 +1,9 @@
 'use client';
 
-// Goals page — simplified Phase-6+ revision.
+// Goals page — Phase-6+ revision (v314: per-goal "Training emphasis"
+// editor retired).
 //
-// UX rewrite goals:
+// UX rewrite goals (kept from earlier revision):
 // - 3 goal kinds, not 6 (dropped "Race time" → /races handles it; dropped
 //   "Custom" → use Focus instead; dropped "Habit" — wasn't used in practice).
 //   Old goals with those legacy kinds still render fine, we just don't surface
@@ -10,25 +11,26 @@
 // - No unit input — it's pre-determined by the kind ("kg" for strength-pr /
 //   body-comp). Users were typing it manually for no reason.
 // - Notes hidden behind a toggle (most goals don't need them).
-// - The Goal.flavors[] field is surfaced as "Training emphasis" in the UI —
-//   "flavors" is internal-jargon that didn't communicate the purpose. Each
-//   option carries an `effect` one-liner that explains exactly what the
-//   assistance suggester does when it's selected, and the form shows a live
-//   "→ ..." summary as the user toggles them.
-// - Auto-populated from the kind. The "Customize training emphasis" toggle
-//   is collapsed by default. Cards show pills only when they differ from the
-//   defaults; tap "Edit emphasis" to change them inline.
 // - Lift picker is inline next to the title for strength-pr (required).
 // - Tighter active-card layout — single info line, optional notes line, mute
 //   the secondary actions.
+//
+// v314: the per-goal "Training emphasis" picker is removed entirely. The
+// vocabulary (strength / hypertrophy / functional / conditioning / prehab)
+// overlapped confusingly with the Training Profile's primary + secondary
+// goals on /profile, and users were setting the same conceptual posture in
+// two places. Profile is now the single source of truth for emphasis. The
+// `Goal.flavors` schema field is preserved on existing rows and the
+// suggester still reads it (falling back to `defaultFlavorsForKind(kind)`
+// when absent) — so old data keeps working — but new goals don't write the
+// field and the editor is gone from the UI.
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useGoals, useMovements, useSettings, useRunPlan } from '@/lib/hooks';
+import { useGoals, useMovements, useSettings } from '@/lib/hooks';
 import { getDb } from '@/lib/db';
 import { deleteWithTombstones } from '@/lib/delete';
-import type { Goal, GoalFlavor, GoalSignal } from '@wendler/db-schema';
-import { defaultFlavorsForKind } from '@wendler/db-schema';
+import type { Goal, GoalSignal } from '@wendler/db-schema';
 import type { MainLift } from '@wendler/domain';
 import { TrainingGoalsSection } from '@/components/TrainingGoalsSection';
 
@@ -61,188 +63,6 @@ const MAIN_LIFT_LABEL: Record<MainLift, string> = {
   press: 'Overhead Press',
 };
 
-// Training-emphasis tags. The label/hint is what the user sees; `effect` is the
-// concrete one-liner shown live as the user toggles them so they understand
-// what the suggester will do.
-const EMPHASIS_OPTIONS: {
-  id: GoalFlavor;
-  label: string;
-  hint: string;
-  effect: string;
-}[] = [
-  {
-    id: 'strength',
-    label: 'Strength',
-    hint: 'Compound lifts, heavier loads, lower reps.',
-    effect: 'Suggests compound assistance (chins, dips, rows) at 5–8 reps.',
-  },
-  {
-    id: 'hypertrophy',
-    label: 'Hypertrophy',
-    hint: 'Isolation work, 8–15 reps, physique-building.',
-    effect: 'Adds isolation slots (curls, lateral raises, leg curls) at 10–15 reps.',
-  },
-  {
-    id: 'functional',
-    label: 'Functional',
-    hint: 'Real-life carry-over: carries, single-leg, anti-rotation.',
-    effect: 'Prefers carries, lunges, single-leg work, and core anti-rotation.',
-  },
-  {
-    id: 'conditioning',
-    label: 'Conditioning',
-    hint: 'Running / cardio is part of the plan.',
-    effect: 'Reduces total assistance volume so cardio has room to recover.',
-  },
-  {
-    id: 'prehab',
-    label: 'Injury prevention',
-    hint: 'Face pulls, band pull-aparts, mobility, balanced shoulders.',
-    effect: 'Reserves a slot for face pulls / band work / mobility on accessory day.',
-  },
-];
-
-function emphasisEffects(selected: GoalFlavor[]): string[] {
-  if (selected.length === 0) return ['Nothing selected — uses Forever defaults for assistance.'];
-  return selected
-    .map((id) => EMPHASIS_OPTIONS.find((o) => o.id === id)?.effect)
-    .filter((s): s is string => Boolean(s));
-}
-
-function effectiveFlavors(g: Goal): GoalFlavor[] {
-  return g.flavors ?? defaultFlavorsForKind(g.kind);
-}
-
-function arraysEqualUnordered<T>(a: T[], b: T[]) {
-  if (a.length !== b.length) return false;
-  const sa = new Set(a);
-  for (const x of b) if (!sa.has(x)) return false;
-  return true;
-}
-
-function EmphasisEditor({
-  selected,
-  onToggle,
-  showSummary = true,
-  autoAppliedIds,
-  autoAppliedHint,
-}: {
-  selected: GoalFlavor[];
-  onToggle: (f: GoalFlavor) => void;
-  showSummary?: boolean;
-  /** Tags shown as forced-on with a dashed amber border (auto-applied by another system). */
-  autoAppliedIds?: GoalFlavor[];
-  autoAppliedHint?: string;
-}) {
-  const auto = new Set(autoAppliedIds ?? []);
-  return (
-    <div className="space-y-1.5">
-      <div className="flex flex-wrap gap-1.5">
-        {EMPHASIS_OPTIONS.map((f) => {
-          const isAuto = auto.has(f.id);
-          const on = isAuto || selected.includes(f.id);
-          return (
-            <button
-              key={f.id}
-              type="button"
-              title={isAuto && autoAppliedHint ? autoAppliedHint : f.hint}
-              aria-pressed={on}
-              onClick={() => !isAuto && onToggle(f.id)}
-              className={`rounded-full border px-2.5 py-0.5 text-[11px] ${
-                isAuto
-                  ? 'cursor-not-allowed border-dashed border-amber-400/80 bg-accent/20 text-fg'
-                  : on
-                    ? 'border-accent bg-accent/20 text-fg'
-                    : 'border-border text-muted hover:text-fg'
-              }`}
-            >
-              {f.label}
-              {isAuto && <span className="ml-1 text-[9px] text-amber-300/90">auto</span>}
-            </button>
-          );
-        })}
-      </div>
-      {autoAppliedHint && autoAppliedIds && autoAppliedIds.length > 0 && (
-        <p className="text-[10px] italic text-muted/80">{autoAppliedHint}</p>
-      )}
-      {showSummary && (
-        <ul className="ml-1 space-y-0.5 text-[11px] leading-snug text-muted">
-          {emphasisEffects(selected).map((line, i) => (
-            <li key={i} className="flex gap-1.5">
-              <span className="text-muted/70">→</span>
-              <span>{line}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {showSummary && (
-        <details className="text-[11px] text-muted">
-          <summary className="cursor-pointer underline-offset-2 hover:text-fg hover:underline">
-            How tags shape assistance picks
-          </summary>
-          <div className="mt-1.5 space-y-1.5 rounded border border-border bg-bg-soft/40 p-2 leading-snug">
-            <p>
-              Tags shape the WHOLE block, not just accessory days. They
-              influence which <strong>slots</strong> get filled
-              (push, pull, single-leg, core, isolation, prehab, carry) and
-              which <strong>movement</strong> wins inside each slot.
-            </p>
-            <ul className="list-disc space-y-0.5 pl-4">
-              <li>
-                <strong>Main lift days</strong> always get 3 categories
-                (push + pull + a third) — Wendler Forever&apos;s rule. The
-                third slot is tag-driven (single-leg / core / isolation /
-                carry). Movement scoring inside each slot also adapts to
-                what the main lifts already covered.
-              </li>
-              <li>
-                <strong>No tags selected</strong> → balanced Forever
-                default. Each slot weighted equally; no carries.
-              </li>
-              <li>
-                <strong>All tags selected</strong> ≠ neutral. Carries
-                enter rotation, prehab is reserved, compound/functional
-                movements out-score isolation when tied.
-              </li>
-              <li>
-                <strong>Strength</strong> shifts push/pull to lower reps,
-                higher sets (5×5–8 instead of the default 4×8–12) and
-                single-leg to 4×6–10.
-              </li>
-              <li>
-                <strong>Hypertrophy</strong> bumps push/pull to 3×10–15,
-                widens isolation reps to 12–20, and adds an extra slot to
-                main days (4 movements instead of 3).
-              </li>
-              <li>
-                <strong>Conditioning</strong> drops a set off every
-                movement (floor at 2) and removes the third slot on main
-                days, leaving push + pull only — to leave room for cardio.
-                Auto-derived if you have a run plan loaded.
-              </li>
-              <li>
-                <strong>Hypertrophy + Conditioning</strong> cancel each
-                other out for slot count → back to the default 3 per main
-                day (rep-range effects still compose).
-              </li>
-              <li>
-                <strong>Pair-aware picks</strong>: bench+DL day prefers
-                shoulder/tri push (chest already done) and back-focused
-                pull (DL covers grip/posterior); squat day prefers
-                hamstring/glute SL work over more quads.
-              </li>
-            </ul>
-            <p className="text-muted/80">
-              Cardio fatigue, equipment access, and warmup contents are
-              factored separately — you don&apos;t need a tag for those.
-            </p>
-          </div>
-        </details>
-      )}
-    </div>
-  );
-}
-
 function formatTarget(g: Goal) {
   if (g.target === undefined) return '';
   return `${g.target}${g.targetUnit ? ' ' + g.targetUnit : ''}`;
@@ -269,14 +89,6 @@ export default function GoalsPage() {
   const goals = useGoals();
   const movements = useMovements();
   const settings = useSettings();
-  const runPlan = useRunPlan();
-  // Conditioning is auto-derived when a run plan is loaded — gray it out so
-  // users don't double-stack a manual toggle on top of the implicit one.
-  const hasRunPlan = (runPlan?.slots?.length ?? 0) > 0;
-  const disabledFlavors: GoalFlavor[] = hasRunPlan ? ['conditioning'] : [];
-  const autoHint = hasRunPlan
-    ? 'Conditioning is auto-applied because you have a run plan loaded.'
-    : undefined;
 
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<NewGoalKind>('strength-pr');
@@ -287,10 +99,6 @@ export default function GoalsPage() {
   const [showNotes, setShowNotes] = useState(false);
   const [signal, setSignal] = useState<GoalSignal>('none');
   const [movementId, setMovementId] = useState<string>('');
-  const [flavors, setFlavors] = useState<GoalFlavor[]>(() =>
-    defaultFlavorsForKind('strength-pr'),
-  );
-  const [showFlavors, setShowFlavors] = useState(false);
   const [editingFor, setEditingFor] = useState<string | null>(null);
   // Inline edit form draft state — keyed by which goal is being edited.
   const [editTitle, setEditTitle] = useState('');
@@ -299,7 +107,6 @@ export default function GoalsPage() {
   const [editNotes, setEditNotes] = useState('');
   const [editMovementId, setEditMovementId] = useState('');
   const [editSignal, setEditSignal] = useState<GoalSignal>('none');
-  const [editFlavors, setEditFlavors] = useState<GoalFlavor[]>([]);
 
   // Movements that can carry a Strength-PR goal: the four 5/3/1 main lifts,
   // resolved per the active program's `mainLiftMovements` mapping.
@@ -338,17 +145,10 @@ export default function GoalsPage() {
     setKind('strength-pr');
     setSignal('none');
     setMovementId('');
-    setFlavors(defaultFlavorsForKind('strength-pr'));
-    setShowFlavors(false);
   }
 
   function selectKind(next: NewGoalKind) {
     setKind(next);
-    setFlavors(defaultFlavorsForKind(next));
-  }
-
-  function toggleFlavor(set: GoalFlavor[], f: GoalFlavor): GoalFlavor[] {
-    return set.includes(f) ? set.filter((x) => x !== f) : [...set, f];
   }
 
   async function save() {
@@ -369,7 +169,6 @@ export default function GoalsPage() {
           : undefined,
       signal: isQualitative ? signal : undefined,
       movementId: isStrengthPr && movementId ? movementId : undefined,
-      flavors: flavors.length ? flavors : undefined,
       notes: notes.trim() || undefined,
       createdAt: now,
       updatedAt: now,
@@ -409,7 +208,6 @@ export default function GoalsPage() {
     setEditNotes(g.notes ?? '');
     setEditMovementId(g.movementId ?? '');
     setEditSignal(g.signal ?? 'none');
-    setEditFlavors(effectiveFlavors(g));
     setEditingFor(g.id);
   }
 
@@ -418,7 +216,6 @@ export default function GoalsPage() {
     const isQualitative = g.kind === 'qualitative' || g.kind === 'custom';
     const isStrengthPr = g.kind === 'strength-pr';
     const now = new Date().toISOString();
-    const flavorsChanged = !arraysEqualUnordered(editFlavors, defaultFlavorsForKind(g.kind));
     await getDb().goals.put({
       ...g,
       title: editTitle.trim(),
@@ -429,7 +226,6 @@ export default function GoalsPage() {
           : undefined,
       signal: isQualitative ? editSignal : g.signal,
       movementId: isStrengthPr ? (editMovementId || undefined) : g.movementId,
-      flavors: flavorsChanged ? editFlavors : undefined,
       notes: editNotes.trim() || undefined,
       updatedAt: now,
     });
@@ -444,7 +240,6 @@ export default function GoalsPage() {
   const activeKind = NEW_GOAL_KINDS.find((k) => k.id === kind)!;
 
   const renderGoalCard = (g: Goal) => {
-    const flavorsList = effectiveFlavors(g);
     const isEditingFor = editingFor === g.id;
     return (
       <div
@@ -601,16 +396,6 @@ export default function GoalsPage() {
                 className="w-full rounded-md border border-border bg-bg px-2 py-1.5 text-sm"
               />
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-medium uppercase tracking-wide text-muted">Training emphasis</label>
-              <EmphasisEditor
-                selected={editFlavors}
-                onToggle={(f) => setEditFlavors((cur) => toggleFlavor(cur, f))}
-                showSummary={false}
-                autoAppliedIds={disabledFlavors}
-                autoAppliedHint={autoHint}
-              />
-            </div>
             <div className="flex justify-end gap-2 pt-1">
               <button
                 type="button"
@@ -630,40 +415,6 @@ export default function GoalsPage() {
             </div>
           </div>
         )}
-
-        {/* Flavor row — always show the effective emphasis tags so the
-            user can see at a glance what's influencing the suggester. Auto-
-            applied tags (e.g. conditioning when a run plan is loaded) get a
-            distinct dashed amber border. */}
-        {(() => {
-          const autoTags: GoalFlavor[] = hasRunPlan ? ['conditioning'] : [];
-          // De-dup auto-applied tags out of the regular pill list so we don't
-          // render the same tag twice when it's also stored on the goal.
-          const regularPills = flavorsList.filter((f) => !autoTags.includes(f));
-          if (regularPills.length === 0 && autoTags.length === 0) return null;
-          return (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {regularPills.map((f) => (
-                <span
-                  key={f}
-                  className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] text-fg"
-                >
-                  {EMPHASIS_OPTIONS.find((x) => x.id === f)?.label ?? f}
-                </span>
-              ))}
-              {autoTags.map((f) => (
-                <span
-                  key={f}
-                  title={autoHint}
-                  className="rounded-full border border-dashed border-amber-400/80 bg-accent/20 px-2 py-0.5 text-[10px] text-fg"
-                >
-                  {EMPHASIS_OPTIONS.find((x) => x.id === f)?.label ?? f}
-                  <span className="ml-1 text-[9px] text-amber-300/90">auto</span>
-                </span>
-              ))}
-            </div>
-          );
-        })()}
       </div>
     );
   };
@@ -847,36 +598,6 @@ export default function GoalsPage() {
               className="w-full rounded-md border border-border bg-bg px-3 py-2 text-sm"
             />
           )}
-
-          {/* Optional: customize training emphasis (legacy — vestigial during
-              the four-axis Training Profile migration period). */}
-          <div className="space-y-1.5">
-            <button
-              type="button"
-              onClick={() => setShowFlavors((v) => !v)}
-              className="text-xs text-muted underline-offset-2 hover:text-fg hover:underline"
-            >
-              {showFlavors ? '− Hide training emphasis' : '+ Customize training emphasis (legacy)'}
-            </button>
-            {showFlavors && (
-              <>
-                <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-100">
-                  ⓘ Per-goal emphasis tags are <strong>no longer used by the
-                  assistance suggester</strong> — this signal moved to the
-                  Training Profile section above (primary + secondary goals,
-                  phase, constraints). The tag editor is kept for one release
-                  so existing tags stay visible while you migrate; new goals
-                  don&apos;t need them.
-                </p>
-                <EmphasisEditor
-                  selected={flavors}
-                  onToggle={(f) => setFlavors((cur) => toggleFlavor(cur, f))}
-                  autoAppliedIds={disabledFlavors}
-                  autoAppliedHint={autoHint}
-                />
-              </>
-            )}
-          </div>
 
           <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
             <button
