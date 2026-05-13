@@ -9,6 +9,7 @@
 
 import Link from 'next/link';
 import { TrainingGoalsSection } from '@/components/TrainingGoalsSection';
+import { BodyweightCard } from '@/components/Readiness';
 
 export default function ProfilePage() {
   return (
@@ -27,6 +28,8 @@ export default function ProfilePage() {
       </header>
 
       <TrainingGoalsSection />
+
+      <BodyweightCard />
     </div>
   );
 }

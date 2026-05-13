@@ -18,6 +18,7 @@ import { ThisWeekCard } from '@/components/ThisWeekCard';
 import { TrainingMaxesCard } from '@/components/TrainingMaxesCard';
 import { RecentSessionsList } from '@/components/RecentSessionsList';
 import { ActiveGoalsCard } from '@/components/ActiveGoalsCard';
+import { FatigueSorenessCard } from '@/components/Readiness';
 
 function blockWeeks(b: { weeksBeforeDeload: number }): number {
   // See note in /program/detail: legacy `includesDeload` is intentionally
@@ -123,6 +124,8 @@ export default function Home() {
               </Link>
             </div>
           )}
+
+          {hasTms && <FatigueSorenessCard />}
 
           {/* Goals card moved to the right rail under Training Maxes */}
           {(visibleDays.length > 0 ||
