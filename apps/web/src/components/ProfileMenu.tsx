@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { startBackgroundSync, subscribeSyncStatus, syncNow, type SyncStatus } from '@/lib/sync';
@@ -45,9 +44,9 @@ function initialsFor(name: string): string {
 
 /**
  * Compact profile control for the top nav: a colored sync dot + an avatar
- * button. Clicking the avatar opens a small menu with profile info, settings,
- * "More" (Goals / Cardio / Recovery / Movements), and Sign out — keeping the
- * primary nav free of those concerns.
+ * button. Clicking the avatar opens a small menu with account info, sync
+ * status, and Sign out — app-level destinations (Settings, Goals, etc.) live
+ * in the primary "More" tab instead, so the avatar stays account-scoped.
  */
 export function ProfileMenu() {
   const auth = useAuth();
@@ -136,20 +135,6 @@ export function ProfileMenu() {
             )}
           </div>
           <nav className="flex flex-col py-1 text-sm">
-            <Link
-              href="/settings"
-              onClick={() => setOpen(false)}
-              className="px-3 py-2 hover:bg-bg/50"
-            >
-              Settings
-            </Link>
-            <Link
-              href="/more"
-              onClick={() => setOpen(false)}
-              className="px-3 py-2 hover:bg-bg/50"
-            >
-              More tools
-            </Link>
             <button
               type="button"
               onClick={() => {

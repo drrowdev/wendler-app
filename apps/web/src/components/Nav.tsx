@@ -63,10 +63,11 @@ const PRIMARY_TABS: Tab[] = [
   { href: '/load', label: 'Load', icon: <Icon>{I.load}</Icon> },
 ];
 
-// On mobile only: surface a "More" tab so the auxiliary tools (Goals, Cardio,
-// Recovery, Movements, Settings) remain reachable without forcing users to
-// open the avatar menu on small screens.
-const MOBILE_MORE_TAB: Tab = {
+// On both viewports: surface a "More" tab so auxiliary tools (Goals, Races,
+// Recovery, Movements, Notifications, Settings) remain reachable without
+// forcing users into the avatar menu. Single IA, same shape on phone and
+// desktop.
+const MORE_TAB: Tab = {
   href: '/more',
   label: 'More',
   icon: <Icon>{I.more}</Icon>,
@@ -78,7 +79,8 @@ export function Nav() {
   const isActive = (href: string) =>
     path === href || (href !== '/' && path.startsWith(href));
 
-  const mobileTabs = [...PRIMARY_TABS, MOBILE_MORE_TAB];
+  const mobileTabs = [...PRIMARY_TABS, MORE_TAB];
+  const desktopTabs = [...PRIMARY_TABS, MORE_TAB];
 
   return (
     <>
@@ -145,7 +147,7 @@ export function Nav() {
             })}
           </div>
           <div className="hidden md:flex md:flex-none md:gap-1">
-            {PRIMARY_TABS.map((t) => {
+            {desktopTabs.map((t) => {
               const active = isActive(t.href);
               return (
                 <Link

@@ -5,6 +5,8 @@ const ITEMS = [
   { href: '/races', label: 'Races', desc: 'Race calendar, taper priority, results', icon: '🏁' },
   { href: '/recovery', label: 'Recovery', desc: 'Sleep, HRV, fatigue, soreness', icon: '🛌' },
   { href: '/movements', label: 'Movements', desc: 'Library, custom lifts, cues', icon: '🏋️' },
+  { href: '/notifications', label: 'Notifications', desc: 'Auto-event history, AI rationales', icon: '🔔' },
+  { href: '/settings', label: 'Settings', desc: 'Equipment, timer, display, Strava, backup', icon: '⚙️' },
 ];
 
 export default function MorePage() {
