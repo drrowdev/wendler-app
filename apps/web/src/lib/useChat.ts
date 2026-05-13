@@ -6,7 +6,7 @@
 // Dexie so the conversation survives reloads and syncs across devices via
 // the LWW pipeline (see sync.ts → chat kind).
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { nanoid } from 'nanoid';
 import type { Chat, ChatMessage } from '@wendler/db-schema';
@@ -90,11 +90,19 @@ export interface UseChatSender {
  * response streams in. The pre-final assistant text is exposed as
  * `streaming` and rendered as a pending bubble by the panel.
  */
-export function useChatSender(initialId: string | null): UseChatSender {
-  const [id, setId] = useState<string | null>(initialId);
+export function useChatSender(externalId: string | null): UseChatSender {
+  const [id, setId] = useState<string | null>(externalId);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // Keep internal id in sync when the parent switches conversations
+  // (e.g. user clicks "New chat" → externalId becomes null). Without this,
+  // the sender would keep appending to the previous conversation. We skip
+  // mid-send to avoid clobbering an in-flight request.
+  useEffect(() => {
+    if (!sending) setId(externalId);
+  }, [externalId, sending]);
 
   const send = useCallback(
     async (content: string, opts: SendOptions = {}): Promise<string> => {

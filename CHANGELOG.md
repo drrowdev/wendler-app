@@ -8,8 +8,11 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
-### Changed
-- **Chat system prompt tuning (SW v319).** Round of upgrades to the chat prompt based on a review:
+### Fixed
+- **Full-screen chat: add back/close + mobile conversations sheet, and "New chat" actually resets (SW v320).**
+  - The /chat route had no header chrome — once you tapped "Expand" in the drawer you were stuck on /chat with no way back (the FAB is hidden on this route). Added a header button cluster: a back arrow (uses `router.back()` falling back to `/`), a close X (links home), and on mobile only, a hamburger that opens the conversation list as a bottom-sheet (the sidebar is desktop-only). The /chat top nav is still available too — this just adds in-panel affordances.
+  - **"+ New" no longer resurrects the open conversation.** `useChatSender` cached the conversation id only on mount, so when the parent flipped `chatId` to `null` the sender kept its previous id and the next send appended to the old chat. Added a `useEffect` that re-syncs the internal id whenever the external prop changes (skipped mid-send to avoid clobbering an in-flight request).
+- **Chat system prompt tuning (SW v319).**Round of upgrades to the chat prompt based on a review:
   - **Today's date injected.** Client sends `todayLocal` (YYYY-MM-DD in user's local timezone) on every turn; API adds `Today's date: …` to the system prompt so "race in 3 weeks" reasoning works without guessing.
   - **Response depth guidance.** Replaced "be concise" with "match response depth to question complexity. Short factual questions get one-sentence answers. Diagnostic or planning questions get structured multi-paragraph analysis — don't underdeliver." The half-marathon-readiness style of question now gets the substance it asks for.
   - **[Data] vs [Opinion] labels.** Mandated inline labels: `[Data]` for snapshot-cited statements, `[Opinion]` for interpretive coaching. Standardised format makes claims auditable and opens the door to styling them in UI later.
