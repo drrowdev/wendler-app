@@ -398,38 +398,101 @@ export function getDb(): WendlerDb {
 }
 
 /**
- * Wrap singleton writes with a breadcrumb log so we can identify the wiper
- * next time the data-wipe bug recurs. Captures stack trace + payload shape
- * into a circular buffer in localStorage. See incident 2026-05-04.
+ * Wrap singleton writes with a breadcrumb log AND a bare-over-rich
+ * write guard. The previous version of this tap only logged; v323 makes
+ * it active — if the incoming row is bare-shaped and the existing local
+ * row is rich, the write is refused and a notification is filed in the
+ * inbox so the user has a breadcrumb explaining why nothing changed.
+ *
+ * This is a belt to the sync layer's suspenders: sync.ts already refuses
+ * to apply or push bare singletons, but it can't help if a UI bug writes
+ * a bare row directly to Dexie. With this tap, that path is closed too.
+ *
+ * Captures stack trace + payload shape into a circular buffer in
+ * localStorage either way. See incident 2026-05-04 (settings wiper) and
+ * incident 2026-05-13 (schedule wiper — root cause unknown, defenses
+ * upgraded to write-time as a result).
  */
 function installSingletonWriteBreadcrumbs(db: WendlerDb) {
+  const isBareSchedule = (payload: Record<string, unknown>) =>
+    !payload.dayGroups && payload.liftsPerDay == null && !payload.cursor &&
+    !payload.activeBlockId && !payload.supplementalTemplate;
+  const isBareSettings = (payload: Record<string, unknown>) => {
+    const pairs = (payload.pairsByWeight as Record<string, number>) ?? {};
+    const vals = Object.values(pairs);
+    return vals.length > 0 && vals.every((x) => x <= 5);
+  };
+  const isBare = (table: 'schedule' | 'settings', payload: Record<string, unknown>) =>
+    table === 'schedule' ? isBareSchedule(payload) : isBareSettings(payload);
+
   const tap = (table: 'schedule' | 'settings') => {
-    const t = db[table] as unknown as { put: (v: unknown) => Promise<unknown> };
-    const orig = t.put.bind(t);
+    const t = db[table] as unknown as {
+      put: (v: unknown) => Promise<unknown>;
+      get: (k: string) => Promise<unknown>;
+    };
+    const origPut = t.put.bind(t);
+    const origGet = t.get.bind(t);
     t.put = async (v: unknown) => {
-      try {
-        const payload = v as Record<string, unknown>;
-        const bare = table === 'schedule'
-          ? !payload.dayGroups && payload.liftsPerDay == null && !payload.cursor &&
-            !payload.activeBlockId && !payload.supplementalTemplate
-          : (() => {
-              const pairs = (payload.pairsByWeight as Record<string, number>) ?? {};
-              const vals = Object.values(pairs);
-              return vals.length > 0 && vals.every((x) => x <= 5);
-            })();
-        if (bare) {
-          const trace = new Error().stack ?? '(no stack)';
-          console.warn(`[db] BARE ${table}.put detected`, { payload, trace });
-          try {
-            const KEY = '__wendler_wipe_breadcrumbs';
-            const buf = JSON.parse(localStorage.getItem(KEY) || '[]') as unknown[];
-            buf.push({ at: new Date().toISOString(), table, payload, trace, url: location.href });
-            while (buf.length > 20) buf.shift();
-            localStorage.setItem(KEY, JSON.stringify(buf));
-          } catch {}
+      const payload = (v as Record<string, unknown>) ?? {};
+      const incomingBare = (() => {
+        try { return isBare(table, payload); } catch { return false; }
+      })();
+      if (incomingBare) {
+        const trace = new Error().stack ?? '(no stack)';
+        // Read current row to decide whether to refuse.
+        let localBare = true;
+        try {
+          const local = (await origGet('singleton')) as Record<string, unknown> | undefined;
+          localBare = local ? isBare(table, local) : true;
+        } catch {}
+        // Always log the breadcrumb.
+        console.warn(`[db] BARE ${table}.put detected`, { payload, trace, localBare });
+        try {
+          const KEY = '__wendler_wipe_breadcrumbs';
+          const buf = JSON.parse(localStorage.getItem(KEY) || '[]') as unknown[];
+          buf.push({
+            at: new Date().toISOString(),
+            table,
+            payload,
+            localBare,
+            refused: !localBare,
+            trace,
+            url: location.href,
+          });
+          while (buf.length > 20) buf.shift();
+          localStorage.setItem(KEY, JSON.stringify(buf));
+        } catch {}
+        // Refuse if local was rich.
+        if (!localBare) {
+          console.error(
+            `[db] REFUSED bare ${table} write that would have overwritten a rich local row`,
+          );
+          // Lazy-import notify to avoid a circular module dep — db.ts is
+          // imported by lots of code paths and notify.ts → sync.ts.
+          void import('./notify').then(({ notify }) => {
+            void notify.warn({
+              channel: 'system',
+              title:
+                table === 'schedule'
+                  ? 'Refused a write that would have wiped Program defaults'
+                  : 'Refused a write that would have wiped Settings',
+              body:
+                table === 'schedule'
+                  ? 'A bug tried to overwrite your Program defaults (lift groupings, supplemental template, day cadence) with default values. The write was blocked. If you see this repeatedly, please check the browser console for the stack trace tagged "[db] REFUSED bare schedule write".'
+                  : 'A bug tried to overwrite your Settings (equipment, warm-up, rest timer) with defaults. The write was blocked.',
+              deepLink:
+                table === 'schedule'
+                  ? { href: '/program/detail', label: 'Open Program defaults' }
+                  : { href: '/settings', label: 'Open Settings' },
+              context: { localBare, payload, trace },
+            });
+          }).catch(() => {});
+          // Resolve with the existing local row's id so callers awaiting
+          // a put-result keep working (Dexie's put returns the primary key).
+          return 'singleton';
         }
-      } catch {}
-      return orig(v);
+      }
+      return origPut(v);
     };
   };
   tap('schedule');
