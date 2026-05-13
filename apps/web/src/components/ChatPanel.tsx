@@ -56,12 +56,6 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
     onChatIdChangeRef.current = onChatIdChange;
   }, [onChatIdChange]);
 
-  useEffect(() => {
-    if (sender.id && sender.id !== chatId) {
-      onChatIdChangeRef.current?.(sender.id);
-    }
-  }, [sender.id, chatId]);
-
   // Auto-scroll on new messages or streaming chunks.
   useEffect(() => {
     if (!listRef.current) return;
@@ -72,7 +66,11 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
     if (!text.trim() || sender.sending) return;
     setDraft('');
     try {
-      await sender.send(text, { contextPath });
+      const newId = await sender.send(text, { contextPath });
+      // Bubble up the (possibly newly-minted) id once per send. Direct call
+      // — not a useEffect — so we don't accidentally re-emit a stale id
+      // when the parent flips chatId to null (e.g. "+ New").
+      if (newId && newId !== chatId) onChatIdChangeRef.current?.(newId);
     } catch {
       // Surfaced via sender.error.
     }

@@ -9,6 +9,7 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 ## [Unreleased]
 
 ### Fixed
+- **Chat "+ New" reset bug — third (final) layer (SW v322).** ChatPanel had a `useEffect` that bubbled `sender.id` up to the parent whenever it differed from `chatId`. When the parent flipped `chatId` to null (the "+" button), the sender's internal id was momentarily still the old id (one render tick before its own sync effect ran). The bubble effect saw "they differ" and re-emitted the old id back up to the parent, which set it again. Replaced the effect with a direct `onChatIdChange(newId)` call inside `submit()` after `send()` completes — the only legitimate case for bubbling. v320 fixed the sender's stale id; v321 fixed the drawer's auto-select; v322 fixes the bubble loop between them.
 - **Chat: "+ New" actually resets, exposed in header, readiness hint matches 1–5 scale (SW v321).**
   - **Root cause of the "+ New keeps the old chat" bug:** the ChatDrawer had an auto-select-most-recent `useEffect` (`if (!chatId) setChatId(conversations[0])`) that re-set the chat the moment "+ New" cleared it. Added a `userTouched` flag — auto-select only fires on first open, never overrides an explicit user choice (including the explicit choice of "start fresh"). v320's `useChatSender` fix was correct but masked by this second bug upstream.
   - **"+ New" button now in the chat header** on both the drawer and the full-screen route, alongside History, Expand/Back, Close. Previously buried two clicks deep behind the hamburger.
