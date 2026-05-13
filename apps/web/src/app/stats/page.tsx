@@ -19,7 +19,6 @@ import { KpiTile } from '@/components/analytics/KpiTile';
 import { WeeklyTonnageCard } from '@/components/analytics/WeeklyTonnageCard';
 import { AssistanceVolumeCard } from '@/components/analytics/AssistanceVolumeCard';
 import { PushPullBalanceCard } from '@/components/analytics/PushPullBalanceCard';
-import { MuscleHeatmapCard } from '@/components/analytics/MuscleHeatmapCard';
 import { OneRmHistoryCard } from '@/components/analytics/OneRmHistoryCard';
 import { CardioVolumeCard } from '@/components/analytics/CardioVolumeCard';
 import { HrZonesCard } from '@/components/analytics/HrZonesCard';
@@ -257,7 +256,6 @@ export default function StatsPage() {
               cellSize={26}
             />
           )}
-          <MuscleHeatmapCard recentSets={recentSets} movements={movements} />
           <OneRmHistoryCard tms={tms} slotMovements={slotMovements} />
         </>
       )}
