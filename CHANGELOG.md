@@ -8,6 +8,9 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed
+- **Deleted notifications no longer resurrect on next sync (SW v306).** The tombstone guard in `applyIncoming` (`apps/web/src/lib/sync.ts`) listed every deletable record kind *except* `notification` and `aiGeneration`. Both call `deleteWithTombstones` correctly on delete, but when the server replayed an older `put` for that record back in the next pull, `lwwPut` re-inserted it without consulting the tombstone table — so a notification the user had explicitly deleted would reappear the moment the next background sync ran. Added both kinds to the guard list. No schema or migration needed; existing tombstones already in the local table will now be honoured retroactively.
+
 ### Removed
 - **Retire the sync-conflict notification entirely (SW v299).** Root-cause investigation: the v297 emitter was measuring nothing useful. The server-side "conflict" count is a 409 from `cosmos container.items.create` keyed on `userId::kind::recordId::updatedAt` — a deterministic dedupe id. Combined with the existing `SLACK_MS = 60_000` rebroadcast (defends against clock-skew dropping writes) and the 10s background sync cadence, every push that catches the previous push's slack window reports a "conflict" for every record touched in that window. **It's a benign idempotent-resend confirmation, NOT a write/write race.** There are no real cross-device write conflicts in this system — LWW happens client-side. The "21 conflicts" the user saw simply meant 21 records were touched in the preceding ~60s and re-broadcast. Removed the emitter, the rate-limiter, and the now-obsolete v298 hotfix machinery (the cleanup still runs once to purge legacy flood rows). Documented the actual semantics in a comment in `syncNow` so a future reader doesn't reintroduce the same bug.
 

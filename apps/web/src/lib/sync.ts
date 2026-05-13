@@ -466,7 +466,8 @@ async function applyIncoming(doc: IncomingDoc) {
     doc.kind === 'set' || doc.kind === 'session' || doc.kind === 'block' ||
     doc.kind === 'program' || doc.kind === 'trainingMax' || doc.kind === 'movement' ||
     doc.kind === 'goal' || doc.kind === 'cardio' || doc.kind === 'recovery' ||
-    doc.kind === 'race' || doc.kind === 'strengthHr' || doc.kind === 'wellness'
+    doc.kind === 'race' || doc.kind === 'strengthHr' || doc.kind === 'wellness' ||
+    doc.kind === 'notification' || doc.kind === 'aiGeneration'
   ) {
     const tomb = await db.tombstones.get(`${doc.kind}:${doc.recordId}`);
     if (tomb && tomb.deletedAt >= doc.updatedAt) {
