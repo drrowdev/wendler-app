@@ -7,6 +7,11 @@
       "route": "/analytics",
       "redirect": "/stats",
       "statusCode": 301
+    },
+    {
+      "route": "/recovery",
+      "rewrite": "/load",
+      "statusCode": 301
     }
   ],
   "navigationFallback": {

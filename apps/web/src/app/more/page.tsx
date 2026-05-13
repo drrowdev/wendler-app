@@ -4,7 +4,7 @@ const ITEMS = [
   { href: '/goals', label: 'Goals', desc: 'PR targets, race times, habits', icon: '🎯' },
   { href: '/profile', label: 'Training Profile', desc: 'Movement focus, phase, filters, AI notes', icon: '🧭' },
   { href: '/races', label: 'Races', desc: 'Race calendar, taper priority, results', icon: '🏁' },
-  { href: '/recovery', label: 'Recovery', desc: 'Sleep, HRV, fatigue, soreness', icon: '🛌' },
+  { href: '/load?tab=recovery', label: 'Recovery', desc: 'Sleep, HRV, fatigue, soreness — tab in Load', icon: '🛌' },
   { href: '/movements', label: 'Movements', desc: 'Library, custom lifts, cues', icon: '🏋️' },
   { href: '/notifications', label: 'Notifications', desc: 'Auto-event history, AI rationales', icon: '🔔' },
   { href: '/settings', label: 'Settings', desc: 'Equipment, timer, display, Strava, backup', icon: '⚙️' },
