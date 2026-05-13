@@ -1,0 +1,26 @@
+{
+  "name": "@wendler/api",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/src/functions/*.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "start": "func start",
+    "test": "echo \"(no tests yet)\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"(no lint yet)\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.1",
+    "@azure/cosmos": "^4.2.0",
+    "@azure/functions": "^4.6.0",
+    "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "^3.2.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  }
+}

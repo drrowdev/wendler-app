@@ -1,0 +1,1081 @@
+import type {
+  AssistanceEntry,
+  Constraint,
+  EquipmentType,
+  GoalFlags,
+  MainLift,
+  Movement,
+  MovementPattern,
+  MuscleGroup,
+  PrimaryGoal,
+  Program,
+  ProgramBlock,
+  ProgramSchedule,
+  RunPlannedKind,
+  RunPlanSlot,
+  SecondaryGoal,
+  SupplementalTemplateId,
+  TrainingPhase,
+  TrainingProfile,
+} from '@wendler/domain';
+
+export type {
+  AssistanceEntry,
+  EquipmentType,
+  GoalFlags,
+  MainLift,
+  Movement,
+  MovementPattern,
+  MuscleGroup,
+  Program,
+  ProgramBlock,
+  ProgramSchedule,
+  RunPlannedKind,
+  RunPlanSlot,
+  SupplementalTemplateId,
+};
+
+/**
+ * A persisted user-configured Training Max for a given main lift, valid from a date.
+ * Append-only: changing the TM creates a new row rather than mutating.
+ */
+export interface TrainingMaxRecord {
+  id: string;
+  lift: MainLift;
+  trainingMaxKg: number;
+  oneRmKg?: number;
+  tmPercent: number;
+  createdAt: string; // ISO
+  source: 'manual' | 'amrap-suggestion';
+  note?: string;
+}
+
+/**
+ * A movement inside a warm-up block. Free-form name + optional dose
+ * (sets × reps, duration, "/side", etc.).
+ */
+export interface WarmupMovementDef {
+  id: string;
+  name: string;
+  dose?: string;
+}
+
+/**
+ * One block of the pre-lifting warm-up (e.g. General, Mobility, Activation).
+ *
+ * `appliesTo` lets a block be conditional on which main lifts are trained
+ * on the day:
+ * - `'always'` (default)              → always shown
+ * - `string` (canonical lift-set key) → only on days whose main lifts match
+ *   the key. Built via {@link liftSetKey} (lifts sorted alphabetically and
+ *   joined with `+`, e.g. `"bench+deadlift"`).
+ *
+ * For backwards compatibility, the legacy values `'press'` and `'lower'`
+ * are still recognised by {@link selectWarmupBlocks}:
+ * - `'press'` → matches days that include bench or press
+ * - `'lower'` → matches days that include squat or deadlift, or accessory
+ *               days with no main lift
+ *
+ * Blocks render in array order; the editor in /settings persists the
+ * intended order.
+ */
+export interface WarmupBlockDef {
+  id: string;
+  title: string;
+  /**
+   * Optional manual override for the displayed duration label (e.g. "~3 min").
+   * When omitted, the renderer estimates one from the movements via
+   * {@link estimateBlockDurationSec} / {@link displayDuration}.
+   */
+  durationOverride?: string;
+  /** Optional one-line context shown next to the title. */
+  note?: string;
+  /** Conditional applicability based on the day's main lifts. */
+  appliesTo?: 'always' | string;
+  movements: WarmupMovementDef[];
+}
+
+/**
+ * Hardcoded default warm-up protocol — historically baked into
+ * `PreLiftingWarmup.tsx`. Used when `UserSettings.preLiftingWarmup` is
+ * undefined and as the target of the "Reset to built-in defaults" button
+ * in the editor. Kept here (in db-schema) so both the renderer and the
+ * editor read the exact same source.
+ *
+ * All blocks default to `appliesTo: 'always'` — the legacy press/lower
+ * activation split is preserved as `appliesTo: 'press' | 'lower'` only
+ * when the user's persisted settings already contain those values
+ * (handled by {@link selectWarmupBlocks}). New installs see one
+ * Activation block that applies every day; the user can split it with
+ * the day-combo dropdown if they want.
+ */
+export const DEFAULT_PRE_LIFTING_WARMUP_BLOCKS: WarmupBlockDef[] = [
+  {
+    id: 'general',
+    title: 'General',
+    note: 'Get core temp up, joints lubricated.',
+    appliesTo: 'always',
+    movements: [
+      {
+        id: 'gen-cardio',
+        name: 'Easy cardio (rower, bike, jump rope, or brisk walk)',
+        dose: '~3 min',
+      },
+    ],
+  },
+  {
+    id: 'mobility',
+    title: 'Mobility',
+    appliesTo: 'always',
+    movements: [
+      { id: 'mob-ankle', name: 'Ankle rocks', dose: '2 × 10 / side' },
+      { id: 'mob-hip', name: '90/90 hip switches', dose: '2 × 8 / side' },
+      { id: 'mob-wgs', name: 'World’s greatest stretch', dose: '3 / side' },
+      { id: 'mob-thoracic', name: 'Thoracic open-book or wall slides', dose: '2 × 8' },
+    ],
+  },
+  {
+    id: 'activation-upper',
+    title: 'Activation (upper)',
+    note: 'Press / bench prep.',
+    appliesTo: 'always',
+    movements: [
+      { id: 'act-pull-aparts', name: 'Band pull-aparts', dose: '2 × 15' },
+      { id: 'act-scap', name: 'Scap pushups', dose: '2 × 10' },
+    ],
+  },
+  {
+    id: 'activation-lower',
+    title: 'Activation (lower)',
+    note: 'Squat / deadlift prep.',
+    appliesTo: 'always',
+    movements: [
+      { id: 'act-glute', name: 'Glute bridges', dose: '2 × 10' },
+      { id: 'act-birddog', name: 'Bird-dog', dose: '2 × 8 / side' },
+    ],
+  },
+];
+
+const UPPER_LIFTS: ReadonlySet<MainLift> = new Set<MainLift>(['bench', 'press']);
+const LOWER_LIFTS: ReadonlySet<MainLift> = new Set<MainLift>(['squat', 'deadlift']);
+
+/**
+ * Canonical key for a set of main lifts trained together on one day.
+ * Lifts are sorted alphabetically and joined with `+` so order doesn't
+ * matter. Empty input → `''` (used as the accessory-day key).
+ *
+ * @example
+ *   liftSetKey(['squat', 'press']) === 'press+squat'
+ *   liftSetKey(['bench'])           === 'bench'
+ *   liftSetKey([])                  === ''
+ */
+export function liftSetKey(lifts: readonly MainLift[]): string {
+  return [...lifts].sort().join('+');
+}
+
+const LIFT_DISPLAY: Record<MainLift, string> = {
+  press: 'Press',
+  bench: 'Bench',
+  squat: 'Squat',
+  deadlift: 'Deadlift',
+};
+
+/**
+ * Human label for a set of main lifts trained together (e.g.
+ * `['bench','deadlift'] → 'Bench + Deadlift'`). Empty input → `'Accessory'`.
+ */
+export function liftSetLabel(lifts: readonly MainLift[]): string {
+  if (lifts.length === 0) return 'Accessory';
+  return [...lifts]
+    .sort()
+    .map((l) => LIFT_DISPLAY[l])
+    .join(' + ');
+}
+
+/**
+ * Pick the warm-up blocks to render for a given day's main lifts.
+ *
+ * - `appliesTo === 'always'` (or unset) → always included
+ * - `appliesTo === 'press'`  → legacy: matches if dayLifts contains bench/press
+ * - `appliesTo === 'lower'`  → legacy: matches if dayLifts contains squat/deadlift,
+ *                              or no main lifts (accessory day)
+ * - Any other string         → matches when {@link liftSetKey}(dayLifts) === appliesTo
+ */
+export function selectWarmupBlocks(
+  blocks: WarmupBlockDef[],
+  dayLifts: readonly MainLift[],
+): WarmupBlockDef[] {
+  const key = liftSetKey(dayLifts);
+  const hasUpper = dayLifts.some((l) => UPPER_LIFTS.has(l));
+  const hasLower = dayLifts.some((l) => LOWER_LIFTS.has(l));
+  return blocks.filter((b) => {
+    const a = b.appliesTo ?? 'always';
+    if (a === 'always') return true;
+    if (a === 'press') return hasUpper;
+    if (a === 'lower') return hasLower || dayLifts.length === 0;
+    return a === key;
+  });
+}
+
+const TIME_RX = /(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes)\b/i;
+const SETS_REPS_RX = /(\d+)\s*[x×*]\s*(\d+)/i;
+const PER_SIDE_RX = /\/\s*side\b/i;
+
+const REP_SECONDS = 4; // ~4 s per rep (mobility-paced)
+const BETWEEN_SETS_SECONDS = 30; // brief reset between mobility/activation sets
+const BETWEEN_MOVEMENTS_SECONDS = 15; // transition time
+const FALLBACK_PER_MOVEMENT_SECONDS = 30;
+
+/**
+ * Estimate the time (in seconds) a warm-up block will take to complete,
+ * based on its movements' dose strings. Heuristic — intended to give the
+ * user a reasonable label, not be precise.
+ *
+ * Per movement:
+ *  - If dose contains `N × M` → `N × (M × REP_SECONDS) + (N-1) × BETWEEN_SETS_SECONDS`.
+ *    `/side` doubles the rep count.
+ *  - Else if dose contains an explicit time (e.g. `~3 min`, `30 s`) → use it directly,
+ *    doubled when `/side` is present.
+ *  - Else `FALLBACK_PER_MOVEMENT_SECONDS`.
+ *
+ * Plus `(movements - 1) × BETWEEN_MOVEMENTS_SECONDS` for transitions.
+ */
+export function estimateBlockDurationSec(block: WarmupBlockDef): number {
+  if (block.movements.length === 0) return 0;
+  let total = 0;
+  for (const mv of block.movements) {
+    const dose = mv.dose ?? '';
+    const sr = SETS_REPS_RX.exec(dose);
+    if (sr) {
+      const sets = Number(sr[1]);
+      let reps = Number(sr[2]);
+      if (PER_SIDE_RX.test(dose)) reps *= 2;
+      const work = sets * reps * REP_SECONDS;
+      const rest = Math.max(0, sets - 1) * BETWEEN_SETS_SECONDS;
+      total += work + rest;
+      continue;
+    }
+    const t = TIME_RX.exec(dose);
+    if (t) {
+      const n = Number(t[1]);
+      const unit = (t[2] ?? '').toLowerCase();
+      let secs = unit.startsWith('m') ? n * 60 : n;
+      // "40 s / side" → both sides, so double the duration. Same for
+      // "1 min / side". Sets×reps already handled above.
+      if (PER_SIDE_RX.test(dose)) secs *= 2;
+      total += secs;
+      continue;
+    }
+    total += FALLBACK_PER_MOVEMENT_SECONDS;
+  }
+  total += Math.max(0, block.movements.length - 1) * BETWEEN_MOVEMENTS_SECONDS;
+  return total;
+}
+
+/**
+ * Format a duration in seconds as a short label like `"≈ 3 min"` or
+ * `"≈ 45 s"`. Rounded to the nearest 15 s under a minute, nearest
+ * half-minute under 5 min, nearest minute otherwise.
+ */
+export function formatDurationSec(secs: number): string {
+  if (!isFinite(secs) || secs <= 0) return '—';
+  if (secs < 60) {
+    const rounded = Math.max(15, Math.round(secs / 15) * 15);
+    return `≈ ${rounded} s`;
+  }
+  if (secs < 5 * 60) {
+    const halves = Math.max(1, Math.round(secs / 30));
+    const mins = halves / 2;
+    const label = Number.isInteger(mins) ? `${mins}` : mins.toFixed(1);
+    return `≈ ${label} min`;
+  }
+  const mins = Math.max(1, Math.round(secs / 60));
+  return `≈ ${mins} min`;
+}
+
+/**
+ * Display label for a block's duration: returns the user's manual
+ * override if set, otherwise the auto-estimate.
+ */
+export function displayDuration(block: WarmupBlockDef): string {
+  if (block.durationOverride && block.durationOverride.trim() !== '') {
+    return block.durationOverride;
+  }
+  return formatDurationSec(estimateBlockDurationSec(block));
+}
+
+export interface UserSettings {
+  /** Always 'singleton' — only one row exists. */
+  id: 'singleton';
+  barWeightKg: number;
+  /**
+   * Bar weight (kg) used by the plate calculator when the lift is performed
+   * on a trap bar (movement.equipment === 'trap-bar'). Trap bars are commonly
+   * heavier than a standard 20 kg Olympic bar (often 25 kg or more), so a
+   * separate value keeps the per-side plate math correct without forcing the
+   * user to override `barWeightKg` for one movement.
+   */
+  trapBarWeightKg?: number;
+  /**
+   * When true, the app requests a Screen Wake Lock while a tab/PWA window
+   * is visible so the screen doesn't blank between sets. Re-acquired
+   * automatically on visibility changes.
+   */
+  keepScreenOn?: boolean;
+  /**
+   * When set, the plate calculator first attempts to load each working set
+   * using only plates whose weight is at or below this cap. If a target
+   * weight isn't achievable within the cap (e.g. needs a 25 kg plate), the
+   * calculator silently falls back to the full inventory.
+   *
+   * Use case: 25 kg plates are rare in many gyms — users prefer realistic
+   * loadouts using 20 kg or smaller. Defaults to undefined (no preference).
+   */
+  preferredMaxPlateKg?: number;
+  /**
+   * When true (default), Strava strength activities (WeightTraining,
+   * Crossfit, Workout, HighIntensityIntervalTraining) are pulled in for
+   * their HR signal only — not as cardio sessions. Their HR-zone time is
+   * folded into the weekly load score so heavy lifting weeks register the
+   * cardiovascular cost the lifter actually paid. Disable to ignore them.
+   */
+  strengthHrEnrichment?: boolean;
+  /** plates: pairs available per kg weight */
+  pairsByWeight: Record<number, number>;
+  roundingKg: number;
+  warmupPercents: number[];
+  warmupReps: number[];
+  defaultTmPercent: number;
+  units: 'kg';
+  /** Rest timer defaults in seconds, per set kind. */
+  restSecondsByKind?: Partial<
+    Record<'warmup' | 'main' | 'amrap' | 'supplemental' | 'assistance', number>
+  >;
+  /** Auto-start rest timer when a set is logged. */
+  autoStartRestTimer?: boolean;
+  /**
+   * Show the pre-lifting warm-up reference card at the top of /day.
+   * Defaults to true on new installs; users can hide it from /settings.
+   */
+  preLiftingWarmupEnabled?: boolean;
+  /**
+   * User-customised pre-lifting warm-up protocol. When undefined the app
+   * falls back to {@link DEFAULT_PRE_LIFTING_WARMUP_BLOCKS}. Editing happens
+   * on the /settings page.
+   */
+  preLiftingWarmup?: { blocks: WarmupBlockDef[] };
+  /**
+   * User-saved snapshot of "my default" warm-up. Populated by the
+   * "Save current as my default" button in the warm-up editor. The
+   * "Reset to my default" button restores from here (falling back to
+   * {@link DEFAULT_PRE_LIFTING_WARMUP_BLOCKS} when undefined).
+   */
+  preLiftingWarmupUserDefault?: { blocks: WarmupBlockDef[] };
+  /**
+   * Per-slot mapping of which Movement ID is currently performed for each
+   * 5/3/1 main lift slot. Lets users swap e.g. the deadlift slot to a Trap Bar
+   * Deadlift movement without changing the slot identity (which the program
+   * model relies on). Falls back to the seeded movement when unset.
+   */
+  mainLiftMovements?: Partial<Record<MainLift, string>>;
+  /**
+   * Training-context flags that influence the assistance suggester. See
+   * `GoalFlags` in @wendler/domain for the v1 set (marathon, realLifeStrength,
+   * bigArms, deload, competitionPeaking, mobilityFocus). Optional; absence is
+   * treated as "all flags off".
+   *
+   * @deprecated As of the four-axis goals model (TrainingProfile), GoalFlags
+   * is a derived shape computed from `trainingProfile` + races. New code
+   * should write to `trainingProfile` and read derived flags via
+   * `deriveGoalFlags()` in @wendler/domain. This field is kept as a
+   * read-fallback for one release so a downgrade doesn't lose state.
+   * Will be removed in the release after `trainingProfile` lands.
+   */
+  goalFlags?: GoalFlags;
+  /**
+   * Four-axis training profile (v1). Replaces the flat `goalFlags` singleton
+   * with a structured model:
+   *  - `blockPhase` (1 of normal/deload/taper/peak) — auto-managed by the
+   *    race-driven taper pipeline; manual override available
+   *  - `primaryGoal` (exactly 1 of marathon-prep/strength/hypertrophy/
+   *    balanced-development) — mutually exclusive
+   *  - `secondaryGoals` (≤2 of real-life-strength/functional-movement/
+   *    isolation-emphasis/injury-prevention) — capped to enforce focus
+   *  - `constraints` (unlimited string tags) — hard filters, never compete
+   *    with goals for "slot budget"
+   *
+   * Derived `GoalFlags` for the suggester are produced by
+   * `deriveGoalFlags(profile, races, now)` in @wendler/domain — call sites
+   * that previously read `settings.goalFlags` should switch to that helper.
+   */
+  trainingProfile?: TrainingProfile;
+  /**
+   * Free-text constraints/context for the LLM-based assistance suggester
+   * (e.g. "rehabbing left shoulder, avoid overhead above 90°"). Max
+   * GOAL_NOTES_MAX_LENGTH (500) chars. Never consumed by the rule-engine
+   * fallback — only the LLM path reads this.
+   */
+  goalNotes?: string;
+  updatedAt: string;
+}
+
+/**
+ * A logged set, append-only. Edits to past sets create amendment rows referencing this id.
+ */
+export interface SetRecord {
+  id: string;
+  movementId: string;
+  /** Optional grouping into a session. */
+  sessionId?: string;
+  /** ISO timestamp the set was performed. */
+  performedAt: string;
+  weightKg: number;
+  reps: number;
+  /** Rated Perceived Exertion 1-10 (Wendler / Tuchscherer scale). */
+  rpe?: number;
+  /** "warmup" | "main" | "amrap" | "supplemental" | "assistance" */
+  kind: 'warmup' | 'main' | 'amrap' | 'supplemental' | 'assistance';
+  isAmrap?: boolean;
+  /** When this set is part of a planned 5/3/1 wave. */
+  percentOfTm?: number;
+  trainingMaxKgAtTime?: number;
+  /** Free-text note attached to this specific set. */
+  note?: string;
+  /** Was this set skipped vs. completed. */
+  skipped?: boolean;
+  /**
+   * Position within the prescribed-set list of the lift session this record
+   * was logged for (0-based). Distinguishes otherwise-identical prescribed
+   * slots — e.g. supplemental 5×5 FSL where every set has the same kind +
+   * weight. Optional for backwards compat with rows persisted before this
+   * field existed; readers fall back to occurrence-based matching.
+   */
+  slotIndex?: number;
+  /** Why a set was skipped or modified. */
+  skipReason?: 'pain' | 'fatigue' | 'time' | 'equipment' | 'other';
+  /** Pain/injury flag tagged to this set. Carries forward as a caution indicator. */
+  painFlag?: {
+    area: string;
+    severity: 1 | 2 | 3 | 4 | 5;
+    note?: string;
+  };
+  /** True if this row supersedes another set (amendment). */
+  amendsSetId?: string;
+  /** Soft-delete marker. */
+  deletedAt?: string;
+}
+
+export interface SessionRecord {
+  id: string;
+  /** ISO date. */
+  performedAt: string;
+  /** Main lift being trained, if any (null for pure assistance days). */
+  mainLift?: MainLift;
+  /** 5/3/1 week if applicable. */
+  week?: 1 | 2 | 3 | 'deload' | '7w';
+  /** Block this session belongs to (v0.2+). */
+  blockId?: string;
+  /** Day index within the rotation when this session was logged (0..3 typically). */
+  dayIndex?: number;
+  /** Supplemental template active for this session. */
+  supplementalTemplateId?: SupplementalTemplateId;
+  notes?: string;
+  /** Set when the per-lift work (main + supplemental) for THIS session is fully logged. */
+  completedAt?: string;
+  /**
+   * Set when the user explicitly marks the whole workout day complete (the
+   * "Complete workout" button on /day). Stamped on every session row that
+   * shares the same (blockId, week, dayIndex) so the Today page can show
+   * the workout as completed regardless of which session is inspected.
+   */
+  workoutCompletedAt?: string;
+  /**
+   * Set when the user checks the pre-lifting warm-up box for this day.
+   * Stored on the FIRST lift's session row of the day-group (same pattern
+   * as assistance work) so it persists per workout, not per lift.
+   */
+  preWarmupCompletedAt?: string;
+  /**
+   * YYYY-MM-DD of the planned-slot date this workout-day fulfills.
+   *  - Unset (default): the workout fulfills its projected weekday for
+   *    (blockId, week, dayIndex) in its `week`. Calendar/adherence treat
+   *    it as on-time.
+   *  - Set: user explicitly linked this day-group to a different planned
+   *    date (e.g. logged Mon's Press on Tue and pinned it to Mon).
+   *    Stamped on EVERY session row in the day-group (same fan-out
+   *    pattern as `workoutCompletedAt`). Calendar suppresses the
+   *    matching planned-strength chip and renders an "↗ planned <date>"
+   *    badge on the logged chip.
+   */
+  planScheduledDate?: string;
+  /**
+   * Snapshot of the assistance prescription for this day at the moment
+   * the workout was marked complete (v282+). Once stamped, the day page
+   * renders from this snapshot instead of resolving the live block plan,
+   * so historical sessions stay stable across future block-plan edits
+   * (new movements generated for Wk2 do NOT retroactively appear in
+   * Wk1's completed session).
+   *
+   * Absent on sessions completed before v282; those fall back to the
+   * live block plan as a best-effort, with the documented caveat that
+   * later plan edits CAN change how the historical day renders.
+   *
+   * Only stamped once per day-group (on the lift session that runs
+   * `completeDayWorkout`); other rows in the same group inherit by
+   * sharing (blockId, week, dayIndex). Fanning out the array across
+   * every row would multiply storage cost without benefit.
+   */
+  assistanceSnapshot?: AssistanceEntry[];
+}
+
+/**
+ * Cross-domain training: cardio / running / cycling / etc. Manually logged
+ * or auto-imported from Strava.
+ */
+export interface CardioSession {
+  id: string;
+  performedAt: string;        // ISO
+  modality: 'run' | 'bike' | 'swim' | 'row' | 'walk' | 'padel' | 'other';
+  durationSec: number;
+  distanceKm?: number;
+  avgHrBpm?: number;
+  maxHrBpm?: number;
+  /** Total elevation gain in metres. */
+  elevGainM?: number;
+  /** RPE 1-10, subjective */
+  rpe?: number;
+  /** Strava's "perceived_exertion" (1-10) when set on the activity. */
+  perceivedExertion?: number;
+  /** Strava's HR-derived "suffer score" / relative effort. */
+  sufferScore?: number;
+  /**
+   * Seconds spent in each Strava HR zone, indexed Z1..Z5 (length 5).
+   * Computed from the heart-rate stream + athlete zone definitions.
+   */
+  hrZoneSeconds?: number[];
+  /**
+   * Best efforts for runs: distance (m) → time (s).
+   * Common keys: 1000, 1609 (mile), 5000, 10000, 21097 (HM), 42195 (M).
+   */
+  bestEffortsSec?: Record<number, number>;
+  /** Encoded polyline for the route (low-res from summary, hi-res from detailed). */
+  polyline?: string;
+  /** Original sport code from the source (e.g. 'TrailRun', 'VirtualRide'). */
+  sport?: string;
+  notes?: string;
+  source?: 'manual' | 'strava' | 'gpx';
+  /** External provider id, e.g. Strava activity id, used for de-dup. */
+  externalId?: string;
+  /**
+   * Auto-matched run-plan kind when this activity lines up with a slot in the
+   * weekly RunPlan template. Computed at import time from the activity's
+   * day-of-week and (Strava) name. Null/undefined when no match is found.
+   */
+  plannedKind?: RunPlannedKind;
+  /**
+   * Confidence of the plan match:
+   *  - 'exact'  — performed on the same day-of-week as a non-rest slot.
+   *  - 'manual' — user re-tagged the activity from the cardio list (e.g.
+   *               schedule was shuffled). Sticky: rematcher won't overwrite.
+   *  - 'none'   — explicitly evaluated, no match found.
+   */
+  planMatch?: 'exact' | 'manual' | 'none';
+  /**
+   * YYYY-MM-DD of the planned-slot date this activity fulfills.
+   *  - Auto-matched runs: same as performedAt's local date.
+   *  - Manually linked runs: the planned date the user chose, which may
+   *    differ from performedAt (e.g. long run shifted Sat → Sun).
+   * Cleared when the user resets the tag to "auto / none". Used by the
+   * calendar / week-strip to decide whether a planned date has been
+   * fulfilled, regardless of the date the activity was actually performed.
+   */
+  planScheduledDate?: string;
+  updatedAt: string;
+}
+
+/**
+ * Heart-rate enrichment imported from Strava for a strength-training
+ * activity (Garmin → Strava → us). The activity itself is NOT imported as
+ * a CardioSession — instead we capture just the HR signal and attach it
+ * to the matching in-app strength session at read time (matched by date).
+ *
+ * Rationale: the user's strength workouts are planned in-app, but the HR
+ * monitor captures the true cardiovascular cost (heavy AMRAPs / BBB sit
+ * mostly in Z3-Z4). Folding this into Load & Recovery analytics gives a
+ * more accurate weekly stress score without inflating cardio volume or
+ * polluting the polarized 80/10/10 distribution (cardio-only).
+ *
+ * Cloud-synced (LWW on `updatedAt`): the desktop runs the Strava import,
+ * the mobile PWA pulls the rows on its next sync. Each device still
+ * de-dupes locally on `externalId` when the same activity is re-imported
+ * directly via Strava sync.
+ */
+export interface StrengthHrEnrichment {
+  /** Local UUID. */
+  id: string;
+  /** `strava:${activityId}` — used for de-dup across syncs. */
+  externalId: string;
+  /** Activity start time (ISO) used to match a strength session by date. */
+  performedAt: string;
+  /** Activity moving time, seconds. */
+  durationSec: number;
+  avgHrBpm?: number;
+  maxHrBpm?: number;
+  /** Seconds spent in each HR zone (Z1..Z5). Undefined if HR stream missing. */
+  hrZoneSeconds?: number[];
+  /** Original Strava sport_type, e.g. 'WeightTraining'. */
+  sport?: string;
+  /** Activity name from Strava (often Garmin's autogenerated title). */
+  notes?: string;
+  source: 'strava';
+  updatedAt: string;
+}
+
+/**
+ * High-level recurring weekly cardio template. The user fills in once
+ * ("Tuesday = easy, Wednesday = tempo, Saturday = long"); imported Strava
+ * runs are then matched to the slots automatically by day-of-week + name.
+ *
+ * Stored as a single Dexie row keyed by `id: 'singleton'` (mirrors settings/
+ * schedule). Days without a slot are treated as rest / no plan.
+ *
+ * The `RunPlannedKind` and `RunPlanSlot` value types live in `@wendler/domain`
+ * (re-exported above) so the matching algorithm there can reference them
+ * without a circular import back to db-schema.
+ */
+export interface RunPlan {
+  id: 'singleton';
+  /** Sparse list keyed by dayOfWeek; missing days = no plan / rest. */
+  slots: RunPlanSlot[];
+  updatedAt: string;
+}
+
+/**
+ * Daily recovery checkin. One row per date (YYYY-MM-DD).
+ */
+export interface RecoveryEntry {
+  /** Date "YYYY-MM-DD" — used as primary key (one entry per day). */
+  id: string;
+  /** Sleep duration in hours (decimal, e.g. 7.5). */
+  sleepHours?: number;
+  /** Heart Rate Variability in ms (rMSSD or your wearable's value). */
+  hrv?: number;
+  /** Subjective fatigue 1 (fresh) – 10 (wrecked). */
+  fatigue?: number;
+  /** Overall soreness 1-10. */
+  soreness?: number;
+  /** Mood 1-10. */
+  mood?: number;
+  notes?: string;
+  /**
+   * Bodyweight in kilograms, logged the morning of the date this entry
+   * represents. Optional; populated from the recovery page or the
+   * pre-workout check-in. Used by `effectiveLoadKg` in domain so that
+   * weighted bodyweight movements (pull-ups with vest/belt, weighted dips,
+   * etc.) report a meaningful e1RM trajectory. The most recent entry on or
+   * before a given date is treated as the "current" bodyweight when no
+   * entry exists for that date.
+   */
+  bodyweightKg?: number;
+  updatedAt: string;
+}
+
+/**
+ * Four-axis training profile types are owned by `@wendler/domain`. Re-exported
+ * here so consumers that only depend on db-schema still see them.
+ */
+export type {
+  TrainingPhase,
+  PrimaryGoal,
+  SecondaryGoal,
+  Constraint,
+  TrainingProfile,
+} from '@wendler/domain';
+export {
+  MAX_SECONDARY_GOALS,
+  DEFAULT_TRAINING_PROFILE,
+} from '@wendler/domain';
+
+/**
+ * Long-running training goal with target and deadline.
+ */
+export type GoalKind =
+  | 'strength-pr'
+  | 'race-time'
+  | 'body-comp'
+  | 'habit'
+  | 'qualitative'
+  | 'custom';
+
+/**
+ * Optional progress signal for qualitative goals. Hard goals
+ * (strength-pr / race-time / body-comp / habit) don't use this field.
+ *
+ * - 'none' (default for qualitative): goal renders as a pure
+ *   reminder card with no metric — for things that are inherently
+ *   hard to quantify ("improved aesthetics", "be more consistent").
+ * - 'strength-trend': render a sparkline + delta% of the user's
+ *   average main-lift e1RM over the last 8 weeks ("getting stronger").
+ */
+export type GoalSignal = 'none' | 'strength-trend';
+
+/**
+ * Training-flavor tags expressing what *kind* of work this goal cares about.
+ * Aggregated across all active goals to bias the assistance suggester:
+ *
+ * - 'strength'        — heavy compound assistance, low rep ranges
+ * - 'hypertrophy'     — isolation, 8–15 rep ranges, balanced physique
+ * - 'functional'      — carries, single-leg, anti-rotation, real-life strength
+ * - 'conditioning'    — keeps total assistance volume in check so cardio/work
+ *                       capacity has room
+ * - 'prehab'          — reserves a slot for face pulls, band work, hip mobility
+ *                       (skipped automatically if the warmup already covers it)
+ *
+ * Multiple flavors can apply to one goal. Empty/undefined = no opinion.
+ */
+export type GoalFlavor =
+  | 'strength'
+  | 'hypertrophy'
+  | 'functional'
+  | 'conditioning'
+  | 'prehab';
+
+/**
+ * Sensible flavor defaults derived from `goal.kind`, used when an existing
+ * goal has no explicit `flavors` set yet (backfill on first read / first edit).
+ * Returns a fresh array each call so callers can mutate safely.
+ */
+export function defaultFlavorsForKind(kind: GoalKind): GoalFlavor[] {
+  switch (kind) {
+    case 'strength-pr':
+      return ['strength'];
+    case 'race-time':
+      return ['conditioning', 'prehab'];
+    case 'body-comp':
+      return ['hypertrophy'];
+    case 'habit':
+    case 'qualitative':
+    case 'custom':
+    default:
+      return [];
+  }
+}
+
+export interface Goal {
+  id: string;
+  kind: GoalKind;
+  title: string;
+  /** Numeric target (kg / sec / kg / sessions / etc.). */
+  target?: number;
+  /** Unit label, displayed alongside. */
+  targetUnit?: string;
+  /** ISO date the goal should be achieved by. */
+  deadline?: string;
+  /**
+   * Optional progress signal. Only meaningful when kind === 'qualitative'.
+   * Defaults to 'none' on read if absent.
+   */
+  signal?: GoalSignal;
+  /**
+   * For `strength-pr` goals: the Movement.id whose e1RM is compared
+   * against `target`. Without this, the summarizer falls back to the
+   * highest e1RM across all lifts (always wrong for non-deadlift goals).
+   * Only meaningful when kind === 'strength-pr'.
+   */
+  movementId?: string;
+  /**
+   * Training-flavor tags for this goal. Aggregated across all active goals
+   * to bias the assistance suggester (which movements get prioritized).
+   * Optional and additive — when absent, callers should fall back to
+   * `defaultFlavorsForKind(kind)`.
+   */
+  flavors?: GoalFlavor[];
+  createdAt: string;
+  completedAt?: string;
+  notes?: string;
+  updatedAt: string;
+}
+
+/**
+ * A scheduled race/event the user is training toward. Distinct from a
+ * race-time Goal: a Goal expresses an *aspiration* (e.g. "HM sub 2:00"),
+ * a Race is the actual event on the calendar with a specific date,
+ * priority for taper purposes, and an optional logged result.
+ */
+export type RacePriority = 'A' | 'B' | 'C';
+
+export type RaceKind =
+  | '5k'
+  | '10k'
+  | 'half-marathon'
+  | 'marathon'
+  | 'ultra'
+  | 'trail'
+  | 'triathlon'
+  | 'other';
+
+export interface RaceResult {
+  finishTimeSec?: number;
+  placeOverall?: number;
+  placeAgeGroup?: number;
+  notes?: string;
+  /** Optional: matched/manually-linked Strava activity id. */
+  stravaActivityId?: string;
+  /** ISO date the result was logged. */
+  loggedAt: string;
+}
+
+export interface Race {
+  id: string;
+  name: string;
+  /** ISO date-time of the race. */
+  date: string;
+  kind: RaceKind;
+  priority: RacePriority;
+  /** Derived from kind for standard distances; manual for ultra/trail/other. */
+  distanceKm?: number;
+  targetTimeSec?: number;
+  location?: string;
+  notes?: string;
+  result?: RaceResult;
+  createdAt: string;
+  updatedAt: string;
+  /** Set when result is logged or user explicitly marks done. */
+  completedAt?: string;
+  /**
+   * Per-race accept/dismiss state for the proposed taper actions panel
+   * (see packages/domain/src/taper.ts → `proposedTaperActions`). Sticky:
+   * once accepted or dismissed, the action stops being proposed for this
+   * race. Auto-applied state stops contributing once the race date passes
+   * (handled by `computeEffectiveGoalFlags` reading only upcoming races).
+   */
+  taperActions?: RaceTaperActions;
+}
+
+export interface RaceTaperActions {
+  /**
+   * "Insert a deload block now" action. `acceptedAt` records when the user
+   * clicked Accept; `blockId` is the inserted 7th-week block id (so we can
+   * tell history without re-querying). `dismissedAt` records a dismissal.
+   * Mutually exclusive — only one of the two shapes is present at a time.
+   */
+  insertedDeload?:
+    | { acceptedAt: string; blockId: string }
+    | { dismissedAt: string };
+  /**
+   * "Activate competition peaking goal flag" action. Pure marker — the
+   * effective-flags helper unions this with the manual checkbox so the
+   * suggester sees `competitionPeaking: true` without a settings write.
+   */
+  competitionPeakingActivated?:
+    | { acceptedAt: string }
+    | { dismissedAt: string };
+}
+
+/**
+ * A Web Push subscription stored locally so we can re-render UI state
+ * (subscribed / not subscribed) and re-send to the server if needed.
+ */
+export interface PushSubscriptionRecord {
+  id: 'pushSub';
+  endpoint: string;
+  /** Base64URL p256dh key. */
+  p256dh: string;
+  /** Base64URL auth key. */
+  auth: string;
+  createdAt: string;
+}
+
+/**
+ * A "wellness flag" — for v1, an illness episode (cold, flu, fever, gut bug
+ * etc.) the user explicitly logs. Captured to:
+ *   1. Suppress workout expectations while sick (don't count as a fail).
+ *   2. Drive the "Welcome back" recommender on the first session after
+ *      `recoveredAt` is set (see packages/domain/src/return-plan.ts).
+ *
+ * Schema is intentionally narrow but extensible — future `kind` values may
+ * cover injuries, surgery recovery, life events, etc.
+ */
+export type WellnessKind = 'illness';
+export type WellnessSeverity = 'mild' | 'moderate' | 'severe';
+
+export interface WellnessFlag {
+  id: string;
+  kind: WellnessKind;
+  severity: WellnessSeverity;
+  /** ISO date "YYYY-MM-DD" — when the user started feeling unwell. */
+  startedAt: string;
+  /**
+   * ISO date "YYYY-MM-DD" — when the user marked themselves recovered.
+   * Absent ⇒ still ongoing. The "Welcome back" card fires on the first
+   * `/day` open after this is set.
+   */
+  recoveredAt?: string;
+  notes?: string;
+  /**
+   * When set, the user has dismissed the "Welcome back" recommendation for
+   * this episode and the card should not reappear. Stored on the row (not
+   * localStorage) so the choice syncs across devices.
+   */
+  recommendationDismissedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Soft-delete via tombstone, mirroring goals/recovery/cardio. */
+  deletedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Notifications (v14)
+// ---------------------------------------------------------------------------
+//
+// Unified inbox for everything the app surfaces — auto-derived phase shifts,
+// AI suggester applied events, sync conflicts, migrations, auth recovery,
+// etc. Replaces the previous fragmented model where every component owned
+// its own toast/banner with no audit trail.
+//
+// Design tenets (Phase 1):
+//  - Existing transient UX (toasts, banners, undo) stays. The notification
+//    log is ADDITIVE — every emitter calls `notify.*` alongside whatever
+//    inline UI it already shows. Nothing breaks.
+//  - Persistent by default. `expiresAt` is opt-in; most events live forever.
+//  - Synced across devices via the existing LWW pipeline (same shape as
+//    `WellnessFlag`, `Race`, etc. — `updatedAt` for tie-breaking).
+//  - One single user, no severity filters / mute settings / push delivery.
+
+export type NotificationChannel =
+  | 'ai-suggester'
+  | 'phase-auto'
+  | 'sync'
+  | 'migration'
+  | 'auth'
+  | 'training-profile'
+  | 'plan-match'
+  | 'recovery'
+  | 'goal-flag'
+  | 'system';
+
+export type NotificationSeverity = 'info' | 'success' | 'warn' | 'action';
+
+export interface NotificationDeepLink {
+  href: string;
+  label: string;
+}
+
+export interface Notification {
+  /** Stable id (nanoid). */
+  id: string;
+  /** ISO timestamp of creation; same value used for chronological sort. */
+  createdAt: string;
+  /** Source bucket — drives icon + filter chip in the inbox UI. */
+  channel: NotificationChannel;
+  /** Visual emphasis only; no behavioral semantics. */
+  severity: NotificationSeverity;
+  /** Single-line headline (≤80 chars practically). */
+  title: string;
+  /** Optional 1-3 line detail. */
+  body?: string;
+  /** Optional single-tap navigation back to the originating screen. */
+  deepLink?: NotificationDeepLink;
+  /**
+   * Free-form payload paired with the originating event (e.g. the AI's
+   * `blockRationale[]`, the phase-shift's from/to, sync conflict diffs).
+   * Surfaces in the inbox detail view; not interpreted by the schema.
+   */
+  context?: Record<string, unknown>;
+  /** ISO of when the user marked this read; absent ⇒ unread. */
+  readAt?: string;
+  /**
+   * ISO of when the user dismissed the inline transient UI. The notification
+   * stays in the inbox regardless — `dismissedAt` only signals "I've seen
+   * the toast, hide the inline surface".
+   */
+  dismissedAt?: string;
+  /**
+   * Optional auto-purge timestamp. When absent, the notification persists
+   * indefinitely (Phase 1 default). Setting this on noisy routine events
+   * (e.g. successful sync) lets the inbox auto-clean; not used yet.
+   */
+  expiresAt?: string;
+  /** LWW sync timestamp — bumped on every state change (read, dismiss). */
+  updatedAt: string;
+  /** Soft-delete via tombstone, mirroring other synced tables. */
+  deletedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// AI Generation log (v15)
+// ---------------------------------------------------------------------------
+//
+// Persistent record of every AI suggester invocation: input prompts, raw
+// model response, outcome (applied / undone / errored), and diagnostic
+// context. Designed to be "AI-paste-friendly": the inbox export will
+// concatenate N entries into a single text blob that can be fed to any LLM
+// for pattern analysis ("why is the model picking X instead of Y?",
+// "what's the suggester missing about my training?").
+//
+// Synced across devices via the existing LWW pipeline — same shape as
+// `Notification` / `Race` / `WellnessFlag`. Append-mostly: rows are only
+// updated when the outcome state transitions (e.g. applied → undone).
+
+export type AiGenerationSource = 'ai' | 'fallback';
+export type AiGenerationOutcome = 'applied' | 'undone' | 'error';
+
+export interface AiGenerationModelInfo {
+  model: string;
+  elapsedMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
+export interface AiGeneration {
+  /** Stable id (nanoid). */
+  id: string;
+  /** ISO timestamp the generation was issued. */
+  createdAt: string;
+  /** Block the suggestion was for. */
+  blockId: string;
+  /** Block name at generation time (copied so listings don't need a join). */
+  blockName?: string;
+  /** Block kind at generation time. */
+  blockKind?: 'leader' | 'anchor' | 'standalone' | 'seventh-week';
+  /** Week scope the generation targeted (1 | 2 | 3 | 'deload' | '7w'). */
+  weekScope: number | string;
+  /** Effective training phase at generation time. */
+  phase?: 'normal' | 'deload' | 'taper' | 'peak';
+  /** Was this an LLM response, or a deterministic fallback? */
+  source: AiGenerationSource;
+  /** Full system prompt as sent to the LLM (or rendered for the fallback). */
+  systemPrompt: string;
+  /** Full user prompt as sent to the LLM. */
+  userPrompt: string;
+  /** Raw response — JSON string for AI, or JSON-serialized fallback output. */
+  rawResponse: string;
+  /** Diagnostics for AI generations; absent for fallback. */
+  modelInfo?: AiGenerationModelInfo;
+  /** Cardio-fatigue shift signal that was in effect (0 / -1 / -2). */
+  cardioFatigueShift?: number;
+  /** Recent cardio fatigue summary (recent vs baseline weighted-min, delta%). */
+  cardioFatigueSummary?: {
+    recentWeightedMin: number;
+    baselineWeightedMin: number;
+    deltaPct: number | null;
+  };
+  /** How many picks the generation applied, across how many days. */
+  pickCount?: number;
+  dayCount?: number;
+  /**
+   * Outcome state machine:
+   *   - 'applied' on initial apply
+   *   - 'undone' if the user undoes within the window
+   *   - 'error' if validation / fallback both failed
+   */
+  outcome: AiGenerationOutcome;
+  /** ISO timestamp of the outcome event. */
+  outcomeAt: string;
+  /** User-authored note after the fact (free text, optional). */
+  userAnnotation?: string;
+  /** LWW sync timestamp — bumped on outcome transition or annotation edit. */
+  updatedAt: string;
+  /** Soft-delete via tombstone. */
+  deletedAt?: string;
+}

@@ -1,0 +1,19 @@
+{
+  "platform": {
+    "apiRuntime": "node:20"
+  },
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/api/*",
+      "/*.{png,jpg,jpeg,gif,svg,webp,ico,webmanifest}",
+      "/manifest.webmanifest"
+    ]
+  },
+  "mimeTypes": {
+    ".webmanifest": "application/manifest+json"
+  },
+  "globalHeaders": {
+    "Service-Worker-Allowed": "/"
+  }
+}
