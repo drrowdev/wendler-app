@@ -8,8 +8,11 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed
+- **Inline LLM Prompt+Response disclosure resets on week-tab switch (SW v327).** `SuggestAssistanceForBlock` kept its last-generation `lastAiResponseRaw` and `status` in component state across `weekScope` changes — so after generating Wk1, switching to Wk2 still showed Wk1's prompt + response in the disclosure (and the applied banner). Added a `useEffect` that clears both whenever `weekScope` changes.
+
 ### Changed
-- **AI suggester: hard cross-week dedup (prompt + server validator) (SW v326).** v325's soft "prefer fresh selections" wasn't biting — the model still mirrored picks across weeks because the previous framing left both options open and the temperature-0.5 sampler defaulted to the highest-confidence (cached-style) movement each time.
+- **AI suggester: hard cross-week dedup (prompt + server validator) (SW v326).**v325's soft "prefer fresh selections" wasn't biting — the model still mirrored picks across weeks because the previous framing left both options open and the temperature-0.5 sampler defaulted to the highest-confidence (cached-style) movement each time.
   - **System rule 5 rewritten** to a two-layer hard rule: within-week dedup unchanged, **across-week MUST NOT re-use the same movementId** when a same-family alternative exists in the library OR can be proposed as a `newMovement`. Quote from *5/3/1 Forever* p.86 kept as the rationale anchor.
   - **System rule 10 relaxed** the "strongly prefer library" wording. When cross-week dedup forces the model off the obvious library pick and remaining library family-mates don't fit the slot well, it should propose a `newMovement` rather than repeat the previous week's id. "Don't be timid here — the user explicitly wants week-to-week variation, and the library is finite."
   - **Cross-week context section in the user prompt** flipped from neutral framing to "**You MUST NOT re-use these specific movementIds**", with the same-family rotation example and the only-when-no-alternative escape hatch.

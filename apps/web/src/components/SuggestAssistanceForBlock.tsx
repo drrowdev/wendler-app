@@ -196,6 +196,15 @@ export function SuggestAssistanceForBlock({
   // can still inspect it after the undo banner is dismissed.
   const [lastAiResponseRaw, setLastAiResponseRaw] = useState<string | undefined>();
 
+  // Reset the inline prompt+response disclosure (and any banner status)
+  // when the user switches week tabs. Without this the previously-generated
+  // week's prompt and response stay visible while the user is looking at a
+  // different week, which is confusing.
+  useEffect(() => {
+    setLastAiResponseRaw(undefined);
+    setStatus({ kind: 'idle' });
+  }, [weekScope]);
+
   // Expire just the undo button once the window passes; keep the banner
   // (and its rationale) visible until the user dismisses it explicitly.
   useEffect(() => {
