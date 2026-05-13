@@ -113,7 +113,7 @@ export async function suggestAssistance(
   // tool, not a planner) but be explicit about it in the cache layer.
   const model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
   const maxTokens = Number(process.env.ANTHROPIC_MAX_TOKENS ?? '8000');
-  const temperature = Number(process.env.ANTHROPIC_TEMPERATURE ?? '0.3');
+  const temperature = Number(process.env.ANTHROPIC_TEMPERATURE ?? '0.5');
 
   const client = new Anthropic({ apiKey });
 

@@ -288,29 +288,32 @@ describe('buildAssistancePrompt', () => {
       expect(userPrompt).not.toContain('## Cross-week context');
     });
 
-    it('emits the section with each scope; framing is context-only (variation allowed)', () => {
+    it('emits the section with each scope and asks for fresh selections this week', () => {
       const { userPrompt } = buildAssistancePrompt({ ...baseInput, otherWeeksContext });
       expect(userPrompt).toContain('## Cross-week context (other weeks in this same block)');
-      expect(userPrompt).toMatch(/for context only/i);
+      expect(userPrompt).toMatch(/Prefer fresh selections this week/i);
       expect(userPrompt).toContain('### Default plan');
       expect(userPrompt).toContain('### Week 1');
       expect(userPrompt).toContain('Dumbbell Curl (curl)');
       expect(userPrompt).toContain('Dip (dip)');
     });
 
-    it('clarifies the entries are context, not forbidden, and family-dedup stays intra-week', () => {
+    it('keeps family-dedup intra-week (not enforced across weeks)', () => {
       const { userPrompt } = buildAssistancePrompt({ ...baseInput, otherWeeksContext });
       expect(userPrompt).toMatch(/Family-dedup rules still apply WITHIN the week/i);
     });
 
-    it('frames cross-week entries as context only and quotes Wendler permitting variation', () => {
+    it('asks the model to rotate within the same family across weeks, not mirror', () => {
       const { userPrompt } = buildAssistancePrompt({ ...baseInput, otherWeeksContext });
-      // No longer says "prefer consistency" or "canonical pattern is identical"
+      // No longer says "prefer to reuse the same movements" or treats mirroring as equally fine.
       expect(userPrompt).not.toMatch(/prefer to reuse the same movements/i);
       expect(userPrompt).not.toMatch(/canonical Wendler pattern is identical/i);
-      // Cites the Wendler Forever quote authorizing variation
-      expect(userPrompt).toContain('It is the work that matters');
-      expect(userPrompt).toMatch(/for context only/i);
+      expect(userPrompt).not.toMatch(/MAY mirror these picks/i);
+      // Asks for a different specific movement per week from the same family.
+      expect(userPrompt).toMatch(/different specific movement than the other weeks/i);
+      expect(userPrompt).toMatch(/within the same movement family/i);
+      // Allows repetition only when no equally-good same-family alternative exists.
+      expect(userPrompt).toMatch(/only when.*no equally-good same-family alternative/i);
     });
 
     it('skips scopes that have no entries at all', () => {

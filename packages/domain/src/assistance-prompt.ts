@@ -665,14 +665,13 @@ function buildUserPrompt(input: BuildAssistancePromptInput): string {
   }
 
   // ----- cross-week context — other week scopes within this same block.
-  // Framed as context-only, not a consistency requirement: Wendler
-  // explicitly endorses varying assistance across the weeks of a block
-  // ("I don't see any problem in changing the exercises from workout to
-  // workout. It is the work that matters." — 5/3/1 Forever, p.86). The
-  // section lets the LLM stay coherent (e.g. respect a curl variant the
-  // user already accepted in Wk1 if it wants to match it) without being
-  // anchored to specific picks. Family-dedup still applies WITHIN a
-  // week, not across them.
+  // Wendler explicitly endorses varying assistance across workouts ("I
+  // don't see any problem in changing the exercises from workout to
+  // workout. It is the work that matters." — 5/3/1 Forever, p.86), so
+  // the prompt asks for fresh selections by default. Repeating the same
+  // specific movement across weeks is allowed only when no equally-good
+  // same-family alternative exists. Family-dedup still applies WITHIN
+  // a week, not across them.
   if (otherWeeksContext && otherWeeksContext.length > 0) {
     const blocks: string[] = [];
     for (const ctx of otherWeeksContext) {
@@ -691,7 +690,11 @@ function buildUserPrompt(input: BuildAssistancePromptInput): string {
     if (blocks.length > 0) {
       sections.push(
         '## Cross-week context (other weeks in this same block)\n' +
-          'Below are the picks from other week scopes of this same block, **for context only**. Wendler explicitly allows varying assistance from workout to workout — "I don\'t see any problem in changing the exercises from workout to workout. It is the work that matters." (5/3/1 Forever, p.86). You MAY mirror these picks, or you MAY pick different movements for the same slot, whichever serves this week\'s phase and goals better. Family-dedup rules still apply WITHIN the week you are generating, not across weeks.\n\n' +
+          'Below are the picks from other week scopes of this same block. ' +
+          '**Prefer fresh selections this week — pick a different specific movement than the other weeks listed below for each slot, choosing within the same movement family** (e.g. if Wk1 used Goblet Squat for the single-leg/quad slot, this week pick a different quad-pattern accessory like Bulgarian Split Squat or Step-up). ' +
+          'Same-family rotation gives the user variety while keeping the slot composition coherent across the cycle. ' +
+          'You MAY repeat a specific exercise across weeks **only when** no equally-good same-family alternative exists for that slot in the movement library or under the user\'s active constraints. ' +
+          'Family-dedup rules still apply WITHIN the week you are generating, not across weeks.\n\n' +
           blocks.join('\n\n'),
       );
     }
