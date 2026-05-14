@@ -19,6 +19,10 @@ import { getDb } from '@/lib/db';
 import { fmtKg } from '@/lib/format';
 import { SectionHeader } from './SessionParts';
 
+const CATEGORY_LABEL: Record<AssistanceCategory, string> = Object.fromEntries(
+  ASSISTANCE_CATEGORIES.map((c) => [c.id, c.label]),
+) as Record<AssistanceCategory, string>;
+
 interface AssistanceTrackProps {
   entries: AssistanceEntry[];
   sessionId: string | null;
@@ -42,48 +46,49 @@ export function AssistanceTrack({
   title = 'Assistance',
   locked = false,
 }: AssistanceTrackProps) {
-  const grouped = useMemo(() => groupByCategory(entries), [entries]);
   if (entries.length === 0) return null;
+
+  // Render entries in their saved order. Category labels appear as a
+  // subtle sub-header only when the category changes between consecutive
+  // entries — preserves the user's drag-ordered sequence while still
+  // grouping visually when consecutive entries share a category.
+  let lastCategory: AssistanceCategory | null = null;
+  const rows: Array<{ kind: 'header'; label: string } | { kind: 'entry'; entry: AssistanceEntry }> = [];
+  for (const e of entries) {
+    if (e.category !== lastCategory) {
+      rows.push({ kind: 'header', label: CATEGORY_LABEL[e.category] ?? e.category });
+      lastCategory = e.category;
+    }
+    rows.push({ kind: 'entry', entry: e });
+  }
 
   return (
     <section>
       <SectionHeader title={title} count={entries.length} />
-      <div className="mt-2 space-y-4">
-        {ASSISTANCE_CATEGORIES.map(({ id, label }) => {
-          const items = grouped.get(id);
-          if (!items || items.length === 0) return null;
-          return (
-            <div key={id}>
-              <div className="mb-1 text-xs uppercase tracking-wide text-muted">{label}</div>
-              <ul className="space-y-2">
-                {items.map((entry) => (
-                  <AssistanceEntryCard
-                    key={entry.id}
-                    entry={entry}
-                    sessionId={sessionId}
-                    loggedSets={loggedSets}
-                    onBeforeSave={onBeforeSave}
-                    onLogged={onLogged}
-                    locked={locked}
-                  />
-                ))}
-              </ul>
+      <div className="mt-2 space-y-2">
+        {rows.map((r, i) =>
+          r.kind === 'header' ? (
+            <div
+              key={`h-${i}`}
+              className={`text-xs uppercase tracking-wide text-muted ${i === 0 ? '' : 'pt-2'}`}
+            >
+              {r.label}
             </div>
-          );
-        })}
+          ) : (
+            <AssistanceEntryCard
+              key={r.entry.id}
+              entry={r.entry}
+              sessionId={sessionId}
+              loggedSets={loggedSets}
+              onBeforeSave={onBeforeSave}
+              onLogged={onLogged}
+              locked={locked}
+            />
+          ),
+        )}
       </div>
     </section>
   );
-}
-
-function groupByCategory(entries: AssistanceEntry[]): Map<AssistanceCategory, AssistanceEntry[]> {
-  const out = new Map<AssistanceCategory, AssistanceEntry[]>();
-  for (const e of entries) {
-    const cat = e.category;
-    if (!out.has(cat)) out.set(cat, []);
-    out.get(cat)!.push(e);
-  }
-  return out;
 }
 
 interface AssistanceEntryCardProps {
