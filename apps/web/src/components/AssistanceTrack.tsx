@@ -1,9 +1,10 @@
 'use client';
 
 // AssistanceTrack — renders Wendler 5/3/1 assistance work (Push / Pull /
-// Single-leg / Core / Accessory) attached to a session. Each entry shows its
-// prescription and a list of logged sets, with a quick "+" form to add another
-// set. All sets log against the host session with kind: 'assistance'.
+// Single-leg / Core / Carry / Accessory) attached to a session. Each entry
+// shows its prescription and a list of logged sets, with a quick "+" form
+// to add another set. All sets log against the host session with kind:
+// 'assistance'.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { nanoid } from 'nanoid';
@@ -11,10 +12,11 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import {
   ASSISTANCE_CATEGORIES,
   assistanceLabel,
+  categoryFromMovement,
   type AssistanceCategory,
   type AssistanceEntry,
 } from '@wendler/domain';
-import type { SetRecord } from '@wendler/db-schema';
+import type { Movement, SetRecord } from '@wendler/db-schema';
 import { getDb } from '@/lib/db';
 import { fmtKg } from '@/lib/format';
 import { SectionHeader } from './SessionParts';
@@ -46,6 +48,33 @@ export function AssistanceTrack({
   title = 'Assistance',
   locked = false,
 }: AssistanceTrackProps) {
+  // Look up movements for any entry that has a movementId so we can normalize
+  // categories at display time. Pre-v340 entries had carries stored as
+  // `category: 'other'`; this rebucketing makes them appear under "Carry"
+  // without needing a one-shot data migration.
+  const movementIds = useMemo(
+    () => Array.from(new Set(entries.map((e) => e.movementId).filter((x): x is string => !!x))),
+    [entries],
+  );
+  const movements = useLiveQuery(
+    async () => {
+      if (movementIds.length === 0) return [] as Movement[];
+      return getDb().movements.where('id').anyOf(movementIds).toArray();
+    },
+    [movementIds],
+  );
+  const movementById = useMemo(() => {
+    const m = new Map<string, Movement>();
+    for (const mv of movements ?? []) m.set(mv.id, mv);
+    return m;
+  }, [movements]);
+
+  const effectiveCategory = (e: AssistanceEntry): AssistanceCategory => {
+    const mv = e.movementId ? movementById.get(e.movementId) : undefined;
+    if (mv) return categoryFromMovement(mv);
+    return e.category;
+  };
+
   if (entries.length === 0) return null;
 
   // Render entries in their saved order. Category labels appear as a
@@ -55,9 +84,10 @@ export function AssistanceTrack({
   let lastCategory: AssistanceCategory | null = null;
   const rows: Array<{ kind: 'header'; label: string } | { kind: 'entry'; entry: AssistanceEntry }> = [];
   for (const e of entries) {
-    if (e.category !== lastCategory) {
-      rows.push({ kind: 'header', label: CATEGORY_LABEL[e.category] ?? e.category });
-      lastCategory = e.category;
+    const cat = effectiveCategory(e);
+    if (cat !== lastCategory) {
+      rows.push({ kind: 'header', label: CATEGORY_LABEL[cat] ?? cat });
+      lastCategory = cat;
     }
     rows.push({ kind: 'entry', entry: e });
   }

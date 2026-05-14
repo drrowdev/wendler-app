@@ -8,6 +8,9 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed
+- **Existing carry entries now show under "Carry" header (SW v341).** Companion to v340. The category change in v340 applied only to newly-generated entries — existing Suitcase Carry still had `category: 'other'` baked into IDB, so /day kept showing it under the OTHER sub-header. AssistanceTrack now normalises the category at render time by looking up the linked movement and calling `categoryFromMovement` on it, falling back to the stored `entry.category` when no movement is linked. No database migration needed; the display always reflects current category logic.
+
 ### Added
 - **New "Carry" assistance category (SW v340).** Carries (Suitcase Carry, Farmer Carry, Yoke Walk, etc.) used to land in the catch-all "Other" sub-header on /day — because the LLM emitted `slot: 'carry'` and the client mapped it to `category: 'other'`. They now have a proper `carry` category with its own sub-header on /day. The deterministic suggester's `categoryFromMovement` follows: `pattern: 'carry'` → `carry` (was `accessory`). `BODYWEIGHT_SWAPS` for deload now has a carry entry (bodyweight carry, 30 sec). The "Other" bucket remains as a fallback for unknowns.
 
