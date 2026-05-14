@@ -54,7 +54,7 @@ const SLOT_TO_CATEGORY: Record<RuleSlot, AssistanceCategory> = {
   core: 'core',
   prehab: 'accessory',
   isolation: 'accessory',
-  carry: 'other',
+  carry: 'carry',
 };
 
 type AiNewMovement = {

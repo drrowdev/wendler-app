@@ -119,6 +119,7 @@ const BODYWEIGHT_SWAPS: Record<AssistanceCategory, { name: string; reps: number;
   pull: { name: 'Inverted rows', reps: 8, repsMax: 12 },
   'single-leg': { name: 'Bodyweight split squats', reps: 8, repsMax: 12 },
   core: { name: 'Plank', reps: 30 }, // seconds
+  carry: { name: 'Bodyweight carry (no load)', reps: 30 }, // seconds
   accessory: { name: 'Bodyweight accessory', reps: 12, repsMax: 20 },
   other: { name: 'Bodyweight movement', reps: 12, repsMax: 20 },
 };
@@ -132,6 +133,7 @@ function transformBodyweightOnly(entries: AssistanceEntry[]): AssistanceEntry[] 
   return entries.map((e) => {
     const swap = BODYWEIGHT_SWAPS[e.category] ?? BODYWEIGHT_SWAPS.other;
     const isCore = e.category === 'core';
+    const isCarry = e.category === 'carry';
     return {
       id: e.id,
       category: e.category,
@@ -139,7 +141,7 @@ function transformBodyweightOnly(entries: AssistanceEntry[]): AssistanceEntry[] 
       sets: e.sets,
       reps: swap.reps,
       ...(swap.repsMax !== undefined ? { repsMax: swap.repsMax } : {}),
-      ...(isCore ? { unit: 'sec' as const } : {}),
+      ...(isCore || isCarry ? { unit: 'sec' as const } : {}),
       loadHint: 'bodyweight',
     };
   });

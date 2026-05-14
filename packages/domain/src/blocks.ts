@@ -518,6 +518,7 @@ export type AssistanceCategory =
   | 'pull'
   | 'single-leg'
   | 'core'
+  | 'carry'
   | 'accessory'
   | 'other';
 
@@ -526,6 +527,7 @@ export const ASSISTANCE_CATEGORIES: { id: AssistanceCategory; label: string }[] 
   { id: 'pull', label: 'Pull' },
   { id: 'single-leg', label: 'Single-leg' },
   { id: 'core', label: 'Core' },
+  { id: 'carry', label: 'Carry' },
   { id: 'accessory', label: 'Accessory' },
   { id: 'other', label: 'Other' },
 ];
@@ -750,8 +752,9 @@ export function categoryFromMovement(
       return 'core';
     case 'squat':
     case 'hinge':
-    case 'carry':
       return 'accessory';
+    case 'carry':
+      return 'carry';
     default:
       return 'other';
   }

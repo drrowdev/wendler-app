@@ -8,6 +8,9 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added
+- **New "Carry" assistance category (SW v340).** Carries (Suitcase Carry, Farmer Carry, Yoke Walk, etc.) used to land in the catch-all "Other" sub-header on /day — because the LLM emitted `slot: 'carry'` and the client mapped it to `category: 'other'`. They now have a proper `carry` category with its own sub-header on /day. The deterministic suggester's `categoryFromMovement` follows: `pattern: 'carry'` → `carry` (was `accessory`). `BODYWEIGHT_SWAPS` for deload now has a carry entry (bodyweight carry, 30 sec). The "Other" bucket remains as a fallback for unknowns.
+
 ### Fixed
 - **Today hero handles out-of-order training + heals stale cursor (SW v339).** Real root cause of the "long run wins over accessory day" issue from v337/v338. The user activated the Anchor block mid-week (Wed). Cursor parked at Day 0 (Monday). User then trained Thursday (Day 1) directly, skipping Monday. `advanceScheduleAfterDay` only ran when `cursor.groupIndex === dayIdx` strictly, so completing Day 1 while cursor was on Day 0 did NOTHING — cursor stuck on Monday. Then NextUpCard's override scanned for today-weekday, found the just-completed Thursday, set `currentGroup = Day 1 (done)`, `describeNextWorkout` reported "next Thu is 7 days away", `sUrg = 7`, cardio (urgency 2) won. The brief strength flash was the render before sessions loaded.
   - **Three fixes together:**

@@ -140,10 +140,11 @@ describe('categoryFromMovement', () => {
   it('maps core to core', () => {
     expect(categoryFromMovement({ name: 'Plank', pattern: 'core' })).toBe('core');
   });
-  it('maps squat/hinge/carry to accessory by default', () => {
+  it('maps squat/hinge to accessory by default; carry to its own carry category', () => {
     expect(categoryFromMovement({ name: 'Front Squat', pattern: 'squat' })).toBe('accessory');
     expect(categoryFromMovement({ name: 'Romanian Deadlift', pattern: 'hinge' })).toBe('accessory');
-    expect(categoryFromMovement({ name: 'Farmer Carry', pattern: 'carry' })).toBe('accessory');
+    expect(categoryFromMovement({ name: 'Farmer Carry', pattern: 'carry' })).toBe('carry');
+    expect(categoryFromMovement({ name: 'Suitcase Carry', pattern: 'carry' })).toBe('carry');
   });
   it('detects single-leg work from name regardless of pattern', () => {
     expect(categoryFromMovement({ name: 'Bulgarian Split Squat', pattern: 'squat' })).toBe(
