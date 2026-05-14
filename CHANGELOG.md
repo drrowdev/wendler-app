@@ -9,6 +9,11 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 ## [Unreleased]
 
 ### Fixed
+- **Today hero no longer demotes accessory day to cardio (SW v338).** Companion to v337. v337 made `effectiveGroupIndex` trust the cursor when it pointed at a future weekday this week (e.g. Friday accessory after Thursday's lift). But on the next render the strength-vs-cardio urgency comparison demoted it anyway: the cursor's day (Friday accessory) had no explicit `weekday` field and no parseable label, so `resolveDayWeekday(currentGroup)` returned `null` → `strengthDesc` was `null` → `strengthUrgency` was `Infinity` → cardio (Saturday long run, urgency 2) won. The strength flash you saw was the brief moment before sessions/cursor synced.
+  - Now infers the cursor day's weekday from the nearest neighbour day with a known weekday (each step in the schedule list advances by one calendar day).
+  - As a final guard: when the cursor still can't be dated, the strength session is assumed to be "tomorrow" rather than Infinity — so a scheduled cardio later this week never overrides a present cursor.
+
+### Fixed
 - **Today hero respects forward cursor advancement (SW v337).** After Thursday's session was logged the cursor correctly advanced to Day 2 (Friday accessory), but the v331 `effectiveGroupIndex` override fired regardless of cursor direction — when `cursorWd !== todayWd` it scanned for any group matching today, found the just-completed Thursday, and pushed the hero card back to Thursday. The hero then thought today was already done and surfaced Saturday's long run as next. Tightened the override to only fire when the cursor is *behind* today (`cursorWd < todayWd`). When the cursor is at a future weekday this week (`cursorWd > todayWd`) — the case after completing a session — trust it as-is. Mid-week activation (cursor stuck on a past Monday) still triggers the original scan-forward behaviour.
 
 ### Changed

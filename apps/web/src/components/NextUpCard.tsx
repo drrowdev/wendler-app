@@ -245,7 +245,29 @@ export function NextUpCard({ compact = false }: Props) {
     () => findNextCardio(today, runPlan, cardio ?? null),
     [today, runPlan, cardio],
   );
-  const strengthWd = currentGroup ? resolveDayWeekday(currentGroup) : null;
+  // Resolve the cursor day's weekday. If the day has no explicit weekday
+  // and no parseable label (common for accessory days), infer it from
+  // the nearest neighbour day that DOES have a known weekday — each step
+  // in the schedule list advances the calendar by one day. Without this
+  // fallback, the strength session reports `null` urgency (= Infinity)
+  // and cardio wins even when the strength session is literally tomorrow.
+  const strengthWd = useMemo(() => {
+    if (!currentGroup || !schedule) return null;
+    const direct = resolveDayWeekday(currentGroup);
+    if (direct !== null) return direct;
+    if (effectiveGroupIndex === undefined) return null;
+    const days = effectiveScheduleDays(schedule);
+    // Scan outward from the cursor for the nearest day with a known weekday.
+    for (let radius = 1; radius < days.length; radius++) {
+      const before = days[effectiveGroupIndex - radius];
+      const beforeWd = before ? resolveDayWeekday(before) : null;
+      if (beforeWd !== null) return (beforeWd + radius) % 7;
+      const after = days[effectiveGroupIndex + radius];
+      const afterWd = after ? resolveDayWeekday(after) : null;
+      if (afterWd !== null) return ((afterWd - radius) % 7 + 7) % 7;
+    }
+    return null;
+  }, [currentGroup, schedule, effectiveGroupIndex]);
   const strengthDesc =
     strengthWd != null
       ? describeNextWorkout({
@@ -255,7 +277,16 @@ export function NextUpCard({ compact = false }: Props) {
         })
       : null;
   const cardioUrgency = nextCardio ? nextCardio.daysUntil : Number.POSITIVE_INFINITY;
-  const sUrg = strengthUrgency(strengthDesc);
+  // When the cursor still couldn't be dated (no weekday on the cursor day
+  // and no labelled neighbour to infer from), the safest assumption is
+  // that the cursor's day is the user's NEXT training day — treat it as
+  // "tomorrow" so a same-week scheduled cardio doesn't unjustly steal the
+  // hero. Cardio still wins when it's literally today (urgency 0).
+  const sUrg = strengthDesc
+    ? strengthUrgency(strengthDesc)
+    : currentGroup
+      ? 1
+      : Number.POSITIVE_INFINITY;
   if (!compact && nextCardio && cardioUrgency < sUrg) {
     return <CardioHero next={nextCardio} />;
   }
