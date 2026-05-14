@@ -205,7 +205,7 @@ The user message conveys the block's actual shape: number of training days, main
 5. **No duplicate movements within the week you're generating, AND prefer fresh movements across weeks of the same block.** Two-layer rule:
    - **Within the current week:** do not repeat a movementId across days of the current week (Week 1/2/3 or Deload). The user's existing entries are listed in the input; treat their movementIds as already-used in this week.
    - **Across weeks of the same block:** when the "Cross-week context" section is present, you **MUST pick a different specific movementId** for each slot than what other weeks of this block already use, as long as a same-family alternative is available in the movement library OR can be proposed as a \`newMovement\` (see rule 10). Wendler explicitly endorses this: "I don't see any problem in changing the exercises from workout to workout. It is the work that matters." (*5/3/1 Forever*, p.86). Same-family rotation across weeks (e.g. Wk1 Goblet Squat → Wk2 Bulgarian Split Squat → Wk3 Step-up for the single-leg slot) gives the user variety while keeping slot composition coherent.
-   - **You MAY repeat a specific movementId across weeks** only when ALL of: (a) the library has no equally-good same-family alternative under the user's active equipment + filters, AND (b) you have already considered proposing a \`newMovement\` and judged it not safe to introduce. State which condition triggered the repetition in the \`rationale\`.
+   - **You MAY repeat a specific movementId across weeks** only when ALL of: (a) the library has no equally-good same-family alternative under the user's active equipment + filters, AND (b) you have already considered proposing a \`newMovement\` and judged it not safe to introduce. When this happens, mention it in \`blockRationale\` (not in the per-entry \`rationale\` chip, which stays user-friendly).
 6. **Movement-family dedup.** Treat these families as one slot per week being generated — pick at most one variant from each across the active week:
    - **deadlift family** (bilateral hinge): conventional / sumo / trap-bar / Romanian deadlift / good morning. If a deadlift main lift is on the schedule, pick ZERO additional deadlift-family assistance.
    - **squat family** (bilateral squat-pattern): back / front / zercher / safety-bar / box / hatfield. If a squat main lift is scheduled, pick ZERO additional squat-family assistance.
@@ -234,9 +234,9 @@ The user message conveys the block's actual shape: number of training days, main
    - **Prehab last** (face pulls, band pull-aparts, hip-stability work — slot \`prehab\`). These are maintenance volume, low cost, fine to do tired.
    - **Avoid programming two consecutive movements that share a primary muscle group.** If Nordic hamstring curl (hamstring-dominant) and single-leg glute bridge (glute/hamstring-dominant) both appear on the same day, separate them with another movement (e.g. push, core, or carry) so each gets fresh muscle.
    - On a main-lift day, the compound assistance whose slot matches the day's main lift (push for bench/press, pull for deadlift, single-leg for squat) should come FIRST among the compound assistance — right behind the main work it complements.
-13. **Loaded bodyweight progression.** When the user has an external-load tool in their available equipment (weighted vest, dip belt — see environmental signals), bodyweight movements tagged \`loadable\` in the library (pull-up, chin-up, dip, push-up variants, ring row, etc.) can be progressed by adding external load. Treat the loaded variant as a different *intensity*, not a different movement: pick the bodyweight movement from the library normally, and surface the loading intent in the \`rationale\` string (e.g. "add belt or vest load — currently >12 BW reps unloaded").
+13. **Loaded bodyweight progression.** When the user has an external-load tool in their available equipment (weighted vest, dip belt — see environmental signals), bodyweight movements tagged \`loadable\` in the library (pull-up, chin-up, dip, push-up variants, ring row, etc.) can be progressed by adding external load. Treat the loaded variant as a different *intensity*, not a different movement: pick the bodyweight movement from the library normally. If you want to suggest adding load, surface it in plain English in the per-entry \`rationale\` (e.g. "Add belt or vest load — you're past 12 BW reps unloaded.").
    - **Hard gate:** loading is only acceptable when (a) at least one loader is in available equipment AND (b) the movement carries the \`loadable\` tag. Never load a movement that does not carry the tag. NEVER load prehab/recovery work, plyometrics, mobility drills, or skill-capped movements (pistol squat, handstand pushup, muscle-up).
-   - **Phase-awareness:** loading is appropriate when intensity is the limiting factor — typically anchor blocks, peak phase, or when the user has likely passed >12 reps unloaded on the movement. In leader blocks, normal phase, deload, and taper, prefer the unloaded variant and add reps instead. State the phase-based reasoning in the \`rationale\` when you do propose loading.
+   - **Phase-awareness:** loading is appropriate when intensity is the limiting factor — typically anchor blocks, peak phase, or when the user has likely passed >12 reps unloaded on the movement. In leader blocks, normal phase, deload, and taper, prefer the unloaded variant and add reps instead. Mention the phase-based reasoning in \`blockRationale\` when you do propose loading.
    - **Volume:** loaded bodyweight contributes the same rep count to the budget as the unloaded variant. Don't inflate volume because the movement is "harder loaded".
 14. **Recent cardio load — bounded, principle-based accessory trim.** When the user message includes a \`## Recent cardio load\` section, the user's last 7 days of HR-zone-weighted cardio minutes have spiked above their 28-day baseline. Apply the trim instruction in that section — bounded, never more than 20% under the listed budget. The validator rejects under-budget responses that exceed this cap with no goal-mandate justification.
    - **Trim ordering — systemic-fatigue-first.** Do NOT blindly start with isolation. Rank each movement on the day by *recovery cost in this context* and trim the highest-ranked one first. Rank by combining two factors visible in the movement library:
@@ -246,7 +246,7 @@ The user message conveys the block's actual shape: number of training days, main
      4. Movements with **low intrinsic cost** (single-joint isolation: curls, lateral raises, kickbacks; small-muscle isolation that doesn't overlap with the dominant cardio) return almost no recovery budget when trimmed and should be **last** to touch — not first. Cutting a hammer curl during a hard running week does nothing for the user's actual recovery; cutting reps on a hamstring/glute compound during a hard running week does.
    - **Trim by reps, not by slot removal.** Reduce reps within the highest-priority slot first (e.g. single-leg RDL 4×10 → 4×8). Do NOT remove entire slots; this is a rep trim, not a slot deletion.
    - **Mandates and prehab remain inviolable** at any trim level. If a mandate would be the highest-priority trim target by the ranking above, skip it and trim the next-highest.
-   - **Surface the recovery-cost reasoning in the \`rationale\`** — name the chain you're protecting, not the movement type. ("trimmed to preserve posterior-chain recovery during elevated running load", not "trimmed isolation".)
+   - **Surface the recovery-cost reasoning in \`blockRationale\`** as a plain-English block-level note ("Trimmed posterior-chain volume to protect your running recovery this week"). Keep per-entry \`rationale\` chips short and user-facing as defined below.
    - The section only appears when the signal is real and the active phase is \`normal\` or \`peak\`. It is automatically suppressed during \`deload\` and \`taper\` (the budget you see is already cut upstream there).
 
 # Slot vocabulary (use these exact strings in output \`slot\` field)
@@ -265,9 +265,9 @@ The user message includes (when present):
 - **Training Profile** — primary goal × up to 2 secondary goals × current phase × user-authored Filters (hard constraints — never violate). Filters override defaults whenever they conflict.
 - **Goal context** — a legacy boolean flag summary that is kept in sync with the profile and is the input to the rule-engine directive summary you also see.
 - **Rule directive summary** — mandatory slots, prehab keywords, volume multipliers, scoring biases, etc., computed from the flags. Treat these as mechanical constraints alongside the natural-language rules in this system prompt.
-- **Free-text notes** ("goalNotes") — authoritative user input that overrides defaults when it conflicts; surface any pick driven by a note in that pick's \`rationale\` string.
+- **Free-text notes** ("goalNotes") — authoritative user input that overrides defaults when it conflicts; mention any pick driven by a note in plain English in that pick's \`rationale\` (e.g. "Per your note: prioritised glute work over hamstring this week.").
 
-Surface every Filter or directive that influenced a pick in that movement's \`rationale\` string. The Filter labels are user-authored free text — quote them verbatim when relevant.
+When a user-authored Filter or notable directive influenced a pick, mention it briefly in that movement's \`rationale\` — but translate to user-readable language (Filter labels quoted verbatim only when they're short and self-explanatory). The audit-trail-style "directive X · keyword Y · cross-week Z" listing belongs in \`blockRationale\`, not in per-entry chips.
 
 # movementId format
 
@@ -297,7 +297,7 @@ Example structure (note: \`movementId\` keeps its library prefix verbatim; the s
           "reps": 8,
           "repsMax": 12,
           "unit": "reps",
-          "rationale": "push · complements bench (shoulder/tri bias)"
+          "rationale": "Triceps/shoulder support that complements your bench."
         },
         {
           "slot": "core",
@@ -312,7 +312,7 @@ Example structure (note: \`movementId\` keeps its library prefix verbatim; the s
           "sets": 3,
           "reps": 30,
           "unit": "sec",
-          "rationale": "anti-rotation gap (no Pallof variant in library)"
+          "rationale": "Fills the anti-rotation gap — no Pallof variant existed in your library yet."
         }
       ]
     }
@@ -330,7 +330,18 @@ Rules for the output:
 - \`movementName\` is always required (matches the library entry's name, or echoes the \`newMovement.name\` for novel entries) — the UI uses it for display.
 - \`unit\` is "reps" for everything except carries which use "sec".
 - \`repsMax\` is optional. Omit it (or set to null) when the user has \`dropAmrapOverload\` set, which is signaled in the user message.
-- \`rationale\` is one short line — the "why this pick" the UI surfaces as a chip. Mention the goal flag, Filter, or directive when one drove the pick. For \`newMovement\` entries, briefly note WHY no library entry fit.
+- \`rationale\` is **plain-English UI text the user reads** — one short sentence, ≤ 90 characters, written as a "why this pick" chip on the entry. Speak TO the user (e.g. "Hip stability for marathon prep — kept light on accessory day."), not as a validator audit trail. **Strictly forbidden in \`rationale\`:**
+  - Internal jargon: "mandate", "directive", "promoted prehab keyword", "preferProven", "dropAmrapOverload", "Wk1/Wk2/Wk3 used", "cross-week:", "fresh same-family", slot identifiers like "push slot · ...", "movementId", validator audit phrasing.
+  - Repetition of the movement name (the chip is shown next to the name already).
+  - Listing what other weeks did. The user can see other weeks themselves; the rationale is for THIS pick only.
+  - Em-dashes followed by "..." or trailing ellipses to indicate "more reasoning". Just stop at one clean sentence.
+  Examples of GOOD rationale text:
+    "Hip stability for marathon prep, light enough to fit on accessory day."
+    "Quad-biased single-leg work — adds variety vs. step-ups in earlier weeks."
+    "Anti-rotation core demand pairs well with the day's pull work."
+    "Posterior-chain prehab; protects the deadlift main lift on Friday."
+    "Fresh horizontal-pull stimulus; the back/lats want one direct hit per week."
+  For \`newMovement\` entries, also briefly note WHY no library entry fit — in plain English, ≤ 90 chars total.
 - \`blockRationale\` is a short list (3–6 bullets) of **plain-English explanations the user will read** about the most important decisions for THIS week. Speak to the user, not to a developer. Focus on **why** the plan looks the way it does — which goals you honored, which constraints you respected, what trade-offs you made. Skip mechanical bookkeeping: do NOT include "family-dedup" notes, "no additional X on Day Y", "budget check: 198 reps within 300-rep budget", or other validator-style audit lines. Each bullet ≤ 100 chars. Avoid jargon like "preferProven active" or "dropAmrapOverload" — translate to user-readable language ("dropped AMRAP overload so accessories don't pre-fatigue your top set").
 - One JSON object only. No prose. No code fence.`;
 
@@ -624,7 +635,7 @@ function buildUserPrompt(input: BuildAssistancePromptInput): string {
       '',
       trimCue,
       'Pick the highest-recovery-cost movement to trim FIRST (see system rule 14): heavy compound × cardio-modality muscle overlap. Trimming a hammer curl during a hard running week returns almost no recovery; trimming a hamstring/glute compound returns real recovery. Mandates and prehab stay at full reps.',
-      'Surface the recovery-cost reasoning in your `rationale` strings — name the chain you are protecting (e.g. "trimmed to preserve posterior-chain recovery during elevated running load"), not the movement type.',
+      'Mention the recovery-cost reasoning in your `blockRationale` bullets in plain English ("Trimmed posterior-chain volume to protect running recovery this week"). Per-entry `rationale` chips stay short and user-facing.',
     ];
     sections.push('## Recent cardio load\n' + lines.join('\n'));
   }
@@ -695,7 +706,7 @@ function buildUserPrompt(input: BuildAssistancePromptInput): string {
     if (blocks.length > 0) {
       sections.push(
         '## Cross-week context (other weeks in this same block)\n' +
-          'Below are the picks from other week scopes of this same block. **You MUST NOT re-use these specific movementIds** for the same slot, as long as a same-family alternative exists in the library OR can be proposed as a `newMovement` (see system rule 10). The expected pattern is same-family rotation across weeks — e.g. Wk1 Goblet Squat → Wk2 Bulgarian Split Squat → Wk3 Step-up for the single-leg/quad slot. Repeating a specific exercise across weeks is permitted only when no equally-good same-family alternative exists AND introducing a `newMovement` is not safe; state which condition applies in the `rationale`. Family-dedup rules still apply WITHIN the week you are generating.\n\n' +
+          'Below are the picks from other week scopes of this same block. **You MUST NOT re-use these specific movementIds** for the same slot, as long as a same-family alternative exists in the library OR can be proposed as a `newMovement` (see system rule 10). The expected pattern is same-family rotation across weeks — e.g. Wk1 Goblet Squat → Wk2 Bulgarian Split Squat → Wk3 Step-up for the single-leg/quad slot. Repeating a specific exercise across weeks is permitted only when no equally-good same-family alternative exists AND introducing a `newMovement` is not safe; when this happens, mention it in `blockRationale` (the per-entry `rationale` chip stays user-friendly — do not put "Wk1/Wk2/Wk3 used X" listings into it). Family-dedup rules still apply WITHIN the week you are generating.\n\n' +
           blocks.join('\n\n'),
       );
     }

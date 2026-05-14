@@ -320,10 +320,12 @@ function AssistanceEntryRow({
       {entry.suggestionRationale && (
         <div className="px-3 pb-2 -mt-1">
           <p
-            className="block w-full whitespace-normal break-words rounded bg-sky-500/10 px-1.5 py-1 text-[11px] leading-snug text-sky-300/90 ring-1 ring-sky-500/30"
+            className="block min-w-0 rounded bg-sky-500/10 px-1.5 py-1 text-[11px] leading-snug text-sky-300/90 ring-1 ring-sky-500/30"
+            style={{ overflowWrap: 'anywhere', wordBreak: 'normal', whiteSpace: 'normal' }}
             title="Why this was suggested. Edits clear this hint."
           >
-            ✨ {entry.suggestionRationale}
+            <span aria-hidden className="mr-1">✨</span>
+            {entry.suggestionRationale}
           </p>
         </div>
       )}
