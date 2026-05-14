@@ -9,6 +9,13 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 ## [Unreleased]
 
 ### Fixed
+- **Today hero handles out-of-order training + heals stale cursor (SW v339).** Real root cause of the "long run wins over accessory day" issue from v337/v338. The user activated the Anchor block mid-week (Wed). Cursor parked at Day 0 (Monday). User then trained Thursday (Day 1) directly, skipping Monday. `advanceScheduleAfterDay` only ran when `cursor.groupIndex === dayIdx` strictly, so completing Day 1 while cursor was on Day 0 did NOTHING — cursor stuck on Monday. Then NextUpCard's override scanned for today-weekday, found the just-completed Thursday, set `currentGroup = Day 1 (done)`, `describeNextWorkout` reported "next Thu is 7 days away", `sUrg = 7`, cardio (urgency 2) won. The brief strength flash was the render before sessions loaded.
+  - **Three fixes together:**
+    1. **`advanceScheduleAfterDay` is now a catch-up rule, not strict equality.** Cursor advances past any completed `dayIdx` at-or-past the current cursor position in the same week. Out-of-order training (skip Monday, train Thursday) now jumps the cursor to Day 2 (Friday) immediately.
+    2. **NextUpCard self-heals stale cursors on mount.** A `useEffect` looks for completed sessions for the cursor's (block, week) whose `dayIndex >= cursor.groupIndex` and calls `advanceScheduleAfterDay` once. This back-fills users who completed sessions under the pre-v339 strict rule.
+    3. **`effectiveGroupIndex` scan now skips already-finished days.** Even if the cursor briefly points at a finished day, the override picks the soonest unfinished group at-or-past today's weekday, falling back to the soonest unfinished group anywhere.
+
+### Fixed
 - **Today hero no longer demotes accessory day to cardio (SW v338).** Companion to v337. v337 made `effectiveGroupIndex` trust the cursor when it pointed at a future weekday this week (e.g. Friday accessory after Thursday's lift). But on the next render the strength-vs-cardio urgency comparison demoted it anyway: the cursor's day (Friday accessory) had no explicit `weekday` field and no parseable label, so `resolveDayWeekday(currentGroup)` returned `null` → `strengthDesc` was `null` → `strengthUrgency` was `Infinity` → cardio (Saturday long run, urgency 2) won. The strength flash you saw was the brief moment before sessions/cursor synced.
   - Now infers the cursor day's weekday from the nearest neighbour day with a known weekday (each step in the schedule list advances by one calendar day).
   - As a final guard: when the cursor still can't be dated, the strength session is assumed to be "tomorrow" rather than Infinity — so a scheduled cardio later this week never overrides a present cursor.

@@ -116,7 +116,7 @@ export async function completeDayWorkout({
  * "are all main lifts logged" gate is intentionally dropped because
  * `completeDayWorkout` is only called from the explicit user tap.
  */
-async function advanceScheduleAfterDay(
+export async function advanceScheduleAfterDay(
   blockId: string,
   week: WendlerWeek,
   dayIdx: number,
@@ -126,7 +126,13 @@ async function advanceScheduleAfterDay(
   if (!schedule?.cursor) return;
   if (schedule.cursor.blockId !== blockId) return;
   if (schedule.cursor.week !== week) return;
-  if (schedule.cursor.groupIndex !== dayIdx) return;
+  // Catch-up rule: advance the cursor past `dayIdx` whenever the cursor
+  // sits at-or-before dayIdx in the same week. This handles mid-week
+  // activation: cursor parked on Day 0 (Mon), user trains Thursday
+  // first → cursor needs to jump past Thu, not stay on Mon. Strict
+  // equality previously made the cursor stick on Mon and the Today
+  // hero card couldn't tell what's actually next.
+  if (schedule.cursor.groupIndex > dayIdx) return;
 
   const groups = effectiveScheduleDays(schedule);
   const block = await db.blocks.get(blockId);

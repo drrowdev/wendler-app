@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { liftLabel, fmtKg } from '@/lib/format';
 import {
   useActiveBlock,
@@ -190,17 +190,59 @@ export function NextUpCard({ compact = false }: Props) {
   const cardio = useAllCardio();
   const runPlan = useRunPlan();
   const today = useMemo(() => new Date(), []);
+  // Self-heal stale cursor: if the user trained out-of-order (mid-week
+  // activation, then trained Thursday before Monday), pre-v338 cursor-
+  // advance only fired when cursor.groupIndex === dayIdx, so the cursor
+  // stuck on Monday. Detect any completed session for the cursor's
+  // (block, week) whose dayIndex is at-or-past the cursor's groupIndex,
+  // and advance the cursor past the highest completed dayIndex.
+  useEffect(() => {
+    if (!schedule?.cursor || !block || !recentSessions) return;
+    const cursor = schedule.cursor;
+    if (cursor.blockId !== block.id) return;
+    let maxCompletedGi = -1;
+    for (const s of recentSessions) {
+      if (s.blockId !== cursor.blockId) continue;
+      if (s.week !== cursor.week) continue;
+      if (typeof s.dayIndex !== 'number') continue;
+      if (!(s.workoutCompletedAt ?? s.completedAt)) continue;
+      if (s.dayIndex >= cursor.groupIndex && s.dayIndex > maxCompletedGi) {
+        maxCompletedGi = s.dayIndex;
+      }
+    }
+    if (maxCompletedGi < 0) return;
+    void import('@/lib/completeDayWorkout').then(({ advanceScheduleAfterDay }) => {
+      void advanceScheduleAfterDay(cursor.blockId, cursor.week, maxCompletedGi);
+    });
+  }, [schedule?.cursor, block, recentSessions]);
+
+  // Set of dayIndices that are already completed for the cursor's current
+  // (block, week) — used by the scan below to avoid surfacing a finished
+  // day as "up next".
+  const completedGiThisWeek = useMemo(() => {
+    const set = new Set<number>();
+    if (!schedule?.cursor || !recentSessions) return set;
+    const cursor = schedule.cursor;
+    for (const s of recentSessions) {
+      if (s.blockId !== cursor.blockId) continue;
+      if (s.week !== cursor.week) continue;
+      if (typeof s.dayIndex !== 'number') continue;
+      if (!(s.workoutCompletedAt ?? s.completedAt)) continue;
+      set.add(s.dayIndex);
+    }
+    return set;
+  }, [schedule?.cursor, recentSessions]);
+
   // Effective groupIndex for "what's next": prefer the cursor, but
   // auto-pick today's group when the cursor still points at an
   // already-past day this week. Example: cursor stuck at Day 0
   // (Monday) the user just activated mid-week — today is Thursday and
   // Day 1 = Thursday — surface Day 1, not the past-this-week Monday.
   //
-  // CRITICAL: only fire this override when the cursor is BEHIND today.
-  // After a session completes, the cursor advances forward; e.g. after
-  // Thursday's lift the cursor moves to Day 2 = Friday. We must NOT
-  // override that back to Thursday just because Thursday's group also
-  // matches today's weekday. The persisted cursor isn't mutated here.
+  // CRITICAL: only fire this override when the cursor is BEHIND today
+  // AND the today-weekday day hasn't already been completed this week
+  // (otherwise we'd surface a finished session and the urgency math
+  // would say "next time = 7 days from now" → cardio steals the hero).
   const effectiveGroupIndex = useMemo(() => {
     if (!schedule?.cursor) return undefined;
     const days = effectiveScheduleDays(schedule);
@@ -209,22 +251,40 @@ export function NextUpCard({ compact = false }: Props) {
     const cursorGi = schedule.cursor.groupIndex;
     const cursorDay = days[cursorGi];
     const cursorWd = cursorDay ? resolveDayWeekday(cursorDay) : null;
-    // Cursor is on today's weekday — that's exactly what we want.
-    if (cursorWd === todayWd) return cursorGi;
-    // Cursor is at a future weekday within the same week (e.g. cursor
-    // advanced from Thu to Fri after completing Thursday's session).
-    // Trust the cursor — overriding here is what caused the
-    // "next session = Saturday long run" bug after completing Thursday.
-    if (cursorWd !== null && cursorWd > todayWd) return cursorGi;
-    // Cursor is at a past weekday this week (mid-week activation case
-    // from v331). Scan forward for a group whose weekday matches today.
+    const isFinished = (i: number) => completedGiThisWeek.has(i);
+    // Cursor is on today's weekday and not finished — that's exactly what we want.
+    if (cursorWd === todayWd && !isFinished(cursorGi)) return cursorGi;
+    // Cursor at a future weekday this week (e.g. advanced from Thu to
+    // Fri after completing Thursday). Trust it.
+    if (cursorWd !== null && cursorWd > todayWd && !isFinished(cursorGi)) return cursorGi;
+    // Cursor at a past weekday this week (mid-week activation) — OR
+    // cursor's day is already done. Scan for the soonest non-finished
+    // group at-or-past today's weekday, then fall back to the soonest
+    // non-finished group anywhere.
+    let bestSameOrFuture: number | undefined;
+    let bestSameOrFutureWd: number | undefined;
+    let bestAny: number | undefined;
+    let bestAnyWd: number | undefined;
     for (let i = 0; i < days.length; i++) {
-      if (i === cursorGi) continue;
+      if (isFinished(i)) continue;
       const wd = resolveDayWeekday(days[i]!);
-      if (wd === todayWd) return i;
+      if (wd === null) {
+        if (bestAny === undefined) bestAny = i;
+        continue;
+      }
+      if (wd >= todayWd) {
+        if (bestSameOrFutureWd === undefined || wd < bestSameOrFutureWd) {
+          bestSameOrFuture = i;
+          bestSameOrFutureWd = wd;
+        }
+      }
+      if (bestAnyWd === undefined || wd < bestAnyWd) {
+        bestAny = i;
+        bestAnyWd = wd;
+      }
     }
-    return cursorGi;
-  }, [schedule, today]);
+    return bestSameOrFuture ?? bestAny ?? cursorGi;
+  }, [schedule, today, completedGiThisWeek]);
   const currentGroup = effectiveGroupIndex !== undefined
     ? effectiveScheduleDays(schedule!)[effectiveGroupIndex]
     : undefined;
