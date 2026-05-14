@@ -99,24 +99,9 @@ function triggerInteractiveRecovery(): void {
   interactionInFlight = true;
   const instance = getMsal();
   const account = instance.getActiveAccount() ?? instance.getAllAccounts()[0];
-  // Log to the notifications inbox BEFORE the redirect so the entry is in
-  // place when the user returns. Lazy-import to avoid pulling Dexie into
-  // the auth-provider module graph at startup.
-  void (async () => {
-    try {
-      const { notify } = await import('./notify');
-      await notify.info({
-        channel: 'auth',
-        title: 'Re-authenticating with Microsoft',
-        body: account?.username
-          ? `Silent token refresh failed; redirecting to Microsoft to renew the session for ${account.username}. This is the iOS PWA's usual recovery path.`
-          : 'Silent token refresh failed; redirecting to Microsoft to renew the session.',
-        context: { account: account?.username },
-      });
-    } catch {
-      // Swallow — notification logging must never block auth recovery.
-    }
-  })();
+  // No notification: silent re-auth is part of the normal iOS PWA lifecycle
+  // and the redirect itself is the user-visible event. Surfacing an info
+  // entry hours later in the inbox just adds noise.
   // acquireTokenRedirect with loginHint = account.username keeps the user
   // on the same MS account when multiple are signed in to the browser.
   void instance.acquireTokenRedirect({

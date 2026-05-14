@@ -8,6 +8,9 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Changed
+- **Removed "Re-authenticating with Microsoft" notification (SW v334).** The silent-token-refresh recovery path on iOS PWA was logging an info-channel inbox entry before redirecting to login.microsoftonline.com. Since the redirect itself is the user-visible event and the recovery is part of the normal iOS PWA token lifecycle, the inbox entry only added noise (often arriving hours after the actual redirect when the user opens the inbox). Auth-provider now redirects silently — no inbox row, no toast.
+
 ### Fixed
 - **/day visual fixes (SW v333):** three small bugs surfaced on the Thursday session card.
   - **Warm-up card now actually defaults collapsed.** v331 set `useState(true)` but a `useEffect(setCollapsed(completed))` ran on first render with `completed=false` and re-expanded the card. Replaced with a ref-tracked transition guard: the effect only fires when `completed` actually flips, so the initial `true` survives.
