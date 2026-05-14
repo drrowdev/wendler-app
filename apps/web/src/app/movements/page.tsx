@@ -23,13 +23,13 @@ export default function MovementsPage() {
         {movements?.map((m) => (
           <li
             key={m.id}
-            className="rounded-xl border border-border bg-card p-3"
+            className="flex items-center gap-2 rounded-xl border border-border bg-card p-3"
           >
             <Link
-              href={`/movements/edit?id=${encodeURIComponent(m.id)}`}
-              className="flex items-center justify-between gap-3"
+              href={`/movements/history?id=${encodeURIComponent(m.id)}`}
+              className="flex min-w-0 flex-1 items-center gap-3"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="font-medium">
                   {m.name}
                   {m.isMainLift && (
@@ -47,7 +47,14 @@ export default function MovementsPage() {
                   {m.equipment} · {m.pattern} · {m.primaryMuscles.join(', ')}
                 </div>
               </div>
-              <span className="shrink-0 text-xs text-muted">Edit ›</span>
+              <span className="shrink-0 text-xs text-muted">History ›</span>
+            </Link>
+            <Link
+              href={`/movements/edit?id=${encodeURIComponent(m.id)}`}
+              className="shrink-0 rounded-lg border border-border px-2 py-1 text-xs text-muted hover:border-accent hover:text-fg"
+              aria-label={`Edit ${m.name}`}
+            >
+              Edit
             </Link>
           </li>
         ))}

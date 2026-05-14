@@ -8,6 +8,14 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added
+- **Per-movement training history page at `/movements/history?id=…` (SW v342).** Works for both main lifts (bench, squat, deadlift, press) and assistance movements. Surfaces:
+  - **Summary tiles:** heaviest set ever, best e1RM ever (with the source set), best volume day (max Σ weight × reps in one calendar day), all-time set count + reps + tonnage.
+  - **Top-set e1RM line chart over time.** One point per workout day (best Epley-formula e1RM among that day's sets), so you can see strength development at a glance. Skips warm-ups and skipped sets.
+  - **Weekly tonnage bar chart.** Σ weight × reps per ISO week, last 26 weeks for legibility, zero-weeks filled in for visual continuity.
+  - **Full set log grouped by day, newest first.** Date · setCount · day-tonnage header per row, then each set with weight × reps, AMRAP badge, kind tag (supplemental / assistance / warmup), and per-set e1RM. Bodyweight sets render as "BW × N".
+- **Discoverability:** `/movements` list rows now route to history by default (tap the row to see history); a small "Edit" button on the right preserves access to the movement definition. The edit page also has a "History" button next to Delete.
+
 ### Fixed
 - **Existing carry entries now show under "Carry" header (SW v341).** Companion to v340. The category change in v340 applied only to newly-generated entries — existing Suitcase Carry still had `category: 'other'` baked into IDB, so /day kept showing it under the OTHER sub-header. AssistanceTrack now normalises the category at render time by looking up the linked movement and calling `categoryFromMovement` on it, falling back to the stored `entry.category` when no movement is linked. No database migration needed; the display always reflects current category logic.
 

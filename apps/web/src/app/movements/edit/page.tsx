@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useLiveQuery } from 'dexie-react-hooks';
 import type { EquipmentType, MovementPattern, MuscleGroup } from '@wendler/db-schema';
@@ -96,17 +97,25 @@ function EditMovementInner() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h1 className="text-3xl font-bold tracking-tight">Edit Movement</h1>
-        <button
-          type="button"
-          onClick={onDelete}
-          disabled={!movement.isCustom}
-          title={movement.isCustom ? 'Delete this movement' : 'Built-in movements can\u2019t be deleted'}
-          className="rounded-lg border border-border px-3 py-2 text-sm text-red-400 disabled:opacity-40"
-        >
-          Delete
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/movements/history?id=${encodeURIComponent(id)}`}
+            className="rounded-lg border border-border px-3 py-2 text-sm text-muted hover:border-accent hover:text-fg"
+          >
+            History
+          </Link>
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={!movement.isCustom}
+            title={movement.isCustom ? 'Delete this movement' : 'Built-in movements can\u2019t be deleted'}
+            className="rounded-lg border border-border px-3 py-2 text-sm text-red-400 disabled:opacity-40"
+          >
+            Delete
+          </button>
+        </div>
       </div>
 
       <label className="block">
