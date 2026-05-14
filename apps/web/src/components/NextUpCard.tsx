@@ -190,8 +190,33 @@ export function NextUpCard({ compact = false }: Props) {
   const cardio = useAllCardio();
   const runPlan = useRunPlan();
   const today = useMemo(() => new Date(), []);
-  const currentGroup = schedule?.cursor
-    ? effectiveScheduleDays(schedule)[schedule.cursor.groupIndex]
+  // Effective groupIndex for "what's next": prefer the cursor, but
+  // auto-pick today's group when the cursor still points at an
+  // already-past day this week. Example: cursor stuck at Day 0
+  // (Monday) but today is Thursday and Day 1 = Thursday — surface Day
+  // 1, not the past-this-week Monday. The persisted cursor isn't
+  // mutated here; advancement happens on completion as usual.
+  const effectiveGroupIndex = useMemo(() => {
+    if (!schedule?.cursor) return undefined;
+    const days = effectiveScheduleDays(schedule);
+    if (days.length === 0) return undefined;
+    const todayWd = (today.getDay() + 6) % 7; // 0=Mon..6=Sun
+    const cursorGi = schedule.cursor.groupIndex;
+    const cursorDay = days[cursorGi];
+    const cursorWd = cursorDay ? resolveDayWeekday(cursorDay) : null;
+    // Already on today's group — keep it.
+    if (cursorWd === todayWd) return cursorGi;
+    // Cursor is at a past weekday this week. Scan forward for a group
+    // whose weekday is today (or the soonest future weekday).
+    for (let i = 0; i < days.length; i++) {
+      if (i === cursorGi) continue;
+      const wd = resolveDayWeekday(days[i]!);
+      if (wd === todayWd) return i;
+    }
+    return cursorGi;
+  }, [schedule, today]);
+  const currentGroup = effectiveGroupIndex !== undefined
+    ? effectiveScheduleDays(schedule!)[effectiveGroupIndex]
     : undefined;
   const dayLifts: MainLift[] = currentGroup?.mainLifts ?? [];
   const lift: MainLift | undefined = dayLifts[0];
@@ -246,7 +271,7 @@ export function NextUpCard({ compact = false }: Props) {
   // Accessory-only day (no main lifts on this group).
   if (schedule?.cursor && currentGroup && currentGroup.mainLifts.length === 0) {
     const week = schedule.cursor.week;
-    const dayGroup = schedule.cursor.groupIndex;
+    const dayGroup = effectiveGroupIndex ?? schedule.cursor.groupIndex;
     const url = `/day?blockId=${block.id}&week=${week === 'deload' ? 'deload' : week}&day=${dayGroup}`;
     const headerLabel = currentGroup.label?.trim() || 'Accessory day';
     const accessoryEyebrow =
@@ -299,7 +324,7 @@ export function NextUpCard({ compact = false }: Props) {
   }
 
   const week = schedule.cursor.week;
-  const dayGroup = schedule.cursor.groupIndex;
+  const dayGroup = effectiveGroupIndex ?? schedule.cursor.groupIndex;
   const url = `/day?blockId=${block.id}&week=${week === 'deload' ? 'deload' : week}&day=${dayGroup}`;
   const schemeName = SCHEME_NAME[block.mainScheme ?? 'classic-531'];
   const supplName =

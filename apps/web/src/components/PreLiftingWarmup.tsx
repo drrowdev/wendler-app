@@ -60,7 +60,7 @@ export function PreLiftingWarmup({
 
   const completedAt = anchorSession?.preWarmupCompletedAt;
   const completed = !!completedAt;
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   // Auto-collapse the moment the user marks complete; auto-expand again if
   // they unmark. Manual toggle still wins until the next state change.
