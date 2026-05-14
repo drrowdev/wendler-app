@@ -9,6 +9,8 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 ## [Unreleased]
 
 ### Changed
+- **Warm-up card drops the empty status circle (SW v335).** The idle-state black circle with a `·` was visual chrome with no meaning — main lifts and assistance both show set progression (0/9 etc.) in their circles, but the warmup is a single bool with no count. The circle only appears now when the warmup is complete (green checkmark). Idle state just shows the title.
+
 - **Removed "Re-authenticating with Microsoft" notification (SW v334).** The silent-token-refresh recovery path on iOS PWA was logging an info-channel inbox entry before redirecting to login.microsoftonline.com. Since the redirect itself is the user-visible event and the recovery is part of the normal iOS PWA token lifecycle, the inbox entry only added noise (often arriving hours after the actual redirect when the user opens the inbox). Auth-provider now redirects silently — no inbox row, no toast.
 
 ### Fixed

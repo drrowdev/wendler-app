@@ -113,14 +113,14 @@ export function PreLiftingWarmup({
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-bg/40"
       >
         <div className="flex items-baseline gap-3">
-          <span
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
-              completed ? 'bg-emerald-600 text-white' : 'bg-bg text-fg ring-1 ring-border'
-            }`}
-            title={completed ? 'Warm-up complete' : 'Warm-up not started'}
-          >
-            {completed ? '✓' : '·'}
-          </span>
+          {completed && (
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-sm font-semibold text-white"
+              title="Warm-up complete"
+            >
+              ✓
+            </span>
+          )}
           <div>
             <div className="text-lg font-bold tracking-tight">Warm-up</div>
             <div className="text-xs text-muted">8–10 min · before the main lifts</div>
