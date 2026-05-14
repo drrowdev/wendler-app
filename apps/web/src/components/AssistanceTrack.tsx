@@ -210,7 +210,7 @@ function AssistanceEntryCard({
   const missingMovement = !entry.movementId;
 
   return (
-    <li
+    <div
       className={`rounded-xl border ${
         complete
           ? 'border-emerald-700/60 bg-emerald-900/10'
@@ -370,7 +370,7 @@ function AssistanceEntryCard({
           )}
         </div>
       )}
-    </li>
+    </div>
   );
 }
 

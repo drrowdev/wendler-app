@@ -713,12 +713,12 @@ function LiftTrack({
       >
         <div className="flex items-baseline gap-3">
           <span
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums ${
               isLocallyMarked || allDone
                 ? 'bg-emerald-600 text-white'
                 : inProgress
                   ? 'bg-amber-500/25 text-amber-200 ring-1 ring-amber-400/60'
-                  : 'bg-bg text-fg ring-1 ring-border'
+                  : 'bg-bg text-muted ring-1 ring-border'
             }`}
             title={
               isLocallyMarked || allDone
@@ -728,7 +728,11 @@ function LiftTrack({
                   : 'Not started'
             }
           >
-            {isLocallyMarked || allDone ? '✓' : inProgress ? doneCount : '·'}
+            {isLocallyMarked || allDone
+              ? '✓'
+              : totalCount > 0
+                ? `${doneCount}/${totalCount}`
+                : '·'}
           </span>
           <div>
             <div className="text-lg font-bold tracking-tight">

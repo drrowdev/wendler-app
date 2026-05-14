@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MainLift, WarmupBlockDef } from '@wendler/db-schema';
 import {
   DEFAULT_PRE_LIFTING_WARMUP_BLOCKS,
@@ -62,10 +62,16 @@ export function PreLiftingWarmup({
   const completed = !!completedAt;
   const [collapsed, setCollapsed] = useState(true);
 
-  // Auto-collapse the moment the user marks complete; auto-expand again if
-  // they unmark. Manual toggle still wins until the next state change.
+  // Auto-collapse the moment the user marks complete, and auto-expand again
+  // if they unmark — but only on the actual transition, not on every render.
+  // Without the ref, the initial render fires this effect with completed=false
+  // and overrides our useState(true) default, forcing the card open.
+  const prevCompletedRef = useRef(completed);
   useEffect(() => {
-    setCollapsed(completed);
+    if (prevCompletedRef.current !== completed) {
+      setCollapsed(completed);
+      prevCompletedRef.current = completed;
+    }
   }, [completed]);
 
   if (!enabled) return null;
