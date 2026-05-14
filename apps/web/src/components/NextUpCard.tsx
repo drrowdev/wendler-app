@@ -193,9 +193,14 @@ export function NextUpCard({ compact = false }: Props) {
   // Effective groupIndex for "what's next": prefer the cursor, but
   // auto-pick today's group when the cursor still points at an
   // already-past day this week. Example: cursor stuck at Day 0
-  // (Monday) but today is Thursday and Day 1 = Thursday — surface Day
-  // 1, not the past-this-week Monday. The persisted cursor isn't
-  // mutated here; advancement happens on completion as usual.
+  // (Monday) the user just activated mid-week — today is Thursday and
+  // Day 1 = Thursday — surface Day 1, not the past-this-week Monday.
+  //
+  // CRITICAL: only fire this override when the cursor is BEHIND today.
+  // After a session completes, the cursor advances forward; e.g. after
+  // Thursday's lift the cursor moves to Day 2 = Friday. We must NOT
+  // override that back to Thursday just because Thursday's group also
+  // matches today's weekday. The persisted cursor isn't mutated here.
   const effectiveGroupIndex = useMemo(() => {
     if (!schedule?.cursor) return undefined;
     const days = effectiveScheduleDays(schedule);
@@ -204,10 +209,15 @@ export function NextUpCard({ compact = false }: Props) {
     const cursorGi = schedule.cursor.groupIndex;
     const cursorDay = days[cursorGi];
     const cursorWd = cursorDay ? resolveDayWeekday(cursorDay) : null;
-    // Already on today's group — keep it.
+    // Cursor is on today's weekday — that's exactly what we want.
     if (cursorWd === todayWd) return cursorGi;
-    // Cursor is at a past weekday this week. Scan forward for a group
-    // whose weekday is today (or the soonest future weekday).
+    // Cursor is at a future weekday within the same week (e.g. cursor
+    // advanced from Thu to Fri after completing Thursday's session).
+    // Trust the cursor — overriding here is what caused the
+    // "next session = Saturday long run" bug after completing Thursday.
+    if (cursorWd !== null && cursorWd > todayWd) return cursorGi;
+    // Cursor is at a past weekday this week (mid-week activation case
+    // from v331). Scan forward for a group whose weekday matches today.
     for (let i = 0; i < days.length; i++) {
       if (i === cursorGi) continue;
       const wd = resolveDayWeekday(days[i]!);
