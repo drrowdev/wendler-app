@@ -76,6 +76,18 @@ export function AboutYouCard() {
     setHydrated(true);
   }, [profile, hydrated]);
 
+  // Collapsed by default once the profile has at least the demographic
+  // basics filled in — this is fill-once data, not something to re-edit
+  // every visit. Empty profile auto-expands so the user sees the form.
+  const hasBasics = !!(profile?.dateOfBirth && profile?.sex && profile?.trainingExperience);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!hydrated) return;
+    setOpen(!hasBasics);
+    // Only run once after hydration; subsequent open/close is user-driven.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
+
   const ageFromDob = (() => {
     if (!dob) return undefined;
     const [y, m, d] = dob.split('-').map(Number);
@@ -126,18 +138,75 @@ export function AboutYouCard() {
     kickSync();
     setSavedMsg('Saved');
     setTimeout(() => setSavedMsg(''), 1500);
+    // Collapse back down after a successful save when basics are now present.
+    if (hasBasics || (dob && sex && experience)) setOpen(false);
   };
+
+  // Compact summary shown when collapsed: pulls from `profile` (durable),
+  // not the form state, so an unsaved-in-progress edit doesn't change the
+  // chip display until the user actually saves.
+  const summaryChips: string[] = [];
+  if (profile?.dateOfBirth) {
+    const [y, m, d] = profile.dateOfBirth.split('-').map(Number);
+    if (y && m && d) {
+      const now = new Date();
+      let age = now.getFullYear() - y;
+      const before = now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d);
+      if (before) age -= 1;
+      if (age >= 0 && age < 120) summaryChips.push(`${age} y`);
+    }
+  }
+  if (profile?.sex) summaryChips.push(profile.sex);
+  if (profile?.heightCm) summaryChips.push(`${profile.heightCm} cm`);
+  if (bwCurrent !== undefined) summaryChips.push(`${bwCurrent} kg`);
+  if (profile?.trainingExperience) {
+    summaryChips.push(profile.trainingExperience);
+  }
 
   return (
     <section className="rounded-2xl border border-border bg-card p-4">
-      <header className="mb-3">
-        <h2 className="text-lg font-semibold">About you</h2>
-        <p className="text-xs text-muted">
-          Optional, helps the AI tailor advice. All fields private; stored locally + synced to your own devices only.
-        </p>
+      <header className="flex items-start justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex flex-1 items-start gap-2 text-left"
+          aria-expanded={open}
+        >
+          <span
+            aria-hidden
+            className={`mt-0.5 inline-block h-4 w-4 shrink-0 text-muted transition-transform ${
+              open ? 'rotate-90' : ''
+            }`}
+          >
+            ▶
+          </span>
+          <span className="flex-1">
+            <h2 className="text-lg font-semibold">About you</h2>
+            {!open && summaryChips.length > 0 ? (
+              <ul className="mt-1 flex flex-wrap gap-1.5">
+                {summaryChips.map((c, i) => (
+                  <li
+                    key={i}
+                    className="rounded border border-border bg-bg/60 px-1.5 py-0.5 text-[11px] capitalize text-muted"
+                  >
+                    {c}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-muted">
+                Optional, helps the AI tailor advice. All fields private; stored locally + synced to your own devices only.
+              </p>
+            )}
+          </span>
+        </button>
+        {!open && hasBasics && (
+          <span className="shrink-0 text-[11px] text-muted">Edit</span>
+        )}
       </header>
 
-      <form className="space-y-4" onSubmit={onSave}>
+      {open && (
+        <form className="mt-4 space-y-4" onSubmit={onSave}>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="text-xs text-muted">Date of birth</span>
@@ -293,6 +362,15 @@ export function AboutYouCard() {
 
         <div className="flex items-center justify-end gap-2">
           {savedMsg && <span className="text-xs text-emerald-300">{savedMsg}</span>}
+          {hasBasics && (
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="rounded-lg border border-border px-3 py-2 text-sm text-muted hover:text-fg"
+            >
+              Close
+            </button>
+          )}
           <button
             type="submit"
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg"
@@ -301,6 +379,7 @@ export function AboutYouCard() {
           </button>
         </div>
       </form>
+      )}
     </section>
   );
 }
