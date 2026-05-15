@@ -47,19 +47,22 @@ interface Props {
 
 export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
   const movements = useMovements();
-  // Pre-fill from origin / existing injury. When the supplied area doesn't
-  // exactly match one of the dropdown options (case-insensitive), route it
-  // to "other" and pre-populate the custom-area input so the user sees the
-  // suggested area instead of a silent fallback to "lower back". This also
-  // covers cases where the chat AI emits a side-qualified area like
-  // "right adductor" — the dropdown only has "adductor", but the more
-  // specific string is preserved as the actual stored value.
+  // Pre-fill from origin / existing injury. Match against the dropdown by
+  // substring (case-insensitive) so a side-qualified or descriptor-padded
+  // area string from the chat AI ("right adductor", "left knee", "elbow
+  // tendinitis") lands on the dropdown's body-region entry. The side or
+  // descriptor lives in the description anyway. Only fall back to "other"
+  // when no dropdown entry is a substring of the supplied area.
   const initialAreaRaw = injury?.area ?? origin?.area ?? 'lower back';
-  const matchesOption = COMMON_AREAS.some(
-    (a) => a.toLowerCase() === initialAreaRaw.toLowerCase() && a !== 'other',
-  );
-  const [area, setArea] = useState(matchesOption ? initialAreaRaw : 'other');
-  const [customArea, setCustomArea] = useState(matchesOption ? '' : initialAreaRaw);
+  const initialAreaLower = initialAreaRaw.toLowerCase();
+  // Prefer the longest match so "lower back" wins over "back" if we ever
+  // added "back" to the list.
+  const matchedArea = [...COMMON_AREAS]
+    .filter((a) => a !== 'other')
+    .sort((a, b) => b.length - a.length)
+    .find((a) => initialAreaLower.includes(a.toLowerCase()));
+  const [area, setArea] = useState(matchedArea ?? 'other');
+  const [customArea, setCustomArea] = useState(matchedArea ? '' : initialAreaRaw);
   const [severity, setSeverity] = useState<InjurySeverity>(
     injury?.severity ?? origin?.severity ?? 3,
   );
