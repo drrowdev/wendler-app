@@ -6,11 +6,43 @@
 
 import { useEffect, useState } from 'react';
 import { nanoid } from 'nanoid';
-import type { Injury, InjurySeverity } from '@wendler/db-schema';
+import type { Injury, InjurySeverity, ProgramBlock } from '@wendler/db-schema';
 import { getDb } from '@/lib/db';
 import { useMovements } from '@/lib/hooks';
 import { kickSync } from '@/lib/sync';
 import { analyzeInjury, type InjuryAnalysisResult } from '@/lib/injury-workflow';
+
+/**
+ * Swap every assistance entry in a block plan that matches `fromId` with
+ * the supplied alternative's movementId + name. Used by the Injury
+ * accept flow to auto-apply Coach-proposed substitutions. Pure — returns
+ * a new ProgramBlock; caller persists it.
+ */
+function applySubstitutionToBlock(
+  block: ProgramBlock,
+  fromId: string,
+  alt: { movementId: string; movementName: string },
+): ProgramBlock {
+  if (!block.plan) return block;
+  let touched = false;
+  const days = block.plan.days.map((d) => {
+    const next = d.assistance.map((e) => {
+      if (e.movementId !== fromId) return e;
+      touched = true;
+      return {
+        ...e,
+        movementId: alt.movementId,
+        movementName: alt.movementName,
+        // The auto-generated suggester rationale described the OLD pick.
+        suggestionRationale: undefined,
+      };
+    });
+    if (next === d.assistance) return d;
+    return { ...d, assistance: next };
+  });
+  if (!touched) return block;
+  return { ...block, plan: { ...block.plan, days } };
+}
 
 const COMMON_AREAS = [
   'lower back',
@@ -163,6 +195,33 @@ export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
       updatedAt: now,
     };
     await db.injuries.put(next);
+
+    // Auto-apply substitutions for accepted adjustments whose action is
+    // skip / reduce-load AND whose source movementId is currently
+    // scheduled in the active block. Uses the deterministic top
+    // alternative (alternatives[0]) as the replacement. Skips silently
+    // when the movement isn't scheduled or no alternative was produced —
+    // the accepted-text adjustment still applies as a flag, just no
+    // automatic swap.
+    const activeBlock = (await db.blocks.toArray()).find((b) => !b.completedAt);
+    if (activeBlock?.plan) {
+      let mutated = activeBlock;
+      for (let i = 0; i < proposal.proposedAdjustments.length; i++) {
+        if (!acceptedIndices.has(i)) continue;
+        const adj = proposal.proposedAdjustments[i]!;
+        const edit = edited.get(i);
+        const action = edit?.action ?? adj.action;
+        if (action !== 'skip' && action !== 'reduce-load') continue;
+        const top = adj.alternatives[0];
+        if (!top) continue;
+        if (top.movementId === adj.movementId) continue;
+        mutated = applySubstitutionToBlock(mutated, adj.movementId, top);
+      }
+      if (mutated !== activeBlock) {
+        await db.blocks.put({ ...mutated, updatedAt: new Date().toISOString() });
+      }
+    }
+
     kickSync();
     onSaved(injuryId);
   };
@@ -549,15 +608,30 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
                   </div>
                   <p className="mt-2 text-sm">{editState?.modification ?? adj.modification}</p>
                   <p className="mt-1 text-[11px] italic text-muted">{adj.reasoning}</p>
+                  {adj.alternatives.length > 0 && isAccepted && (adj.action === 'skip' || adj.action === 'reduce-load') && (
+                    <div className="mt-2 rounded border border-sky-500/30 bg-sky-500/5 px-2 py-1 text-[11px] text-sky-200">
+                      <span aria-hidden className="mr-1">⤳</span>
+                      <span className="font-semibold">Auto-swap on accept:</span>{' '}
+                      {adj.movementName} → {adj.alternatives[0]!.movementName}{' '}
+                      <span className="text-sky-200/70">
+                        — applied to every day in the active block where this movement is scheduled.
+                      </span>
+                    </div>
+                  )}
                   {adj.alternatives.length > 0 && (
                     <details className="mt-2 text-[11px] text-muted">
                       <summary className="cursor-pointer">
                         {adj.alternatives.length} alternative(s) from your library
                       </summary>
                       <ul className="mt-1 space-y-0.5 pl-3">
-                        {adj.alternatives.map((alt) => (
+                        {adj.alternatives.map((alt, ai) => (
                           <li key={alt.movementId}>
                             <span className="font-semibold text-fg/80">{alt.movementName}</span>
+                            {ai === 0 && (
+                              <span className="ml-1 rounded bg-sky-500/15 px-1 text-[10px] uppercase tracking-wide text-sky-300">
+                                top pick
+                              </span>
+                            )}
                             <span className="ml-1">— {alt.rationale}</span>
                           </li>
                         ))}

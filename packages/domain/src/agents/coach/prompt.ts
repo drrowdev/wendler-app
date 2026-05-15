@@ -69,10 +69,15 @@ situation calls for it.
    - **reasoning**: ONE short sentence explaining WHY this movement is
      affected by the underlying issue and why the proposed action fits.
 
-4. **Provide monitoring advice** in \`monitoringAdvice\`: when to retest,
+4. **In-block bias.** The user prompt MAY include an "Active block plan (scheduled assistance)" section listing exactly which assistance movements are scheduled in the user's current block. When that section is present:
+   - **Prioritise adjustments to in-block movements.** These are the movements the user will train in the next 1-3 weeks. The apply path will auto-substitute any in-block movement marked \`skip\` or \`reduce-load\` with the deterministic top alternative from the library — so a \`skip\` adjustment on an in-block movement is a CONCRETE swap, not a vague flag.
+   - **Don't propose adjustments for movements that are not scheduled and not closely related to a scheduled one.** Suggesting "monitor your sumo deadlift" when sumo deadlift isn't in the user's block is noise — it can't be auto-applied and only adds clutter.
+   - **Escalate to \`skip\` over \`monitor\` for in-block movements** when the user described a clear mechanism trigger on the movement. \`monitor\` is appropriate when the movement is NOT scheduled (so it can't auto-substitute) or when the link to the injury is speculative.
+
+5. **Provide monitoring advice** in \`monitoringAdvice\`: when to retest,
    what threshold means progress vs setback. One paragraph max.
 
-5. **Recommend a PT consult** by setting \`consultRecommended: true\` and
+6. **Recommend a PT consult** by setting \`consultRecommended: true\` and
    filling \`consultReason\` when the situation warrants. Triggers:
    - Severity 4 or 5 with daily-life impairment (limping, can't sleep)
    - Pain pattern recurring within 60 days of a prior resolved injury in
@@ -180,6 +185,21 @@ export interface BuildCoachPromptInput {
   otherActiveInjuries?: { area: string; severity: number; description: string }[];
   /** Recent prior resolved injuries (so the Coach can flag recurrences). */
   recentResolvedInjuries?: { area: string; resolvedAt: string }[];
+  /**
+   * Snapshot of the active block's planned assistance entries (per day,
+   * per movement). Lets Coach reason about WHAT IS ALREADY SCHEDULED so
+   * its adjustments target real entries the user will actually train.
+   * Drives the "concrete swap" behaviour: when Coach proposes a skip /
+   * reduce-load for a movement currently in the plan, it flags it as an
+   * in-block movement so the apply path can swap automatically.
+   */
+  currentBlockPlan?: {
+    blockName?: string;
+    days: Array<{
+      dayLabel: string; // e.g. "Day 1 · Squat" or user label
+      assistance: Array<{ movementId: string; movementName: string }>;
+    }>;
+  };
 }
 
 export interface BuiltCoachPrompt {
@@ -269,6 +289,23 @@ function buildCoachUserPrompt(input: BuildCoachPromptInput): string {
   // ----- recent training summary
   if (input.recentTrainingSummary && input.recentTrainingSummary.trim()) {
     sections.push('## Recent training (context only)\n' + input.recentTrainingSummary.trim());
+  }
+
+  // ----- currently scheduled assistance in the active block
+  if (input.currentBlockPlan && input.currentBlockPlan.days.length > 0) {
+    const blockLines: string[] = [];
+    if (input.currentBlockPlan.blockName) {
+      blockLines.push(`Block: ${input.currentBlockPlan.blockName}`);
+    }
+    blockLines.push(
+      'These are the assistance movements ALREADY SCHEDULED in the active block. When you propose a `skip` or `reduce-load` adjustment for a movement listed here, the apply path will auto-substitute it on every day where it appears (using the deterministic substitution helper to pick the best alternative from the library). Use this list to: (1) prioritize adjustments to movements the user will actually train soon, (2) propose `skip` over `monitor` when the in-block scheduling makes the limitation more pressing, (3) avoid recommending changes to movements that are NOT scheduled.',
+    );
+    for (const d of input.currentBlockPlan.days) {
+      if (d.assistance.length === 0) continue;
+      const entries = d.assistance.map((e) => `${e.movementName} (${e.movementId})`).join(', ');
+      blockLines.push(`- ${d.dayLabel}: ${entries}`);
+    }
+    sections.push('## Active block plan (scheduled assistance)\n' + blockLines.join('\n'));
   }
 
   // ----- movement library (filtered by equipment if provided)

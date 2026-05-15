@@ -58,11 +58,12 @@ export async function analyzeInjury(
   input: AnalyzeInjuryInput,
 ): Promise<AgentResponse<InjuryAnalysisResult>> {
   const db = getDb();
-  const [movements, settings, userProfile, allInjuries] = await Promise.all([
+  const [movements, settings, userProfile, allInjuries, allBlocks] = await Promise.all([
     db.movements.toArray(),
     db.settings.get('singleton'),
     db.userProfile.get('singleton'),
     db.injuries.toArray(),
+    db.blocks.toArray(),
   ]);
 
   const availableEquipment = (settings as unknown as { availableEquipment?: string[] })
@@ -97,6 +98,28 @@ export async function analyzeInjury(
 
   const recentTrainingSummary = await buildRecentTrainingSummary();
 
+  // Active block plan — gives Coach visibility into WHAT IS SCHEDULED so
+  // it can target real entries and the apply path can auto-swap on accept.
+  const activeBlock = allBlocks.find((b) => !b.completedAt);
+  const currentBlockPlan = activeBlock?.plan
+    ? {
+        ...(activeBlock.name ? { blockName: activeBlock.name } : {}),
+        days: activeBlock.plan.days.map((d, i) => {
+          const label = d.label?.trim() || `Day ${i + 1}`;
+          const lifts = d.mainLifts.length > 0 ? ` · ${d.mainLifts.join('/')}` : ' · accessory';
+          return {
+            dayLabel: `${label}${lifts}`,
+            assistance: d.assistance
+              .filter((e) => e.movementId)
+              .map((e) => ({
+                movementId: e.movementId!,
+                movementName: e.movementName,
+              })),
+          };
+        }).filter((d) => d.assistance.length > 0),
+      }
+    : undefined;
+
   const { userPrompt } = CoachAgent.buildCoachPrompt({
     injury: {
       area: input.area,
@@ -112,6 +135,7 @@ export async function analyzeInjury(
     ...(recentTrainingSummary !== undefined ? { recentTrainingSummary } : {}),
     ...(otherActiveInjuries.length > 0 ? { otherActiveInjuries } : {}),
     ...(recentResolvedInjuries.length > 0 ? { recentResolvedInjuries } : {}),
+    ...(currentBlockPlan && currentBlockPlan.days.length > 0 ? { currentBlockPlan } : {}),
   });
 
   // Server expects pre-built userPrompt + library payload.

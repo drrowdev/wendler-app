@@ -46,10 +46,15 @@ situation calls for it.
    - **reasoning**: ONE short sentence explaining WHY this movement is
      affected by the underlying issue and why the proposed action fits.
 
-4. **Provide monitoring advice** in \`monitoringAdvice\`: when to retest,
+4. **In-block bias.** The user prompt MAY include an "Active block plan (scheduled assistance)" section listing exactly which assistance movements are scheduled in the user's current block. When that section is present:
+   - **Prioritise adjustments to in-block movements.** These are the movements the user will train in the next 1-3 weeks. The apply path will auto-substitute any in-block movement marked \`skip\` or \`reduce-load\` with the deterministic top alternative from the library — so a \`skip\` adjustment on an in-block movement is a CONCRETE swap, not a vague flag.
+   - **Don't propose adjustments for movements that are not scheduled and not closely related to a scheduled one.** Suggesting "monitor your sumo deadlift" when sumo deadlift isn't in the user's block is noise — it can't be auto-applied and only adds clutter.
+   - **Escalate to \`skip\` over \`monitor\` for in-block movements** when the user described a clear mechanism trigger on the movement. \`monitor\` is appropriate when the movement is NOT scheduled (so it can't auto-substitute) or when the link to the injury is speculative.
+
+5. **Provide monitoring advice** in \`monitoringAdvice\`: when to retest,
    what threshold means progress vs setback. One paragraph max.
 
-5. **Recommend a PT consult** by setting \`consultRecommended: true\` and
+6. **Recommend a PT consult** by setting \`consultRecommended: true\` and
    filling \`consultReason\` when the situation warrants. Triggers:
    - Severity 4 or 5 with daily-life impairment (limping, can't sleep)
    - Pain pattern recurring within 60 days of a prior resolved injury in
