@@ -17,10 +17,30 @@ import { upsertRecoveryEntry, getLatestBodyweightOnOrBefore } from '@/lib/recove
 import { kickSync } from '@/lib/sync';
 
 const EXPERIENCE_OPTIONS: { id: NonNullable<UserProfile['trainingExperience']>; label: string; help: string }[] = [
-  { id: 'novice', label: 'Novice', help: '< 2 years consistent training' },
-  { id: 'intermediate', label: 'Intermediate', help: '2–5 years' },
-  { id: 'advanced', label: 'Advanced', help: '5–10 years, has pushed near-maximal loads' },
-  { id: 'elite', label: 'Elite', help: '10+ years, competitive background' },
+  {
+    id: 'novice',
+    label: 'Novice',
+    help:
+      'Under 2 years of consistent training. Still making linear progress, learning lift technique, and rapidly putting weight on the bar week to week. TMs respond fast to small adjustments.',
+  },
+  {
+    id: 'intermediate',
+    label: 'Intermediate',
+    help:
+      '2–5 years of consistent training. Linear progress has slowed; weekly/monthly cycles (like 5/3/1) are needed to keep adding load. Comfortable with all basic compound lifts.',
+  },
+  {
+    id: 'advanced',
+    label: 'Advanced',
+    help:
+      '5–10 years training. Has pushed near-maximal loads. Strength gains are measured per block, not per session. Familiar with deloads, supplemental schemes, AMRAP cycling.',
+  },
+  {
+    id: 'elite',
+    label: 'Elite',
+    help:
+      '10+ years of structured training, competitive or near-competitive background. Strength sits near genetic ceiling; gains are slow and small. Programming + recovery are highly individualised.',
+  },
 ];
 
 export function AboutYouCard() {
@@ -209,6 +229,23 @@ export function AboutYouCard() {
               </button>
             ))}
           </div>
+          {experience && (
+            <p className="text-[11px] leading-snug text-muted">
+              {EXPERIENCE_OPTIONS.find((o) => o.id === experience)?.help}
+            </p>
+          )}
+          {!experience && (
+            <details className="text-[11px] leading-snug text-muted">
+              <summary className="cursor-pointer select-none">What do these mean?</summary>
+              <ul className="mt-2 space-y-1.5">
+                {EXPERIENCE_OPTIONS.map((opt) => (
+                  <li key={opt.id}>
+                    <span className="font-semibold text-fg/90">{opt.label}:</span> {opt.help}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
