@@ -1277,6 +1277,75 @@ export interface AiGeneration {
 
 export type ChatRole = 'user' | 'assistant';
 
+// ---------------------------------------------------------------------------
+// Chat action chips — Phase 4 follow-up.
+//
+// Concrete, applicable recommendations the chat AI emits alongside its prose
+// reply. Each chip maps to a small write the client can execute against
+// Dexie (and which then propagates via the normal sync engine). Chips
+// persist on the assistant ChatMessage so they survive reload + cross-
+// device sync; tapping Apply records `appliedAt`, tapping Dismiss records
+// `dismissedAt`.
+//
+// Vocabulary is intentionally narrow at v1 — three kinds covering the most
+// common "do this" advice across Coach / Programmer / Periodizer:
+//
+//   - `log_injury`             → opens InjurySheet pre-filled
+//   - `set_training_max`       → confirm sheet → writes TrainingMaxRecord
+//   - `set_block_volume_preset`→ confirm sheet → updates active block
+//
+// New action kinds plug in by adding to the union + a handler in
+// `apps/web/src/lib/chat-actions.ts`.
+
+export type ChatActionKind =
+  | 'log_injury'
+  | 'set_training_max'
+  | 'set_block_volume_preset';
+
+export type ChatActionStatus = 'pending' | 'applied' | 'dismissed';
+
+interface ChatActionBase {
+  /** Stable id (generated server-side when the action is parsed). */
+  id: string;
+  kind: ChatActionKind;
+  /** Imperative-voice button label, ≤ 35 chars. */
+  label: string;
+  /** Optional one-line "why" shown alongside the button. */
+  rationale?: string;
+  status: ChatActionStatus;
+  appliedAt?: string;
+  dismissedAt?: string;
+}
+
+export interface LogInjuryChatAction extends ChatActionBase {
+  kind: 'log_injury';
+  area: string;
+  severity?: 1 | 2 | 3 | 4 | 5;
+  description?: string;
+  /** Library movementIds (with prefix) the user said are affected. */
+  movementIds?: string[];
+}
+
+export interface SetTrainingMaxChatAction extends ChatActionBase {
+  kind: 'set_training_max';
+  lift: 'squat' | 'bench' | 'deadlift' | 'press';
+  newTrainingMaxKg: number;
+  reason: string;
+}
+
+export interface SetBlockVolumePresetChatAction extends ChatActionBase {
+  kind: 'set_block_volume_preset';
+  /** Optional — defaults to the currently active block when omitted. */
+  blockId?: string;
+  preset: 'minimal' | 'standard' | 'high';
+  reason: string;
+}
+
+export type ChatAction =
+  | LogInjuryChatAction
+  | SetTrainingMaxChatAction
+  | SetBlockVolumePresetChatAction;
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -1290,6 +1359,12 @@ export interface ChatMessage {
    * preceding user message during prompt construction.
    */
   contextPath?: string;
+  /**
+   * Optional action chips emitted alongside the assistant's prose reply.
+   * Persisted with the message so they survive reload + sync. Only set on
+   * assistant messages.
+   */
+  actions?: ChatAction[];
 }
 
 export interface Chat {

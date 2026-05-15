@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { nanoid } from 'nanoid';
-import type { Chat, ChatMessage } from '@wendler/db-schema';
+import type { Chat, ChatAction, ChatMessage } from '@wendler/db-schema';
 import {
   buildChatContext,
   renderChatContextAsText,
@@ -220,6 +220,7 @@ export function useChatSender(externalId: string | null): UseChatSender {
         const decoder = new TextDecoder();
         let buffer = '';
         let accumulated = '';
+        let accumulatedActions: ChatAction[] = [];
         let streamErr: string | null = null;
         while (true) {
           const { value, done } = await reader.read();
@@ -251,13 +252,16 @@ export function useChatSender(externalId: string | null): UseChatSender {
                     inputTokens: number;
                     outputTokens: number;
                   }
-                | { type: 'composing_start' };
+                | { type: 'composing_start' }
+                | { type: 'action_chips'; actions: ChatAction[] };
               if (evt.type === 'delta') {
                 accumulated += evt.text;
                 setStreaming(accumulated);
                 setPhase('streaming');
               } else if (evt.type === 'error') {
                 streamErr = evt.detail;
+              } else if (evt.type === 'action_chips') {
+                accumulatedActions = evt.actions;
               } else if (evt.type === 'tool_use_start') {
                 setToolCalls((prev) => [
                   ...prev,
@@ -298,6 +302,7 @@ export function useChatSender(externalId: string | null): UseChatSender {
           role: 'assistant',
           content: accumulated,
           createdAt: replyTs,
+          ...(accumulatedActions.length > 0 ? { actions: accumulatedActions } : {}),
         };
         const finalMessages = [...messagesSoFar, assistantMsg];
         await db.chats.put({

@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Chat, ChatMessage } from '@wendler/db-schema';
 import { useChat, useChatSender, renameChat } from '@/lib/useChat';
+import { ChatActionChips } from './ChatActionChips';
 
 const SUGGESTED_PROMPTS = [
   {
@@ -146,7 +147,7 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
         ) : (
           <ul className="space-y-3">
             {chat!.messages.map((m) => (
-              <MessageBubble key={m.id} message={m} />
+              <MessageBubble key={m.id} chatId={chat!.id} message={m} />
             ))}
             {sender.sending && (
               <StreamingBubble
@@ -212,7 +213,7 @@ function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({ chatId, message }: { chatId: string; message: ChatMessage }) {
   const isUser = message.role === 'user';
   return (
     <li className={isUser ? 'flex justify-end' : 'flex justify-start'}>
@@ -224,6 +225,13 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         }`}
       >
         {isUser ? message.content : <MarkdownBody content={message.content} />}
+        {!isUser && message.actions && message.actions.length > 0 && (
+          <ChatActionChips
+            chatId={chatId}
+            messageId={message.id}
+            actions={message.actions}
+          />
+        )}
       </div>
     </li>
   );

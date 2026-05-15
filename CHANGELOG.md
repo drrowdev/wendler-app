@@ -8,6 +8,34 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Chat action chips: apply recommendations with one tap (SW v364)
+
+Chat AI can now emit concrete, applicable recommendations alongside its prose, rendered as buttons under the assistant reply. v1 vocabulary covers three action kinds spanning the Coach / Programmer / Periodizer domains:
+
+- **`log_injury`** — opens the InjurySheet pre-filled with area, severity, description, and affected movementIds. Coach-flagged movement-modification advice becomes a one-tap "Log limitation" button.
+- **`set_training_max`** — confirms in a small modal then writes a new TrainingMaxRecord for the proposed lift. The previous TM stays in history; the new value takes effect immediately.
+- **`set_block_volume_preset`** — confirms then updates the active block's `assistanceVolume` field (minimal / standard / high). Targets a specific blockId when supplied, falls back to the current active block otherwise.
+
+**Protocol:**
+- Chat system prompt gains an "Action chips" section documenting the vocabulary, when to emit, and a strict "no chip when uncertain" rule.
+- Model appends `<actions>[...]</actions>` at the very end of its reply.
+- Server (`apps/api/src/functions/chat.ts`) intercepts the opener mid-stream so the tag and its JSON never leak into the visible prose, parses the block on `end_turn`, and emits a new SSE event `{ type: 'action_chips', actions: ChatAction[] }`.
+- Parser + validator at `apps/api/src/llm/chat-actions-parse.ts` (mirror of `packages/domain/src/agents/chat/chat-actions-parse.ts`). Validates kind, required fields, value ranges, rounds TM kg to nearest 0.5, caps the chip array at 4 entries. Malformed JSON or invalid chips → empty chip array (prose still flows through clean).
+
+**Persistence:**
+- New `ChatAction` discriminated union in `@wendler/db-schema` (`log_injury` / `set_training_max` / `set_block_volume_preset`). `ChatMessage.actions?: ChatAction[]`.
+- Optional field — no Dexie migration needed. Existing chats unchanged.
+- Per-chip state: `status` (`pending` / `applied` / `dismissed`) + `appliedAt` / `dismissedAt` timestamps. Persisted on the parent ChatMessage so chip state survives reload + syncs across devices.
+
+**Client:**
+- `useChat` captures the `action_chips` event and persists chips on the assistant message at turn end.
+- New `ChatActionChips` component renders under each assistant bubble. Pending chips show as accent-tinted buttons with the chip label + rationale + an explicit dismiss (×). Applied chips collapse to a green "✓ Applied: …" status line; dismissed chips collapse to a grey "— Dismissed: …" line.
+- Handlers in `apps/web/src/lib/chat-actions.ts`. `log_injury` opens InjurySheet pre-filled. The other two pop a confirm modal before writing.
+
+**Tests:** 922 (was 909 + 13 parser tests covering happy path, edge cases, every validation branch, lookalike rejections, cap enforcement).
+
+Future kinds (mark deload, substitute movement, start taper) plug in by adding a `ChatAction` union branch + a parser validator + a client handler. Three files per kind.
+
 ### Added — Agentic Phase 4: Periodizer + Summarizer + Weekly Review (SW v362)
 
 Final phase of the agentic rollout. Both remaining specialists ship, plus a Weekly Review surface on /stats that runs them as a workflow.
