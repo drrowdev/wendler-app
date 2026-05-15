@@ -142,7 +142,13 @@ ${context}
           return;
         }
 
-        const response = await client.messages.create({
+        // Stream this iteration. Text deltas are forwarded live so the
+        // user sees Claude's thinking-out-loud (e.g. "Let me check with the
+        // coach on that knee...") as it happens; tool_use blocks arrive as
+        // structured content that we route via dispatchTool below. The
+        // streaming finalMessage() promise gives us the assembled
+        // assistant turn (usage + stop_reason + full content) at the end.
+        const upstream = client.messages.stream({
           model,
           max_tokens: maxTokens,
           temperature,
@@ -150,6 +156,14 @@ ${context}
           tools: CHAT_TOOL_SPECS,
           messages: loopMessages,
         });
+
+        for await (const ev of upstream) {
+          if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') {
+            yield sse({ type: 'delta', text: ev.delta.text });
+          }
+        }
+
+        const response = await upstream.finalMessage();
         llmCalls += 1;
         totalInputTokens += response.usage?.input_tokens ?? 0;
         totalOutputTokens += response.usage?.output_tokens ?? 0;
@@ -195,6 +209,11 @@ ${context}
             });
           }
 
+          // Switch the client's loading state to "Composing reply…" while
+          // Claude churns through the next iteration. The first text_delta
+          // of that iteration clears the state automatically.
+          yield sse({ type: 'composing_start' });
+
           // Echo Claude's assistant turn into history (must contain the
           // tool_use blocks verbatim, plus any text it emitted alongside).
           loopMessages.push({ role: 'assistant', content: response.content });
@@ -211,17 +230,8 @@ ${context}
           continue;
         }
 
-        // No tool use — extract the final text answer.
-        const text = response.content
-          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-          .map((b) => b.text)
-          .join('\n')
-          .trim();
-        if (!text) {
-          yield sse({ type: 'error', detail: 'Empty response from model.' });
-          return;
-        }
-        yield sse({ type: 'delta', text });
+        // Final iteration — text deltas have already streamed. Just emit
+        // the done event with rolled-up telemetry.
         yield sse({
           type: 'done',
           modelInfo: {

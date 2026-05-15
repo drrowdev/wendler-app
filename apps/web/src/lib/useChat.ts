@@ -88,6 +88,25 @@ export interface ToolCallStatus {
   outputTokens?: number;
 }
 
+/**
+ * High-level phase of the current send. Useful for picking the right
+ * "what is the assistant doing right now?" loading message in the UI.
+ *
+ *   - `idle`        : nothing in flight
+ *   - `thinking`    : Claude is generating its first response chunk
+ *                     (before any tool use or final text)
+ *   - `consulting`  : at least one tool dispatch is in flight
+ *   - `composing`   : tools have completed; waiting for Claude's final
+ *                     iteration to start streaming text
+ *   - `streaming`   : final text deltas are arriving
+ */
+export type ChatTurnPhase =
+  | 'idle'
+  | 'thinking'
+  | 'consulting'
+  | 'composing'
+  | 'streaming';
+
 export interface UseChatSender {
   send: (content: string, opts?: SendOptions) => Promise<string>;
   /** Conversation id (existing or newly minted on first send). */
@@ -97,6 +116,8 @@ export interface UseChatSender {
   streaming: string;
   /** Tool calls dispatched during the current turn (most-recent last). Cleared between turns. */
   toolCalls: ToolCallStatus[];
+  /** High-level phase of the current turn for UI loading messages. */
+  phase: ChatTurnPhase;
   error: string | null;
 }
 
@@ -111,6 +132,7 @@ export function useChatSender(externalId: string | null): UseChatSender {
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState('');
   const [toolCalls, setToolCalls] = useState<ToolCallStatus[]>([]);
+  const [phase, setPhase] = useState<ChatTurnPhase>('idle');
   const [error, setError] = useState<string | null>(null);
 
   // Keep internal id in sync when the parent switches conversations
@@ -130,6 +152,7 @@ export function useChatSender(externalId: string | null): UseChatSender {
       setSending(true);
       setStreaming('');
       setToolCalls([]);
+      setPhase('thinking');
       try {
         const db = getDb();
         const now = new Date().toISOString();
@@ -227,10 +250,12 @@ export function useChatSender(externalId: string | null): UseChatSender {
                     durationMs: number;
                     inputTokens: number;
                     outputTokens: number;
-                  };
+                  }
+                | { type: 'composing_start' };
               if (evt.type === 'delta') {
                 accumulated += evt.text;
                 setStreaming(accumulated);
+                setPhase('streaming');
               } else if (evt.type === 'error') {
                 streamErr = evt.detail;
               } else if (evt.type === 'tool_use_start') {
@@ -242,6 +267,7 @@ export function useChatSender(externalId: string | null): UseChatSender {
                     startedAtMs: Date.now(),
                   },
                 ]);
+                setPhase('consulting');
               } else if (evt.type === 'tool_use_end') {
                 setToolCalls((prev) =>
                   prev.map((tc) =>
@@ -255,6 +281,8 @@ export function useChatSender(externalId: string | null): UseChatSender {
                       : tc,
                   ),
                 );
+              } else if (evt.type === 'composing_start') {
+                setPhase('composing');
               }
             } catch {
               // Tolerate keep-alives or malformed lines without aborting.
@@ -285,12 +313,13 @@ export function useChatSender(externalId: string | null): UseChatSender {
       } finally {
         setSending(false);
         setStreaming('');
+        setPhase('idle');
       }
     },
     [id, sending],
   );
 
-  return { send, id, sending, streaming, toolCalls, error };
+  return { send, id, sending, streaming, toolCalls, phase, error };
 }
 
 /** Rename a chat conversation. */

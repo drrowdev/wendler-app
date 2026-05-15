@@ -62,6 +62,18 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
     listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [chat?.messages.length, sender.sending, sender.streaming, sender.toolCalls.length]);
 
+  // Bubble up the chatId the moment the sender allocates it — NOT after
+  // send() resolves. With tool-use turns running 20-30s, waiting for the
+  // resolve meant the URL (and the panel's `chatId` prop) stayed null for
+  // the whole turn, so the user saw an empty pane until everything landed
+  // in one shot. By watching `sender.id`, the parent route updates the URL
+  // the moment the user submits and the conversation is visible immediately.
+  useEffect(() => {
+    if (sender.id && sender.id !== chatId) {
+      onChatIdChangeRef.current?.(sender.id);
+    }
+  }, [sender.id, chatId]);
+
   const submit = async (text: string) => {
     if (!text.trim() || sender.sending) return;
     setDraft('');
@@ -137,7 +149,11 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
               <MessageBubble key={m.id} message={m} />
             ))}
             {sender.sending && (
-              <StreamingBubble text={sender.streaming} toolCalls={sender.toolCalls} />
+              <StreamingBubble
+                text={sender.streaming}
+                toolCalls={sender.toolCalls}
+                phase={sender.phase}
+              />
             )}
           </ul>
         )}
@@ -216,10 +232,21 @@ function MessageBubble({ message }: { message: ChatMessage }) {
 function StreamingBubble({
   text,
   toolCalls,
+  phase,
 }: {
   text: string;
   toolCalls: import('@/lib/useChat').ToolCallStatus[];
+  phase: import('@/lib/useChat').ChatTurnPhase;
 }) {
+  // Loading-state copy. Even when text has started streaming we keep
+  // showing the spinner so the user has something to look at if the model
+  // pauses mid-paragraph.
+  const loadingText =
+    phase === 'consulting'
+      ? 'Consulting specialists…'
+      : phase === 'composing'
+        ? 'Composing reply…'
+        : 'Thinking…';
   return (
     <li className="flex justify-start">
       <div className="max-w-[90%] rounded-lg border border-border bg-card px-3 py-2 text-sm text-fg">
@@ -227,7 +254,9 @@ function StreamingBubble({
           <ul className="mb-2 space-y-0.5 text-[11px]">
             {toolCalls.map((tc) => (
               <li key={tc.id} className="flex items-center gap-1.5 text-muted">
-                <span aria-hidden>{tc.endedAtMs ? '✓' : '↻'}</span>
+                <span aria-hidden className={tc.endedAtMs ? '' : 'inline-block animate-spin'}>
+                  {tc.endedAtMs ? '✓' : '↻'}
+                </span>
                 <span className="font-semibold text-fg/80">{specialistLabel(tc.name)}</span>
                 {tc.endedAtMs && (
                   <span className="text-muted">
@@ -254,11 +283,7 @@ function StreamingBubble({
               <span className="animate-pulse [animation-delay:120ms]">•</span>
               <span className="animate-pulse [animation-delay:240ms]">•</span>
             </span>
-            <span className="ml-2">
-              {toolCalls.some((tc) => !tc.endedAtMs)
-                ? 'Consulting specialists…'
-                : 'Thinking…'}
-            </span>
+            <span className="ml-2">{loadingText}</span>
           </span>
         )}
       </div>

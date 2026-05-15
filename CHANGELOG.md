@@ -8,6 +8,16 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Chat tool-use UX: thread continuation + progress feedback (SW v360)
+
+Two Phase-3 follow-ups from real-use feedback:
+
+1. **Thread didn't continue inline.** Submitting from a fresh `/chat` (no `?id=`) cleared the composer but the URL stayed at `/chat` for the whole 20-30s tool-use turn — until `sender.send()` resolved and `onChatIdChange` fired. With cross-domain questions hitting multiple specialists that meant the user was looking at an empty pane and had to find the new thread in the conversation list. Fixed by watching `sender.id` in a `useEffect` and propagating the moment Dexie persists the new chat row (well before the LLM responds). The URL now updates within a render frame and the user message + tool indicators show up immediately.
+
+2. **No mid-turn progress feedback.** The previous build held the full assistant turn until everything was done, then dumped a single `delta` event. With tool-use turns the user saw a frozen "Consulting specialists…" indicator for 10+ seconds while Claude composed the reconciled reply. Two changes:
+   - **Server now streams text tokens.** Switched from `client.messages.create` to `client.messages.stream` and forwards `content_block_delta` text events as SSE `delta` events as they arrive. Per-token streaming is back; intermediate Claude commentary ("Let me consult the coach on that…") streams too, which is fine — it's useful transparency about what the orchestrator is doing.
+   - **New `composing_start` SSE event + `ChatTurnPhase` client state.** Phases: `thinking` (initial response, pre-tool-use) → `consulting` (at least one tool dispatch in flight) → `composing` (tools done, waiting for Claude's reconciliation iteration) → `streaming` (text deltas arriving). `StreamingBubble` picks the right "what's happening right now?" copy per phase ("Thinking…" / "Consulting specialists…" / "Composing reply…") and the in-flight tool-call rows now animate (`↻` spins until the matching `tool_use_end` arrives).
+
 ### Added — Agentic Phase 3: Chat tool-use orchestration (SW v359)
 
 The chat agent now consults specialist tools instead of doing everything in a single LLM call. Cross-domain freeform questions ("my knee hurts AND I have a race in 3 weeks") get routed to the right specialists in parallel and reconciled into one coherent answer.
