@@ -8,6 +8,13 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Scientific calculation audit, round 3
+
+- **M2 — `e1rmTrend` cadence-independent (SW v347).** The strength-trend signal that feeds the return-plan recommendations used to regress e1RM against `[0, 1, 2, ...]` — the data-point index — not actual calendar days. So a 2× / week lifter and a 1× / week lifter making the SAME true progress per calendar week saw different per-point slopes, and the ±0.6 %/week threshold fired at different actual rates of progress depending on cadence. A user with mismatched cadences across the four main lifts (squat 2× / press 1×) got artificial asymmetry in the aggregate trend.
+  - Slope is now regressed against actual day-of-year (`Math.floor(ts / 86400000)`), then scaled to weekly. Verdict is identical for any cadence at the same true rate of progress.
+  - Added a 14-day minimum span guard. Three points clustered in one week are no longer dignified with a "rising"/"falling" verdict — they return `'unknown'` (slope estimate is too noisy).
+  - 2 new tests: cadence-independence (1× vs 2× weekly with identical +1 kg/week progress both report `'rising'`), and the short-span guard.
+
 ### Fixed — Scientific calculation audit, round 2
 
 - **M3 — /movements/history shares date-bucketing logic with the rest of the dashboard (SW v346).** The page had its own `ymd()` (local-time YYYY-MM-DD) and `isoWeekBucket()` (local-time ISO week) helpers, while the domain analytics that drive `/stats` use UTC-bucketed `isoDate()` and `isoWeekKey()`. A Sunday-evening set near midnight could land in different weeks on the two pages. Now both pages use the same domain helpers — the two screens can no longer disagree. Cursor walking in the zero-fill loops is also pinned to UTC noon, so a TZ shift on either side of midnight can't push the cursor across a week boundary and misalign with `isoWeekKey`.

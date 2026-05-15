@@ -109,6 +109,40 @@ describe('e1rmTrend', () => {
     ];
     expect(e1rmTrend(sets, 'press', '2026-04-05')).toBe('flat');
   });
+
+  it('is cadence-independent: 1x/wk vs 2x/wk same true progress → same verdict', () => {
+    // 1x/wk: 4 points spread over 21 days, +1 kg/week → "rising"
+    const onceWeekly: MinimalSet[] = [
+      set({ performedAt: '2026-03-01T10:00:00Z', weightKg: 100, reps: 5, isAmrap: true }),
+      set({ performedAt: '2026-03-08T10:00:00Z', weightKg: 101, reps: 5, isAmrap: true }),
+      set({ performedAt: '2026-03-15T10:00:00Z', weightKg: 102, reps: 5, isAmrap: true }),
+      set({ performedAt: '2026-03-22T10:00:00Z', weightKg: 103, reps: 5, isAmrap: true }),
+    ];
+    // 2x/wk: 7 points over the same 21 days, same +1 kg/week rate.
+    const twiceWeekly: MinimalSet[] = [
+      set({ performedAt: '2026-03-01T10:00:00Z', weightKg: 100.0, reps: 5, isAmrap: true }),
+      set({ performedAt: '2026-03-04T10:00:00Z', weightKg: 100.5, reps: 5, isAmrap: true }),
+      set({ performedAt: '2026-03-08T10:00:00Z', weightKg: 101.0, reps: 5, isAmrap: true }),
+      set({ performedAt: '2026-03-11T10:00:00Z', weightKg: 101.5, reps: 5, isAmrap: true }),
+      set({ performedAt: '2026-03-15T10:00:00Z', weightKg: 102.0, reps: 5, isAmrap: true }),
+      set({ performedAt: '2026-03-18T10:00:00Z', weightKg: 102.5, reps: 5, isAmrap: true }),
+      set({ performedAt: '2026-03-22T10:00:00Z', weightKg: 103.0, reps: 5, isAmrap: true }),
+    ];
+    // Pre-fix: per-point slope halved on 2x cadence → could be classed
+    // as "flat" while 1x got "rising". Post-fix: both report the same.
+    expect(e1rmTrend(onceWeekly, 'press', '2026-04-05')).toBe('rising');
+    expect(e1rmTrend(twiceWeekly, 'press', '2026-04-05')).toBe('rising');
+  });
+
+  it('returns "unknown" when span < 14 days even with 3+ points', () => {
+    // 3 points all in one week — slope is meaningless, don't pretend.
+    const sets: MinimalSet[] = [
+      set({ performedAt: '2026-04-01T10:00:00Z', weightKg: 100, reps: 5, isAmrap: true }),
+      set({ performedAt: '2026-04-03T10:00:00Z', weightKg: 103, reps: 5, isAmrap: true }),
+      set({ performedAt: '2026-04-05T10:00:00Z', weightKg: 106, reps: 5, isAmrap: true }),
+    ];
+    expect(e1rmTrend(sets, 'press', '2026-04-08')).toBe('unknown');
+  });
 });
 
 describe('lastAmrapPerformance', () => {

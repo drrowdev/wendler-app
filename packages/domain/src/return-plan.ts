@@ -179,23 +179,35 @@ export function e1rmTrend(
   const series = bestE1rmSeries(sets, movementId).filter((p) => p.date >= cutoffIso);
   if (series.length < 3) return 'unknown';
 
-  // Slope of e1RM vs day-index (least squares). Threshold of ±1% per week
-  // of the mean keeps "noise" from being mistaken for a trend.
-  const xs = series.map((_, i) => i);
+  // Cadence-independent slope: regress e1RM against actual day-of-year, not
+  // against the data-point index. A 2×/week lifter and a 1×/week lifter
+  // making the same true progress per calendar week should both report
+  // the same %/week. Before this fix, slopePerPoint was halved for a 2×
+  // cadence (more points spread over the same calendar span), so the
+  // ±0.6 %/week threshold fired at different actual rates of progress.
+  //
+  // Also require a meaningful time span (≥ 14 calendar days between
+  // first and last point); 3 points clustered into a single week make
+  // for a noisy slope estimate.
+  const epochDays = (ymd: string): number =>
+    Math.floor(new Date(`${ymd}T00:00:00Z`).getTime() / 86400000);
+  const xs = series.map((p) => epochDays(p.date));
+  const spanDays = xs[xs.length - 1]! - xs[0]!;
+  if (spanDays < 14) return 'unknown';
+  const x0 = xs[0]!;
+  const xRel = xs.map((x) => x - x0);
   const ys = series.map((p) => p.e1rm);
-  const meanX = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const meanX = xRel.reduce((a, b) => a + b, 0) / xRel.length;
   const meanY = ys.reduce((a, b) => a + b, 0) / ys.length;
   let num = 0;
   let den = 0;
-  for (let i = 0; i < xs.length; i++) {
-    num += (xs[i]! - meanX) * (ys[i]! - meanY);
-    den += (xs[i]! - meanX) ** 2;
+  for (let i = 0; i < xRel.length; i++) {
+    num += (xRel[i]! - meanX) * (ys[i]! - meanY);
+    den += (xRel[i]! - meanX) ** 2;
   }
   if (den === 0) return 'flat';
-  const slopePerPoint = num / den;
-  // Convert slope (kg per data-point) into approximate %/week. Series points
-  // are typically one per week on a 5/3/1 plan; scale conservatively.
-  const slopePerWeek = slopePerPoint;
+  const slopePerDay = num / den; // kg per calendar day
+  const slopePerWeek = slopePerDay * 7;
   const pctPerWeek = (slopePerWeek / meanY) * 100;
   if (pctPerWeek > 0.6) return 'rising';
   if (pctPerWeek < -0.6) return 'falling';
