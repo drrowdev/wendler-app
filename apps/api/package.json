@@ -2,7 +2,7 @@
   "name": "@wendler/api",
   "version": "0.0.1",
   "private": true,
-  "main": "dist/src/functions/*.js",
+  "main": "dist/src/functions/**/*.js",
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",

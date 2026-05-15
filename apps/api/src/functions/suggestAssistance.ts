@@ -4,9 +4,8 @@ import {
   type HttpResponseInit,
   type InvocationContext,
 } from '@azure/functions';
-import Anthropic from '@anthropic-ai/sdk';
 import { verifyRequest } from '../auth';
-import { parseAssistanceResponse } from '../llm/validate.js';
+import { runProgrammer } from '../agents/programmer/runner';
 
 interface RequestBody {
   systemPrompt: string;
@@ -33,25 +32,21 @@ interface RequestBody {
 }
 
 /**
- * POST /api/suggestAssistance
+ * POST /api/suggestAssistance — legacy route, kept for back-compat with the
+ * existing web client. Delegates to `runProgrammer` and maps the unified
+ * AgentResponse back to the legacy success/error shape:
  *
- * Body: { systemPrompt, userPrompt, movementIds[], maxDayIndex? }
- * The client builds the prompts with `buildAssistancePrompt` from
- * @wendler/domain and ships the catalog whitelist alongside.
- *
- * Returns:
- *   200 { ok: true,  data: LlmAssistanceResponse, raw: string, modelInfo }
- *   200 { ok: false, errors: string[], raw: string, modelInfo }   // valid call, bad model output
+ *   200 { ok: true,  data: LlmAssistanceResponse, raw, modelInfo }
+ *   200 { ok: false, errors: string[], raw, modelInfo }
  *   400 { error: 'bad-request', detail }
  *   401 { error: 'unauthenticated' }
- *   503 { error: 'llm-not-configured' }                            // no ANTHROPIC_API_KEY
- *   502 { error: 'llm-call-failed', detail }                       // upstream failure
+ *   503 { error: 'llm-not-configured' }
+ *   502 { error: 'llm-call-failed', detail }
  *
- * Note that schema-validation failure is a 200 — the client decides whether
- * to surface the errors to the user, retry, or fall back to the
- * deterministic suggester.
+ * New callers should prefer `POST /api/agents/programmer` which returns the
+ * unified `AgentResponse<ProgrammerSuccessData>` shape.
  */
-export async function suggestAssistance(
+async function suggestAssistance(
   req: HttpRequest,
   ctx: InvocationContext,
 ): Promise<HttpResponseInit> {
@@ -59,11 +54,6 @@ export async function suggestAssistance(
   if (!user) {
     ctx.log(`suggestAssistance: unauthenticated (${reason ?? 'unknown'})`);
     return { status: 401, jsonBody: { error: 'unauthenticated' } };
-  }
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return { status: 503, jsonBody: { error: 'llm-not-configured' } };
   }
 
   let body: RequestBody;
@@ -76,115 +66,107 @@ export async function suggestAssistance(
     };
   }
 
-  const { systemPrompt, userPrompt, movementIds, maxDayIndex, availableEquipment, crossWeekUsedMovementIds } =
-    body ?? ({} as RequestBody);
+  const {
+    systemPrompt,
+    userPrompt,
+    movementIds,
+    maxDayIndex,
+    availableEquipment,
+    crossWeekUsedMovementIds,
+  } = body ?? ({} as RequestBody);
+
+  // Legacy request validation — stricter than the runner's checks (the
+  // runner doesn't gate on prompt length). Kept here so the legacy response
+  // shape stays consistent.
   if (typeof systemPrompt !== 'string' || systemPrompt.length < 50) {
-    return { status: 400, jsonBody: { error: 'bad-request', detail: 'systemPrompt missing or too short' } };
+    return {
+      status: 400,
+      jsonBody: { error: 'bad-request', detail: 'systemPrompt missing or too short' },
+    };
   }
   if (typeof userPrompt !== 'string' || userPrompt.length < 50) {
-    return { status: 400, jsonBody: { error: 'bad-request', detail: 'userPrompt missing or too short' } };
+    return {
+      status: 400,
+      jsonBody: { error: 'bad-request', detail: 'userPrompt missing or too short' },
+    };
   }
   if (!Array.isArray(movementIds) || movementIds.length === 0) {
-    return { status: 400, jsonBody: { error: 'bad-request', detail: 'movementIds must be a non-empty array' } };
+    return {
+      status: 400,
+      jsonBody: { error: 'bad-request', detail: 'movementIds must be a non-empty array' },
+    };
   }
   if (movementIds.length > 5000) {
-    return { status: 400, jsonBody: { error: 'bad-request', detail: 'movementIds exceeds 5000' } };
-  }
-
-  // Defaults below are tuned for the assistance-suggester payload shape.
-  // Override per-deployment via env if Anthropic ships a newer model or you
-  // want to dial cost vs. creativity differently.
-  //
-  // - model: Sonnet 4.6 — strong instruction-following on structured JSON,
-  //   fast enough for an interactive panel (~2-4s round-trip in practice).
-  // - max_tokens: 8000. A typical response is ~1500-2500 output tokens
-  //   (3-4 days × 3-5 entries × ~10 short fields + a few blockRationale
-  //   lines). Bumped from 4000 because a truncated JSON forces a full
-  //   retry — output tokens are cheap relative to that round-trip.
-  // - temperature: 0.3. Structured-output guidance for strict JSON-schema
-  //   tasks lands in the 0.0–0.3 band; we sit at the top of that range.
-  //   The case for non-zero is real (regenerating at T=0 returns the same
-  //   picks every time), but token-level entropy is the WRONG lever for
-  //   selection variety — at higher temperatures it manifests as ID drift
-  //   (seed:bench-press → seed:bench_press), creative departures from the
-  //   library when an OK match exists, and JSON schema deviations. The
-  //   variety we want is at the *movement-selection* layer, achieved
-  //   structurally by:
-  //     (a) shuffling the per-day movement-library section on each call
-  //         (kills LLM primacy bias for early-in-list entries)
-  //     (b) directive cross-week dedup ("actively avoid these")
-  //     (c) the hard cross-week validator (system rule 5)
-  //
-  // Caching note (for whoever adds it next): an input-hash cache still
-  // pays its keep at non-zero temperature — saves the round-trip — but
-  // a cached response is one sampled point from a distribution, not the
-  // canonically "best" answer. That's fine for our use case (suggestion
-  // tool, not a planner) but be explicit about it in the cache layer.
-  const model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
-  const maxTokens = Number(process.env.ANTHROPIC_MAX_TOKENS ?? '8000');
-  const temperature = Number(process.env.ANTHROPIC_TEMPERATURE ?? '0.3');
-
-  const client = new Anthropic({ apiKey });
-
-  const startedAt = Date.now();
-  let raw = '';
-  let usage: { input_tokens?: number; output_tokens?: number } | undefined;
-  try {
-    const msg = await client.messages.create({
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
-    raw = msg.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n');
-    usage = msg.usage;
-  } catch (err) {
-    ctx.log(`suggestAssistance: LLM call failed: ${(err as Error).message}`);
     return {
-      status: 502,
-      jsonBody: { error: 'llm-call-failed', detail: (err as Error).message },
+      status: 400,
+      jsonBody: { error: 'bad-request', detail: 'movementIds exceeds 5000' },
     };
   }
 
-  const elapsedMs = Date.now() - startedAt;
-  const modelInfo = {
-    model,
-    elapsedMs,
-    inputTokens: usage?.input_tokens,
-    outputTokens: usage?.output_tokens,
-  };
-
-  const parsed = parseAssistanceResponse(raw, {
-    allowedMovementIds: new Set(movementIds),
+  const result = await runProgrammer({
+    systemPrompt,
+    userPrompt,
+    movementIds,
     maxDayIndex,
-    availableEquipment:
-      Array.isArray(availableEquipment) && availableEquipment.length > 0
-        ? new Set(availableEquipment)
-        : undefined,
-    crossWeekUsedMovementIds:
-      Array.isArray(crossWeekUsedMovementIds) && crossWeekUsedMovementIds.length > 0
-        ? new Set(crossWeekUsedMovementIds)
-        : undefined,
+    availableEquipment,
+    crossWeekUsedMovementIds,
   });
 
-  if (!parsed.ok) {
-    ctx.log(
-      `suggestAssistance: LLM responded but validation failed (${parsed.errors.length} errors)`,
-    );
+  if (result.ok) {
     return {
       status: 200,
-      jsonBody: { ok: false, errors: parsed.errors, raw, modelInfo },
+      jsonBody: {
+        ok: true,
+        data: result.data.response,
+        raw: result.rawResponse ?? '',
+        modelInfo: result.data.modelInfo,
+      },
     };
   }
 
-  return {
-    status: 200,
-    jsonBody: { ok: true, data: parsed.data, raw, modelInfo },
-  };
+  // Map the agent's error codes back to the legacy HTTP-status shape.
+  switch (result.errorCode) {
+    case 'llm-unreachable':
+      // Distinguish "no API key configured" (503) from "SDK threw" (502).
+      if (!process.env.ANTHROPIC_API_KEY) {
+        return { status: 503, jsonBody: { error: 'llm-not-configured' } };
+      }
+      return {
+        status: 502,
+        jsonBody: { error: 'llm-call-failed', detail: result.errors[0] ?? 'LLM call failed' },
+      };
+    case 'llm-timeout':
+      return {
+        status: 502,
+        jsonBody: { error: 'llm-call-failed', detail: result.errors[0] ?? 'LLM timed out' },
+      };
+    case 'validation-failed': {
+      ctx.log(
+        `suggestAssistance: LLM responded but validation failed (${result.errors.length} errors)`,
+      );
+      const modelInfo = {
+        elapsedMs: result.usage?.latencyMs ?? 0,
+        inputTokens: result.usage?.inputTokens,
+        outputTokens: result.usage?.outputTokens,
+      };
+      return {
+        status: 200,
+        jsonBody: {
+          ok: false,
+          errors: result.errors,
+          raw: result.rawResponse ?? '',
+          modelInfo,
+        },
+      };
+    }
+    case 'bad-input':
+      return { status: 400, jsonBody: { error: 'bad-request', detail: result.errors[0] } };
+    default:
+      return {
+        status: 502,
+        jsonBody: { error: 'llm-call-failed', detail: result.errors[0] ?? 'unknown' },
+      };
+  }
 }
 
 app.http('suggestAssistance', {

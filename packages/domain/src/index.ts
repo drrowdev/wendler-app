@@ -2,6 +2,7 @@ export * from './chat-context';
 export const VERSION = '1.1.0';
 
 export * from './types';
+export * from './agents';
 export * from './rounding';
 export * from './training-max';
 export * from './waves';

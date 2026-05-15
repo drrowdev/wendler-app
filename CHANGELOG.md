@@ -8,6 +8,54 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Agentic Phase 1: agent contract foundation (SW v355)
+
+Refactor-only ship. No user-visible change. Establishes the type-level + module-level scaffolding the rest of the agentic rollout (Phases 2–4) builds on. Reviewed against the master plan in `~/.copilot/session-state/.../files/agentic-master-plan.md`.
+
+**Contract types (`packages/domain/src/agents/types.ts`):**
+- `AgentResponse<T>` discriminated union (`{ ok: true, data, ... }` or `{ ok: false, errorCode, errors, ... }`)
+- `AgentErrorCode`: `'validation-failed' | 'llm-unreachable' | 'llm-timeout' | 'llm-refused' | 'rate-limited' | 'bad-input' | 'unknown'`
+- `AgentUsage` (tokens + latency telemetry)
+- `AgentToolSpec` (Phase 3 prep — tool-use orchestration schema)
+- `agentSuccess()` / `agentError()` constructor helpers
+- 8 new tests covering discriminated-union narrowing + exhaustive error-code coverage
+
+**Programmer agent namespace (`packages/domain/src/agents/programmer/`):**
+- `prompt.ts` re-exports `buildAssistancePrompt` from the existing `assistance-prompt.ts` under the canonical agent path
+- `response.ts` re-exports `parseAssistanceResponse` + the LLM response types
+- `index.ts` exports `AGENT_NAME` + `AGENT_DESCRIPTION` for registry/logging
+- Existing `assistance-prompt.ts` / `assistance-response.ts` stay in place — the agent namespace is a re-export layer for now. Future phases can physically move the files if useful.
+
+**Server-side runner (`apps/api/src/agents/programmer/runner.ts`):**
+- New `runProgrammer(input): Promise<AgentResponse<ProgrammerSuccessData>>` extracted from the legacy `suggestAssistance` HTTP handler
+- Pure function — also callable from server-side workflows (Phase 2's `analyzeInjury` will call it directly to ground substitution proposals) without an HTTP hop
+- Local `AgentResponse` types mirror domain (kept in `apps/api/src/agents/types.ts` because Azure Functions on Node16 module resolution can't consume the domain package's ESM imports — same pattern as the existing `apps/api/src/llm/validate.ts` mirror)
+
+**Registry (`apps/api/src/agents/registry.ts`):**
+- `REGISTERED_AGENTS` array. Currently lists only `programmer`. Phase 2 adds `coach`; Phase 4 adds `periodizer` + `summarizer`. Phase 3's chat tool-use will iterate this to build the tool specs.
+
+**HTTP endpoints:**
+- New `POST /api/agents/programmer` returns the unified `AgentResponse<ProgrammerSuccessData>`
+- Existing `POST /api/suggestAssistance` kept for back-compat with the current web client — now delegates to `runProgrammer` underneath and maps the agent response back to the legacy success/error shape
+- `apps/api/package.json` `main` glob updated to `dist/src/functions/**/*.js` so nested function modules are discovered by Azure Functions runtime
+
+**Client helper (`apps/web/src/lib/agents.ts`):**
+- `callProgrammer(input): Promise<AgentResponse<ProgrammerSuccessData>>` — clean typed wrapper around the new HTTP endpoint
+- Existing `SuggestAssistanceForBlock` UI still uses the legacy `/api/suggestAssistance` route; migration to `callProgrammer` happens during Phase 2 or 3
+
+**What this DOES NOT do (Phase 1 boundary):**
+- No new agents (Coach lands in Phase 2)
+- No chat refactor — chat keeps its current SSE shape. The chat-side `AgentResponse` refactor is folded into Phase 3 (where the tool-use orchestration loop is built; doing it twice would be wasted work)
+- No new behaviour for the user
+
+### Tests
+- 843/843 passing (8 new contract tests added)
+- API typecheck + build clean
+- Web lint + build clean
+
+### Next
+Phase 2 (Coach agent + injury feature) begins once you give the go. Detailed plan: `files/phase-2-coach-injury.md`.
+
 ### Added — Agentic-architecture prerequisites (SW v353)
 
 Two prerequisite cleanup commits land before Phase 1 of the agentic rollout. No agent code yet — these are data-quality + user-context foundations the agents will rely on.
