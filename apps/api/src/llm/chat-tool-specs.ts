@@ -25,7 +25,7 @@ export const COACH_TOOL_SPEC: AnthropicToolSpec = {
     "soreness, post-injury return-to-training, or any \"should I keep " +
     "training X / how do I work around Y?\" question. Returns an anatomical " +
     "interpretation plus 1-3 concrete movement modifications grounded in " +
-    "Martin's actual library and current programming. Use this whenever the " +
+    "the user's actual library and current programming. Use this whenever the " +
     "user mentions pain, discomfort, \"something feels off\", flare-ups, " +
     "or asks whether a movement is safe to keep doing right now. Do NOT " +
     "invent injury advice yourself when this tool is available.",
@@ -64,7 +64,7 @@ export const PROGRAMMER_TOOL_SPEC: AnthropicToolSpec = {
     "Consult the Wendler 5/3/1 programming specialist for assistance " +
     'selection, set/rep prescription, "what should this session look like?", ' +
     'movement-substitution from the library, or block-shape questions. ' +
-    "Returns concrete picks grounded in Martin's actual training profile " +
+    "Returns concrete picks grounded in the user's actual training profile " +
     "and the active assistance volume budget. Use this for anything that " +
     "would normally be answered by hitting Suggest in the block editor. " +
     "Do NOT invent set/rep schemes yourself when this tool is available.",

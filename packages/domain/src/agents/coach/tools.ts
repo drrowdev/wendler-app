@@ -18,7 +18,7 @@ export const COACH_TOOL_SPEC: AgentToolSpec = {
     "soreness, post-injury return-to-training, or any \"should I keep " +
     "training X / how do I work around Y?\" question. Returns an anatomical " +
     "interpretation plus 1-3 concrete movement modifications grounded in " +
-    "Martin's actual library and current programming. Use this whenever the " +
+    "the user's actual library and current programming. Use this whenever the " +
     "user mentions pain, discomfort, \"something feels off\", flare-ups, " +
     "or asks whether a movement is safe to keep doing right now. Do NOT " +
     "invent injury advice yourself when this tool is available.",

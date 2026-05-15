@@ -7,7 +7,7 @@
 // compact status line.
 
 import { useState } from 'react';
-import type { ChatAction } from '@wendler/db-schema';
+import type { ChatAction, ChatActionApplyDetails } from '@wendler/db-schema';
 import {
   applySetTrainingMax,
   applySetBlockVolumePreset,
@@ -51,10 +51,17 @@ function ChatActionChip({
 
   if (action.status === 'applied') {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200">
-        <span aria-hidden>✓</span>
-        <span className="font-semibold">Applied:</span>
-        <span className="truncate">{action.label}</span>
+      <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200">
+        <div className="flex items-center gap-2">
+          <span aria-hidden>✓</span>
+          <span className="font-semibold">Applied:</span>
+          <span className="truncate">{action.label}</span>
+        </div>
+        {action.appliedDetails && (
+          <div className="ml-5 mt-0.5 text-emerald-200/70">
+            {formatAppliedDetails(action.appliedDetails)}
+          </div>
+        )}
       </div>
     );
   }
@@ -190,8 +197,10 @@ function ChatActionChip({
             {action.rationale && (
               <p className="mt-0.5 text-[11px] text-muted">{action.rationale}</p>
             )}
-            {error && (
-              <p className="mt-1 text-[11px] text-red-300">{error}</p>
+            {(error || action.applyError) && (
+              <p className="mt-1 text-[11px] text-red-300">
+                {error ?? action.applyError}
+              </p>
             )}
           </div>
           <button
@@ -251,16 +260,34 @@ function ChatActionChip({
             movementId: action.movementIds?.[0],
           }}
           onCancel={() => setInjurySheetOpen(false)}
-          onSaved={async () => {
+          onSaved={async (injuryId) => {
             setInjurySheetOpen(false);
-            const { updateActionStatus } = await import('@/lib/chat-actions');
-            await updateActionStatus(chatId, messageId, action.id, {
-              status: 'applied',
-              appliedAt: new Date().toISOString(),
-            });
+            const { applyLogInjuryAudit } = await import('@/lib/chat-actions');
+            await applyLogInjuryAudit(chatId, messageId, action, injuryId);
           }}
         />
       )}
     </>
   );
+}
+
+function formatAppliedDetails(details: ChatActionApplyDetails): string {
+  switch (details.kind) {
+    case 'log_injury':
+      return `Injury record ${details.injuryId.slice(0, 8)}…`;
+    case 'set_training_max': {
+      const prev = details.previousKg !== undefined ? ` (was ${details.previousKg.toFixed(1)} kg)` : '';
+      return `${details.lift}: ${details.newKg.toFixed(1)} kg${prev}`;
+    }
+    case 'set_block_volume_preset': {
+      const prev = details.previousPreset ? ` (was ${details.previousPreset})` : '';
+      return `Volume preset → ${details.newPreset}${prev}`;
+    }
+    case 'schedule_deload':
+      return `Deload block ${details.newBlockId.slice(0, 8)}…${details.programId ? ` (program ${details.programId.slice(0, 8)}…)` : ''} · seq ${details.sequenceIndex}`;
+    case 'substitute_movement':
+      return `${details.previousMovementName} → ${details.newMovementName}`;
+    default:
+      return '';
+  }
 }

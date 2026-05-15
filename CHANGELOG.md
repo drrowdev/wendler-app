@@ -8,13 +8,46 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Changed — Public repo hygiene + chat action audit log (SW v366)
+
+Two follow-ups bundled together:
+
+**1. Privacy: scrubbed user's first name from the public repo.** Now that the repo is public, the user's name had been leaking through in CHANGELOG.md entries and (more importantly) in the system prompts every specialist agent + the chat orchestrator send to Anthropic. Replaced with "the user" / "the user's" throughout. Also flipped the one stray "his" → "their" pronoun in the chat system prompt. Files touched:
+- `CHANGELOG.md`
+- `packages/domain/src/agents/{coach,programmer,periodizer,summarizer}/{prompt,tools}.ts`
+- `apps/api/src/agents/{periodizer,summarizer}/prompt.ts` (mirror)
+- `apps/api/src/llm/chat-tool-specs.ts`, `apps/api/src/llm/chat-tools.ts`
+- `apps/api/src/functions/chat.ts`
+
+The GH username in HANDOFF.md was kept — it's part of the public repo URL itself, no additional information leaked. `README.md` was already clean.
+
+**2. Audit trail for chat AI actions.** Every applied action chip now records a structured audit on the chip itself AND posts a centralised notification entry, so troubleshooting "what did the AI do?" is one tap to the inbox.
+
+Schema additions on `ChatAction` (optional, no Dexie migration):
+- `appliedDetails?: ChatActionApplyDetails` — discriminated union, one shape per action kind. Captures before/after state at apply time so the change is reconstructible:
+  - `log_injury`: `{ injuryId }`
+  - `set_training_max`: `{ recordId, lift, previousKg?, newKg }`
+  - `set_block_volume_preset`: `{ blockId, previousPreset?, newPreset }`
+  - `schedule_deload`: `{ newBlockId, programId?, sequenceIndex }`
+  - `substitute_movement`: `{ blockId, dayId, entryId, previousMovementId, previousMovementName, newMovementId, newMovementName }`
+- `applyError?: string` — when a handler hard-fails (e.g. "Day id not found", "Replacement movement not in library"), the error is now stashed on the chip itself. Status stays `pending` so the user can retry from the same button, but the failure message renders inline under the label.
+
+Each handler captures the pre-mutation state, applies the write, then calls a centralised `markApplied(...)` helper that:
+- Persists `appliedDetails` on the chip.
+- Writes a `Notification` row (channel `ai-action`, severity `success`, title = chip label, body = human-readable summary, `context` payload = full structured details).
+- Uses a stable id `chat-action:<actionId>` so reapplies dedupe naturally.
+
+New `NotificationChannel` value `ai-action` registered + labelled in the inbox UI.
+
+The applied state on the chip in chat now shows the audit one-liner under the "Applied: …" line (e.g. "Squat: 142.5 kg (was 140.0)", "Bulgarian Split Squat → Goblet Squat"). The full structured payload is in the notification's `context`.
+
 ### Added — Chat action chips v2: schedule_deload + substitute_movement + plan-aware snapshot (SW v365)
 
 Two new action types covering the two most-asked workflows from the v1 chat tests, plus an enhancement to the chat snapshot so the AI can target specific assistance entries by id.
 
 **Chat snapshot now includes the active block plan.** The training-data snapshot the chat orchestrator builds on every send now appends an "Active block plan" section listing the active block's days (with stable day ids) and every assistance entry (with movementId, sets×reps, category). Without this the AI couldn't reliably target a substitution; with it the model can write a chip referencing the exact entry to swap. Source: `apps/web/src/lib/useChat.ts → buildContextBlob`.
 
-**`schedule_deload` action.** Use case: "should I deload soon?" → Periodizer says deload-soon → chip appears. Apply creates a 7th-week deload block (`kind: 'seventh-week'`, `seventhWeekKind: 'deload'`) sequenced right after the currently-active block in the same program. Conservative: doesn't truncate the active block — Martin finishes the current week as planned and the deload becomes active when the current block is marked done. Confirm modal explains the placement.
+**`schedule_deload` action.** Use case: "should I deload soon?" → Periodizer says deload-soon → chip appears. Apply creates a 7th-week deload block (`kind: 'seventh-week'`, `seventhWeekKind: 'deload'`) sequenced right after the currently-active block in the same program. Conservative: doesn't truncate the active block — the user finishes the current week as planned and the deload becomes active when the current block is marked done. Confirm modal explains the placement.
 
 **`substitute_movement` action.** Use case: "my right adductor hurts during Bulgarian split squats" → Coach proposes step-up → chip appears with exact source + replacement movementIds. Apply swaps the entry's movementId + movementName on the targeted day (matched by `dayId` preferred, `dayIndex` fallback). Existing sets × reps × category preserved. Validation hard-fails when:
 - the replacement isn't in the user's library
@@ -60,7 +93,7 @@ Future kinds (mark deload, substitute movement, start taper) plug in by adding a
 Final phase of the agentic rollout. Both remaining specialists ship, plus a Weekly Review surface on /stats that runs them as a workflow.
 
 **Periodizer agent (`packages/domain/src/agents/periodizer/`):**
-- System prompt: Leader/Anchor cadence, 7th-week protocols, taper conventions, return-from-layoff rules, ACWR sweet spot 0.8–1.3, TSB readiness bands, Martin's locked flavor anchors.
+- System prompt: Leader/Anchor cadence, 7th-week protocols, taper conventions, return-from-layoff rules, ACWR sweet spot 0.8–1.3, TSB readiness bands, user's locked flavor anchors.
 - Verdict vocabulary: `deload-now` / `deload-soon` / `continue` / `taper-now` / `ramp-up` / `tm-test` / `extend-block`. Strict JSON output (verdict + headline + explanation + evidence[] + nextSteps[] + alternativeVerdicts[] + shortReply).
 - Dynamic user prompt: current block + cursor, last-deload date, upcoming priority races, pre-computed Banister/ACWR signals, recent recovery (0-10 Borg scale), recent training summary, active limitations, user profile. No hardcoded user data in the system prompt.
 - Default temperature 0.2 — anatomical/structural reasoning, reliability over creativity.
@@ -122,7 +155,7 @@ The chat agent now consults specialist tools instead of doing everything in a si
 
 **Tool registry (`packages/domain/src/agents/<name>/tools.ts` + `apps/api/src/llm/chat-tool-specs.ts`):**
 - `consult_coach` — pain/injury/movement-modification (working dispatch, calls Coach-flavored Claude with the chat snapshot).
-- `consult_programmer` — assistance picks, set/rep prescriptions, "what should this session look like?" (working dispatch, calls Programmer-flavored Claude with the chat snapshot + Martin's locked flavor anchors).
+- `consult_programmer` — assistance picks, set/rep prescriptions, "what should this session look like?" (working dispatch, calls Programmer-flavored Claude with the chat snapshot + the user's locked flavor anchors).
 - `consult_periodizer` — deload timing, taper, race-week structure (registered but Phase-4 dispatch returns "not yet available"; chat agent is told to reconcile around the missing piece).
 - `summarize_week` — weekly digests (same — registered, Phase-4 stub).
 
@@ -182,7 +215,7 @@ Notes: feature is fully driven by data on the user's device — no hardcoded mov
 
 ### Added — Agentic Phase 2: Coach agent + injury feature (SW v356)
 
-First user-visible agent ship. New `Injuries` surface lets Martin log a limitation (area, severity, free-text description, affected movements), have a Coach agent (MSK/PT framing, Anthropic Claude, temperature 0.2) propose per-movement adjustments grounded in the live movement library + active programming + recently resolved injuries, then accept/decline each proposal individually. Active limitations surface as a persistent amber banner on Today + Day, with a sheet to mark resolved.
+First user-visible agent ship. New `Injuries` surface lets the user log a limitation (area, severity, free-text description, affected movements), have a Coach agent (MSK/PT framing, Anthropic Claude, temperature 0.2) propose per-movement adjustments grounded in the live movement library + active programming + recently resolved injuries, then accept/decline each proposal individually. Active limitations surface as a persistent amber banner on Today + Day, with a sheet to mark resolved.
 
 **Schema (v18, `packages/db-schema/src/types.ts`):**
 - New `Injury` entity: `area`, `severity (1-5)`, `description`, `affectedMovementIds[]`, AI-generated `summary`, `adjustments: InjuryAdjustment[]`, `monitoringAdvice`, `consultRecommended` + `consultReason`, `startedAt`, `resolvedAt`, standard CRDT/sync fields.
@@ -493,7 +526,7 @@ This round addresses the two HIGH-severity findings from the audit plus one of t
   3. User notices "no active block" and clicks "Make active" on /program/detail. `doActivate` spreads the bare schedule, adds `activeBlockId + cursor`, bumps `updatedAt`.
   4. Resulting row passed `isBareScheduleShape` ("looks rich, has activeBlockId!") → push guard let it through → server replicated to web → web's apply guard also said "rich" → LWW wiped web's good row too.
   - **Fix:** only the actual config fields count as rich now: `dayGroups.length > 0` OR `liftsPerDay >= 2` OR `supplementalTemplate` OR `supplementalSetsOverride`. The same definition is mirrored in the db.ts write tap so they can't drift. `liftsPerDay: 1` no longer counts because it's the install default and is also written defensively by `completeDayWorkout` reading `schedule.liftsPerDay ?? 1`.
-- **Singleton write guard upgraded from passive to active (SW v323).**The pre-existing `installSingletonWriteBreadcrumbs` tap on `db.schedule.put` / `db.settings.put` would log a warning when a bare-shaped row was written but did not block the write. After the May 13 incident where Martin's `schedule` row got wiped to defaults on both web and PWA (and propagated to the server because the bare row, with TMs deleted in the same window, briefly passed `isSafeSingletonPush`'s `userHasRealData` check), the tap now **refuses** bare-over-rich writes outright and posts a notification to the inbox with the stack trace location. The breadcrumb buffer in localStorage (`__wendler_wipe_breadcrumbs`) now records `refused: true` on blocked writes so the next forensic look-back can distinguish "blocked the bug" from "logged the bug but it still happened". The sync-layer guards (`isSafeSingletonPush`, `isBareScheduleShape` in `applyIncoming`) are unchanged — this is a third belt on the same trousers, closer to the source.
+- **Singleton write guard upgraded from passive to active (SW v323).**The pre-existing `installSingletonWriteBreadcrumbs` tap on `db.schedule.put` / `db.settings.put` would log a warning when a bare-shaped row was written but did not block the write. After an incident where the user's `schedule` row got wiped to defaults on both web and PWA (and propagated to the server because the bare row, with TMs deleted in the same window, briefly passed `isSafeSingletonPush`'s `userHasRealData` check), the tap now **refuses** bare-over-rich writes outright and posts a notification to the inbox with the stack trace location. The breadcrumb buffer in localStorage (`__wendler_wipe_breadcrumbs`) now records `refused: true` on blocked writes so the next forensic look-back can distinguish "blocked the bug" from "logged the bug but it still happened". The sync-layer guards (`isSafeSingletonPush`, `isBareScheduleShape` in `applyIncoming`) are unchanged — this is a third belt on the same trousers, closer to the source.
 - **Chat "+ New" reset bug — third (final) layer (SW v322).**ChatPanel had a `useEffect` that bubbled `sender.id` up to the parent whenever it differed from `chatId`. When the parent flipped `chatId` to null (the "+" button), the sender's internal id was momentarily still the old id (one render tick before its own sync effect ran). The bubble effect saw "they differ" and re-emitted the old id back up to the parent, which set it again. Replaced the effect with a direct `onChatIdChange(newId)` call inside `submit()` after `send()` completes — the only legitimate case for bubbling. v320 fixed the sender's stale id; v321 fixed the drawer's auto-select; v322 fixes the bubble loop between them.
 - **Chat: "+ New" actually resets, exposed in header, readiness hint matches 1–5 scale (SW v321).**
   - **Root cause of the "+ New keeps the old chat" bug:** the ChatDrawer had an auto-select-most-recent `useEffect` (`if (!chatId) setChatId(conversations[0])`) that re-set the chat the moment "+ New" cleared it. Added a `userTouched` flag — auto-select only fires on first open, never overrides an explicit user choice (including the explicit choice of "start fresh"). v320's `useChatSender` fix was correct but masked by this second bug upstream.

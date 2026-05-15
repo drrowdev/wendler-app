@@ -5,9 +5,15 @@
 // Each kind of ChatAction has a handler here. Handlers either open an
 // existing UI flow pre-filled (log_injury → InjurySheet) or write directly
 // to Dexie after a small inline confirmation (set_training_max,
-// set_block_volume_preset). Status mutations (`applied` / `dismissed`)
-// are persisted on the parent assistant ChatMessage so the chip state
-// survives reload + sync.
+// set_block_volume_preset, schedule_deload, substitute_movement). Status
+// mutations (`applied` / `dismissed`) are persisted on the parent assistant
+// ChatMessage so chip state survives reload + sync.
+//
+// Audit logging: every successful apply captures `appliedDetails` (per-kind
+// before/after summary) on the chip itself AND posts a `notification` row
+// so the user has a centralised history of "what the AI did". Failures
+// stash the error message in `applyError`; the chip stays `pending` so the
+// user can retry.
 //
 // New action kinds plug in by adding a discriminated-union branch in
 // db-schema/types.ts plus a `applyXxx` handler here.
@@ -15,6 +21,8 @@
 import { nanoid } from 'nanoid';
 import type {
   ChatAction,
+  ChatActionApplyDetails,
+  Notification,
   TrainingMaxRecord,
   ProgramBlock,
 } from '@wendler/db-schema';
@@ -29,7 +37,10 @@ export async function updateActionStatus(
   chatId: string,
   messageId: string,
   actionId: string,
-  patch: Pick<ChatAction, 'status' | 'appliedAt' | 'dismissedAt'>,
+  patch: Pick<
+    ChatAction,
+    'status' | 'appliedAt' | 'dismissedAt' | 'appliedDetails' | 'applyError'
+  >,
 ): Promise<ChatAction | undefined> {
   const db = getDb();
   const chat = await db.chats.get(chatId);
@@ -50,6 +61,68 @@ export async function updateActionStatus(
   return updatedAction;
 }
 
+/**
+ * Mark a chip as applied AND post a "chat-action" notification capturing
+ * the human-readable summary + the structured `appliedDetails`. Centralises
+ * the success path so each handler doesn't repeat the audit boilerplate.
+ */
+async function markApplied(
+  chatId: string,
+  messageId: string,
+  action: ChatAction,
+  details: ChatActionApplyDetails,
+  summary: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  await updateActionStatus(chatId, messageId, action.id, {
+    status: 'applied',
+    appliedAt: now,
+    appliedDetails: details,
+    applyError: undefined,
+  });
+  // Audit notification — keyed by action id so reapplies don't duplicate.
+  const notification: Notification = {
+    id: `chat-action:${action.id}`,
+    channel: 'ai-action',
+    severity: 'success',
+    title: action.label,
+    body: `${summary}${action.rationale ? ` — ${action.rationale}` : ''}`,
+    createdAt: now,
+    updatedAt: now,
+    context: {
+      kind: 'chat-action',
+      actionKind: action.kind,
+      chatId,
+      messageId,
+      details,
+    },
+  };
+  try {
+    await getDb().notifications.put(notification);
+    kickSync();
+  } catch {
+    // Notification write is best-effort — never fail an apply because
+    // the audit row couldn't be written.
+  }
+}
+
+/**
+ * Mark a chip as failed-to-apply: stash the error message on the chip so
+ * the UI can show it inline. Leave `status` as 'pending' so the user can
+ * retry from the same button.
+ */
+async function markFailed(
+  chatId: string,
+  messageId: string,
+  action: ChatAction,
+  error: string,
+): Promise<void> {
+  await updateActionStatus(chatId, messageId, action.id, {
+    status: 'pending',
+    applyError: error,
+  });
+}
+
 export async function dismissAction(
   chatId: string,
   messageId: string,
@@ -59,6 +132,27 @@ export async function dismissAction(
     status: 'dismissed',
     dismissedAt: new Date().toISOString(),
   });
+}
+
+/**
+ * Audit-only wrapper for `log_injury` chips. The actual injury creation
+ * happens inside the InjurySheet (Coach proposal flow) — this helper is
+ * called from the chip UI after `onSaved` so the chip records which Injury
+ * record was produced and writes the standard audit notification.
+ */
+export async function applyLogInjuryAudit(
+  chatId: string,
+  messageId: string,
+  action: ChatAction & { kind: 'log_injury' },
+  injuryId: string,
+): Promise<void> {
+  await markApplied(
+    chatId,
+    messageId,
+    action,
+    { kind: 'log_injury', injuryId },
+    `Logged limitation: ${action.area}${action.severity ? ` (severity ${action.severity}/5)` : ''}`,
+  );
 }
 
 /**
@@ -74,6 +168,14 @@ export async function applySetTrainingMax(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const db = getDb();
   const now = new Date().toISOString();
+  // Capture the previous TM for this lift (latest createdAt) BEFORE the
+  // new record lands, so the audit trail can show what changed.
+  const allTms = await db.trainingMaxes.toArray();
+  const prev = allTms
+    .filter((t) => t.lift === action.lift)
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
+  const previousKg = prev?.trainingMaxKg;
+
   // Inherit the user's configured TM% (defaults to 0.85). Stored as a
   // fraction in settings; TrainingMaxRecord.tmPercent uses the same
   // 0-1 fraction convention.
@@ -90,14 +192,27 @@ export async function applySetTrainingMax(
   };
   try {
     await db.trainingMaxes.put(record);
-    await updateActionStatus(chatId, messageId, action.id, {
-      status: 'applied',
-      appliedAt: now,
-    });
+    await markApplied(
+      chatId,
+      messageId,
+      action,
+      {
+        kind: 'set_training_max',
+        recordId: record.id,
+        lift: action.lift,
+        ...(previousKg !== undefined ? { previousKg } : {}),
+        newKg: action.newTrainingMaxKg,
+      },
+      `Training max set: ${action.lift} → ${action.newTrainingMaxKg.toFixed(1)} kg${
+        previousKg !== undefined ? ` (was ${previousKg.toFixed(1)})` : ''
+      }`,
+    );
     kickSync();
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: (e as Error).message };
+    const msg = (e as Error).message;
+    await markFailed(chatId, messageId, action, msg);
+    return { ok: false, error: msg };
   }
 }
 
@@ -125,20 +240,34 @@ export async function applySetBlockVolumePreset(
   if (!block) {
     return { ok: false, error: 'No active block found to update.' };
   }
+  const previousPreset =
+    typeof block.assistanceVolume === 'string' ? block.assistanceVolume : undefined;
   try {
     await db.blocks.put({
       ...block,
       assistanceVolume: action.preset,
       updatedAt: now,
     } as ProgramBlock);
-    await updateActionStatus(chatId, messageId, action.id, {
-      status: 'applied',
-      appliedAt: now,
-    });
+    await markApplied(
+      chatId,
+      messageId,
+      action,
+      {
+        kind: 'set_block_volume_preset',
+        blockId: block.id,
+        ...(previousPreset ? { previousPreset } : {}),
+        newPreset: action.preset,
+      },
+      `Block "${block.name}" volume preset → ${action.preset}${
+        previousPreset ? ` (was ${previousPreset})` : ''
+      }`,
+    );
     kickSync();
     return { ok: true, block };
   } catch (e) {
-    return { ok: false, error: (e as Error).message };
+    const msg = (e as Error).message;
+    await markFailed(chatId, messageId, action, msg);
+    return { ok: false, error: msg };
   }
 }
 
@@ -188,14 +317,24 @@ export async function applyScheduleDeload(
   };
   try {
     await db.blocks.put(deloadBlock);
-    await updateActionStatus(chatId, messageId, action.id, {
-      status: 'applied',
-      appliedAt: now,
-    });
+    await markApplied(
+      chatId,
+      messageId,
+      action,
+      {
+        kind: 'schedule_deload',
+        newBlockId: deloadBlock.id,
+        ...(programId ? { programId } : {}),
+        sequenceIndex: maxSeq + 1,
+      },
+      `Scheduled a 7th-week deload after "${activeBlock.name}" (sequenceIndex ${maxSeq + 1})`,
+    );
     kickSync();
     return { ok: true, block: deloadBlock };
   } catch (e) {
-    return { ok: false, error: (e as Error).message };
+    const msg = (e as Error).message;
+    await markFailed(chatId, messageId, action, msg);
+    return { ok: false, error: msg };
   }
 }
 
@@ -261,6 +400,9 @@ export async function applySubstituteMovement(
   }
 
   let swapped = false;
+  let swappedDayId = '';
+  let swappedEntryId = '';
+  let prevName = action.currentMovementName;
   const newDays = block.plan.days.map((d, di) => {
     if (!targetDayIdxs.includes(di)) return d;
     if (swapped) return d; // only swap on the first matching day
@@ -268,6 +410,9 @@ export async function applySubstituteMovement(
       if (swapped) return e;
       if (e.movementId !== action.currentMovementId) return e;
       swapped = true;
+      swappedDayId = d.id;
+      swappedEntryId = e.id;
+      prevName = e.movementName;
       return {
         ...e,
         movementId: action.newMovementId,
@@ -293,13 +438,27 @@ export async function applySubstituteMovement(
   };
   try {
     await db.blocks.put(updated);
-    await updateActionStatus(chatId, messageId, action.id, {
-      status: 'applied',
-      appliedAt: now,
-    });
+    await markApplied(
+      chatId,
+      messageId,
+      action,
+      {
+        kind: 'substitute_movement',
+        blockId: block.id,
+        dayId: swappedDayId,
+        entryId: swappedEntryId,
+        previousMovementId: action.currentMovementId,
+        previousMovementName: prevName,
+        newMovementId: action.newMovementId,
+        newMovementName: action.newMovementName || newMovement.name,
+      },
+      `Swapped "${prevName}" → "${action.newMovementName || newMovement.name}" on block "${block.name}"`,
+    );
     kickSync();
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: (e as Error).message };
+    const msg = (e as Error).message;
+    await markFailed(chatId, messageId, action, msg);
+    return { ok: false, error: msg };
   }
 }

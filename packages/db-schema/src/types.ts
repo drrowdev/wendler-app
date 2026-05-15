@@ -1128,6 +1128,7 @@ export interface WellnessFlag {
 
 export type NotificationChannel =
   | 'ai-suggester'
+  | 'ai-action'
   | 'phase-auto'
   | 'sync'
   | 'migration'
@@ -1317,7 +1318,57 @@ interface ChatActionBase {
   status: ChatActionStatus;
   appliedAt?: string;
   dismissedAt?: string;
+  /**
+   * Audit trail set when the user applied the chip. Captures the before /
+   * after state of the mutation so troubleshooting "what did the AI
+   * actually do?" later is precise. Each kind records its own shape via
+   * the `ChatActionApplyDetails` union. Optional — present iff
+   * `status === 'applied'` AND the handler captured details.
+   */
+  appliedDetails?: ChatActionApplyDetails;
+  /**
+   * Error message if applying failed. When set the chip stays in
+   * `pending` so the user can retry — the apply attempt is logged on the
+   * chip for debug.
+   */
+  applyError?: string;
 }
+
+/**
+ * Per-kind audit shape captured at apply time. Kept narrow on purpose —
+ * we want enough to reconstruct the change, not the full new+old objects.
+ */
+export type ChatActionApplyDetails =
+  | { kind: 'log_injury'; injuryId: string }
+  | {
+      kind: 'set_training_max';
+      recordId: string;
+      lift: 'squat' | 'bench' | 'deadlift' | 'press';
+      previousKg?: number;
+      newKg: number;
+    }
+  | {
+      kind: 'set_block_volume_preset';
+      blockId: string;
+      previousPreset?: string;
+      newPreset: 'minimal' | 'standard' | 'high';
+    }
+  | {
+      kind: 'schedule_deload';
+      newBlockId: string;
+      programId?: string;
+      sequenceIndex: number;
+    }
+  | {
+      kind: 'substitute_movement';
+      blockId: string;
+      dayId: string;
+      entryId: string;
+      previousMovementId: string;
+      previousMovementName: string;
+      newMovementId: string;
+      newMovementName: string;
+    };
 
 export interface LogInjuryChatAction extends ChatActionBase {
   kind: 'log_injury';

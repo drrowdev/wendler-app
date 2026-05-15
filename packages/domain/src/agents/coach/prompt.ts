@@ -17,7 +17,7 @@
 //     repeatedly defers to a PT consult when uncertain)
 //   - Macro periodization (Periodizer's lane — Phase 4)
 //   - Assistance picks (Programmer's lane — already exists)
-//   - Run programming (out of scope; Martin uses Runna)
+//   - Run programming (out of scope; the user uses Runna)
 //
 // PROMPT-SHAPE CONVENTION (locked in master plan):
 //   - SYSTEM prompt: STATIC. Role, MSK/PT framing, anatomical priors,

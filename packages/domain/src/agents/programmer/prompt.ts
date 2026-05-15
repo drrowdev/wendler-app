@@ -15,7 +15,7 @@
 // What the Programmer agent does NOT do:
 //   - Anatomical reasoning about injuries (that's Coach's job — Phase 2)
 //   - Macro periodization (deload timing, taper scheduling — Periodizer in Phase 4)
-//   - Run programming (Martin uses Runna for that; cardio history is a
+//   - Run programming (the user uses Runna for that; cardio history is a
 //     load signal only)
 //   - Diagnostic advice (no agent in this app does diagnostics)
 //

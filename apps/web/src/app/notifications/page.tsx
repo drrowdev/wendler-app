@@ -21,6 +21,7 @@ import { notify, deleteNotification } from '@/lib/notify';
 import { fmtDate } from '@/lib/format';
 const CHANNEL_LABELS: Record<NotificationChannel, string> = {
   'ai-suggester': 'AI suggester',
+  'ai-action': 'AI action',
   'phase-auto': 'Phase auto-shift',
   sync: 'Sync',
   migration: 'Migration',

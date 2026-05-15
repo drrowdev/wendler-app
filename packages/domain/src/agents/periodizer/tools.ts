@@ -12,7 +12,7 @@ export const PERIODIZER_TOOL_SPEC: AgentToolSpec = {
     "Consult the periodization specialist for deload-timing decisions, " +
     "block-to-block transitions, race-week tapers, return-from-layoff " +
     "ramps, and \"is my training too hot / too cold?\" questions. Returns " +
-    "a concrete recommendation grounded in Martin's recent volume + " +
+    "a concrete recommendation grounded in the user's recent volume + " +
     "intensity + ACWR signals plus any upcoming priority races. Use this " +
     "for any question that's about WHEN or HOW MUCH (taper, deload, peak), " +
     "not WHAT (movement selection — that's the programmer).",

@@ -2,7 +2,7 @@
 //
 // Used by the chat orchestrator to delegate "what should I do this session /
 // week / block?" style questions to the Programmer specialist. The chat
-// context already includes Martin's current block + schedule + library, so
+// context already includes the user's current block + schedule + library, so
 // the tool input is intentionally narrow — Claude decides the slice.
 
 import type { AgentToolSpec } from '../types';
@@ -13,7 +13,7 @@ export const PROGRAMMER_TOOL_SPEC: AgentToolSpec = {
     "Consult the Wendler 5/3/1 programming specialist for assistance " +
     'selection, set/rep prescription, "what should this session look like?", ' +
     'movement-substitution from the library, or block-shape questions. ' +
-    "Returns concrete picks grounded in Martin's actual training profile " +
+    "Returns concrete picks grounded in the user's actual training profile " +
     "(TM%, anchor block, 2 main + 1 accessory days, marathon-prep flavor) " +
     "and the active assistance volume budget. Use this for anything that " +
     "would normally be answered by hitting Suggest in the block editor — " +

@@ -74,11 +74,11 @@ export async function dispatchTool(
 // ---------------------------------------------------------------------------
 // Coach specialist — chat flavor.
 
-const COACH_CHAT_SYSTEM = `You are a movement-modification coach with sports-physio (MSK / PT) training, embedded inside Martin's Wendler 5/3/1 PWA chat. The parent chat orchestrator has consulted you for one specific question about pain, soreness, or a suspected injury.
+const COACH_CHAT_SYSTEM = `You are a movement-modification coach with sports-physio (MSK / PT) training, embedded inside the user's Wendler 5/3/1 PWA chat. The parent chat orchestrator has consulted you for one specific question about pain, soreness, or a suspected injury.
 
 Your job:
 1. Identify the underlying anatomical issue from the user's description (which structure, which side, which load context).
-2. Cross-reference Martin's training-data snapshot for movements that load the same structure — these are connected even when the movements look different (e.g. right adductor = Bulgarian split squat under load AND right-leg deadbug extension).
+2. Cross-reference the user's training-data snapshot for movements that load the same structure — these are connected even when the movements look different (e.g. right adductor = Bulgarian split squat under load AND right-leg deadbug extension).
 3. Propose 1-3 concrete movement modifications using the action vocabulary: skip / reduce-load / reduce-range / modify-execution / monitor.
 4. Note when a PT consult is warranted (severity ≥ 4, neurological signs, sudden trauma, ≥2 weeks unresolved).
 
@@ -119,9 +119,9 @@ async function dispatchCoach(
 // ---------------------------------------------------------------------------
 // Programmer specialist — chat flavor.
 
-const PROGRAMMER_CHAT_SYSTEM = `You are the Wendler 5/3/1 programming specialist embedded inside Martin's training PWA chat. The parent chat orchestrator has consulted you for a specific question about session/week/block planning, assistance selection, or movement substitution.
+const PROGRAMMER_CHAT_SYSTEM = `You are the Wendler 5/3/1 programming specialist embedded inside the user's training PWA chat. The parent chat orchestrator has consulted you for a specific question about session/week/block planning, assistance selection, or movement substitution.
 
-Martin's flavor (DO NOT depart from this unless he explicitly asks):
+The user's flavor (DO NOT depart from this unless they explicitly ask):
 - TM at 85% of true 1RM.
 - Anchor blocks (heavier intensity, lower volume) preferred over leader blocks for now.
 - 2 main-lift days + 1 accessory day per week (3 lift days), with running/cycling programmed by Runna outside this app.
@@ -242,7 +242,7 @@ async function dispatchPeriodizer(
 // call (similar to dispatchCoach / dispatchProgrammer) rather than going
 // through runSummarizer.
 
-const SUMMARIZER_CHAT_SYSTEM = `You are the weekly-training summarizer embedded inside Martin's PWA chat. The parent chat orchestrator has consulted you to recap a recent training week. You have access to the chat snapshot (last 90 days at daily detail; older as weekly/monthly aggregates).
+const SUMMARIZER_CHAT_SYSTEM = `You are the weekly-training summarizer embedded inside the user's PWA chat. The parent chat orchestrator has consulted you to recap a recent training week. You have access to the chat snapshot (last 90 days at daily detail; older as weekly/monthly aggregates).
 
 Your job: produce a concise 4-6 paragraph recap of the week the user asked about (default: the most recent completed Mon-Sun week if no weekStart given). Include:
 - sessions logged + days trained
@@ -251,7 +251,7 @@ Your job: produce a concise 4-6 paragraph recap of the week the user asked about
 - load/recovery direction: TSB / CTL / ACWR trend, recovery entry averages (fatigue + soreness on the 0-10 Borg scale)
 - 1-2 highlights if there's something genuinely notable (PR, biggest mileage week of the cycle)
 
-Output: ≤400 words of prose with light markdown (bold for highlights, occasional bullet lists for top sets). No tables. No JSON. No code fences. Speak TO Martin in second person.
+Output: ≤400 words of prose with light markdown (bold for highlights, occasional bullet lists for top sets). No tables. No JSON. No code fences. Speak TO the user in second person.
 
 If the snapshot doesn't contain enough data for the requested week (e.g. user asks about a week before the 90-day window), say so plainly and offer to recap a week we do have data for.
 
