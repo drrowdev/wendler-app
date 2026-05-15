@@ -273,7 +273,7 @@ function MovementHistoryPage() {
               data={chartPoints}
               color="#10b981"
               yLabel="kg"
-              formatY={(n) => fmtKg(n)}
+              formatY={(n) => `${Math.round(n)} kg`}
             />
           </section>
 

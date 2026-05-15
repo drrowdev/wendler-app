@@ -31,12 +31,25 @@ export function LineChart({
   const maxX = Math.max(...data.map((d) => d.x));
   const minY = Math.min(...data.map((d) => d.y));
   const maxY = Math.max(...data.map((d) => d.y));
-  const padX = 44;
+  // Pad the y-axis to fit the longest formatted label. ~7px per char at
+  // fontSize 12; 12px breathing room either side. Without this, large
+  // values (e.g. "208.5 kg") get their leading digit clipped because the
+  // text-anchor is "end" at x=padX-6 and the label grows leftward into
+  // negative x.
+  const fontSize = 12;
+  const yRangeRaw = maxY - minY || 1;
+  const sampleLabels = [
+    formatY(minY),
+    formatY(minY + yRangeRaw / 3),
+    formatY(minY + (2 * yRangeRaw) / 3),
+    formatY(maxY),
+  ];
+  const maxLabelLen = Math.max(...sampleLabels.map((s) => s.length));
+  const padX = Math.max(44, Math.ceil(maxLabelLen * (fontSize * 0.6)) + 14);
   const padY = 20;
   const width = 480;
-  const fontSize = 12;
   const xRange = maxX - minX || 1;
-  const yRange = maxY - minY || 1;
+  const yRange = yRangeRaw;
   const xAt = (x: number) => padX + ((x - minX) / xRange) * (width - padX * 2);
   const yAt = (y: number) =>
     height - padY - ((y - minY) / yRange) * (height - padY * 2);

@@ -8,6 +8,13 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed
+- **LineChart y-axis labels no longer clipped (SW v343).** The shared `LineChart` component had a hardcoded `padX = 44`, which wasn't enough for labels like "208.5 kg" — `textAnchor="end"` at `x=padX-6` made the labels grow leftward and the leading digit fell off the SVG viewBox (rendered as "08.5 kg"). `padX` is now computed from the longest formatted label (~7px per char at fontSize 12, plus 14px breathing room, never less than 44). This fixes the per-movement history e1RM chart and benefits any other LineChart usage with multi-digit y-values.
+- **Movement-history chart rounds e1RM to integers for cleaner display.** "208 kg" beats "208.45 kg" for at-a-glance scanning, and one fewer character helps the axis fit.
+
+### Removed
+- **MAIN tag dropped from `/movements` list rows (SW v343).** The four `isMainLift: true` seed entries (back squat, deadlift, bench, OHP) were marked as MAIN because they're Wendler's defaults — but the user's program may not use those, and the badge implied otherwise. The `isMainLift` flag still exists on the data model (used by program setup wizards, deload picks, etc.), but it no longer claims those four are the user's mains in the library UI.
+
 ### Added
 - **Per-movement training history page at `/movements/history?id=…` (SW v342).** Works for both main lifts (bench, squat, deadlift, press) and assistance movements. Surfaces:
   - **Summary tiles:** heaviest set ever, best e1RM ever (with the source set), best volume day (max Σ weight × reps in one calendar day), all-time set count + reps + tonnage.

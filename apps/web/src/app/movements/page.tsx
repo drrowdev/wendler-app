@@ -32,11 +32,6 @@ export default function MovementsPage() {
               <div className="min-w-0 flex-1">
                 <div className="font-medium">
                   {m.name}
-                  {m.isMainLift && (
-                    <span className="ml-2 rounded bg-accent px-1.5 py-0.5 text-xs font-semibold text-bg">
-                      MAIN
-                    </span>
-                  )}
                   {m.isCustom && (
                     <span className="ml-2 rounded bg-card px-1.5 py-0.5 text-xs text-muted ring-1 ring-border">
                       custom
