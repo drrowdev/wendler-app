@@ -546,14 +546,19 @@ export function deloadSuggestion(input: DeloadInputs): DeloadSuggestion {
     }
   }
 
-  // ---- Banister TSB / ACWR (daily load model) ----
+  // ---- Rolling-window ACWR (Gabbett-style thresholds) ----
+  // Use the **uncoupled rolling** ACWR for the >1.3 watch / >1.5 risk
+  // thresholds — these were validated on rolling means, not Banister EWAs.
+  // TSB still drives the form-fatigue checks below since Banister CTL/ATL
+  // *is* the right model for that.
   const ban = input.banister;
   if (ban && !ban.coldStart) {
-    if (ban.acwr !== null && ban.acwr > 1.5) {
-      reasons.push(`Acute load ${ban.acwr.toFixed(2)}× chronic — high injury risk.`);
+    const acwrForThresholds = ban.acwrRolling;
+    if (acwrForThresholds !== null && acwrForThresholds > 1.5) {
+      reasons.push(`Acute load ${acwrForThresholds.toFixed(2)}× chronic — high injury risk.`);
       urgency += 2;
-    } else if (ban.acwr !== null && ban.acwr > 1.3) {
-      reasons.push(`Acute load ${ban.acwr.toFixed(2)}× chronic — above sweet spot.`);
+    } else if (acwrForThresholds !== null && acwrForThresholds > 1.3) {
+      reasons.push(`Acute load ${acwrForThresholds.toFixed(2)}× chronic — above sweet spot.`);
       urgency += 1;
     }
     if (ban.tsb < -30) {
@@ -645,10 +650,27 @@ export function dailyLoad(
 
   let load = weightedTonnage / 100 + cardioMin / 15;
 
+  // RPE bump — mirrors the v344 streak-detection rule rather than the old
+  // `Math.max(...rpes)` shape. Why: the max-RPE rule let one AMRAP top set
+  // at RPE 9 add the same load as a full session of grinders, which fed
+  // straight into CTL/ATL/TSB/ACWR and could falsely trip the deload
+  // engine on what was a normal Wendler day (one hard top set, easy
+  // assistance).
+  //
+  // New rule (additive, conservative):
+  //   - session-average pressure: max(0, (avgRpe − 6) × 0.4)
+  //   - many-hard-sets bonus:     min(1.0, hardSetCount × 0.2) where
+  //     hardSetCount = number of sets at RPE ≥ 8.5
+  // The two combine into roughly the same scale as the old (max − 6) × 0.5
+  // for a uniformly hard session, but a single high-RPE outlier no longer
+  // tips the scales by itself.
   const rpes = live.map((s) => s.rpe).filter((r): r is number => typeof r === 'number');
   if (rpes.length) {
-    const maxRpe = Math.max(...rpes);
-    load += Math.max(0, (maxRpe - 6) * 0.5);
+    const avgRpe = rpes.reduce((acc, r) => acc + r, 0) / rpes.length;
+    const hardSetCount = rpes.filter((r) => r >= 8.5).length;
+    const avgBump = Math.max(0, (avgRpe - 6) * 0.4);
+    const hardBump = Math.min(1, hardSetCount * 0.2);
+    load += avgBump + hardBump;
   }
   return load;
 }
@@ -688,8 +710,21 @@ export interface BanisterResult {
   atl: number;
   /** Training Stress Balance — form (CTL − ATL, last day). */
   tsb: number;
-  /** Acute:Chronic Workload Ratio (ATL / CTL). null when CTL is too small. */
+  /**
+   * Acute:Chronic Workload Ratio (ATL / CTL on Banister EWA series).
+   * Kept for backward compatibility, but **not the metric the >1.5
+   * deload-risk threshold should be judged against** — Gabbett's
+   * "sweet spot 0.8–1.3 / danger > 1.5" thresholds were validated on
+   * rolling-window means, not EWMAs. Use `acwrRolling` for that check.
+   */
   acwr: number | null;
+  /**
+   * Uncoupled rolling-window ACWR — last 7 days of load divided by the
+   * prior 28 days (no overlap). This matches the Gabbett-style
+   * literature thresholds the deload engine enforces.
+   * `null` if there's insufficient history (need ≥ 7 acute + 28 chronic days).
+   */
+  acwrRolling: number | null;
   /** Per-day series for charting. */
   series: BanisterPoint[];
   /**
@@ -712,6 +747,16 @@ export interface BanisterOptions {
  *   today = yesterday + (load_today − yesterday) / τ
  * Seeded at 0 (cold start). Returns the last day's CTL/ATL/TSB/ACWR plus
  * the full per-day series for charting.
+ *
+ * Two ACWR values are returned:
+ *   - `acwr` (legacy): ATL / CTL on the EWA series. Useful as a smoothness-
+ *     adjusted measure but the Gabbett thresholds (>1.3 watch, >1.5 risk)
+ *     were not validated against this distribution.
+ *   - `acwrRolling`: **uncoupled** rolling-window ACWR — `sum(last 7 days) /
+ *     7` divided by `sum(days 8..35 ago) / 28`. The acute window is excluded
+ *     from the chronic window (avoiding the Gabbett 2019 mathematical-coupling
+ *     critique). This is the metric the deload engine should drive thresholds
+ *     from.
  */
 export function banister(
   series: { date: string; load: number }[],
@@ -737,9 +782,41 @@ export function banister(
     atl: finalAtl,
     tsb: finalCtl - finalAtl,
     acwr,
+    acwrRolling: acwrUncoupled(series),
     series: points,
     coldStart: nonZeroDays < 14,
   };
+}
+
+/**
+ * Uncoupled rolling-window ACWR — Gabbett's "sweet spot 0.8–1.3, risk > 1.5"
+ * thresholds were validated against rolling means with the acute window
+ * *excluded* from the chronic window (Gabbett 2019 critique of coupled
+ * ACWR's mathematical bias).
+ *
+ *   acute  = sum(load over last 7 days)  / 7
+ *   chronic = sum(load over the 28 days BEFORE that) / 28
+ *   acwr   = acute / chronic
+ *
+ * Returns null when the input doesn't span the required 35 most-recent days
+ * (need 7 acute + 28 chronic), or when chronic mean is effectively zero
+ * (returning user — caller should suppress thresholds in cold-start).
+ *
+ * Exported separately so tests and callers can sanity-check the value
+ * independently of the Banister EWA series.
+ */
+export function acwrUncoupled(
+  series: ReadonlyArray<{ date: string; load: number }>,
+): number | null {
+  if (series.length < 7 + 28) return null;
+  const tail = series.slice(-(7 + 28));
+  const chronicWindow = tail.slice(0, 28);
+  const acuteWindow = tail.slice(28);
+  const chronicMean =
+    chronicWindow.reduce((acc, p) => acc + p.load, 0) / 28;
+  const acuteMean = acuteWindow.reduce((acc, p) => acc + p.load, 0) / 7;
+  if (chronicMean < 1e-3) return null;
+  return acuteMean / chronicMean;
 }
 
 // ---------------------------------------------------------------------------

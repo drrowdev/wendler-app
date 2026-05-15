@@ -8,6 +8,24 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Scientific calculation audit, round 1
+
+This round addresses the two HIGH-severity findings from the audit plus one of the same-shape RPE bugs from the v344 family.
+
+- **H1 — Bodyweight movements on /movements/history (SW v345).** Pull-ups, dips, and other BW assistance used to show "Best e1RM: 0 kg", a flat-zero top-set chart, and zero tonnage — `weightKg × reps` is meaningless when the user logs BW as 0. The page now uses `effectiveLoadKg()` from the domain (weight + bodyweight on the day of the set) for all kg-based stats, looking up the most recent bodyweight on-or-before each set's date from the recovery log. When no bodyweight has been logged for a BW movement, the page surfaces reps-based tiles instead (Best rep day, Avg reps/set, total reps) with a banner pointing to Profile, rather than lying with "0 kg" tiles. Externally-loadable BW (weighted pull-up, vest dips) adds the logged weight on top.
+- **H2 — ACWR aligned with the published threshold literature (SW v345).** The tooltip said "last 7 days ÷ last 28 days" but the engine was computing EWMA (τ=7 vs τ=42). The "sweet spot 0.8–1.3 / danger > 1.5" thresholds the deload engine enforces (Gabbett 2016) were validated on rolling-mean ACWR, not EWMA — so the tooltip was misleading AND the thresholds were running against an uncalibrated distribution.
+  - Added `acwrUncoupled()` in `packages/domain/src/load.ts`: acute = mean load over the last 7 days; chronic = mean load over the 28 days BEFORE that (no overlap — the Gabbett 2019 "coupled ACWR is mathematically biased" critique).
+  - `BanisterResult` now carries both `acwr` (EWMA, legacy, kept for chart continuity) and `acwrRolling` (rolling-window, uncoupled).
+  - `deloadSuggestion` switched to `acwrRolling` for the >1.3 watch / >1.5 risk thresholds.
+  - LoadView shows `acwrRolling` (not the EWMA value) and the tooltip now accurately describes what's computed.
+  - CTL / ATL / TSB (Banister EWMA) still drive the form-fatigue checks — that's the model that was validated against TSB cutoffs.
+- **M1 — `dailyLoad` no longer spikes on a lone hard top set (SW v345).** Same `Math.max(rpes)` shape as the v344 streak fix. A single AMRAP set at RPE 9 used to add `(9−6) × 0.5 = 1.5` to the day's load (a Wendler-shaped day). That number fed straight into CTL/ATL/TSB/ACWR. Switched to additive: `max(0, (avgRpe−6) × 0.4) + min(1, hardSetCount × 0.2)` where hardSetCount = sets at RPE ≥ 8.5. For a uniformly RPE-8 session the bump is the same as before; for a lone outlier the bump drops by ~70%.
+  - New tests cover the Wendler-shape scenario (lone AMRAP) and a genuinely-hard session.
+
+### Tests
+- 829/829 passing. Added 4 new tests in `load.test.ts`: acwrUncoupled null below 35 days, ≈1.0 at steady state, exact 5.0 in a clean step scenario, dailyLoad ignores lone AMRAP spike.
+- Updated 1 test: legacy "ACWR > 1.5" deload test now uses a shorter spike scenario so rolling ACWR (not EWMA) trips the threshold.
+
 ### Changed
 - **High-effort session detection no longer fires on a single hard top set (SW v344).** `consecutiveHighEffortStreak` used to count any session whose **max** RPE hit 8.5+ as "high effort" — meaning one AMRAP top set at RPE 9 surrounded by easy supplemental and assistance work would mark the whole session as a grinder. That's not how Wendler training looks: the AMRAP is supposed to be hard; the rest isn't.
   - **New rule:** a session counts as high-effort only when **either** the average RPE across all working sets ≥ 8.0 **or** 3+ individual sets hit RPE 8.5+. Either condition genuinely means "this session was a grind."

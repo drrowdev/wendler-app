@@ -471,15 +471,53 @@ describe('dailyLoad', () => {
   it('produces a sensible number for a known session', () => {
     // 5×100kg @ TM=100 → IF=1, weighted = 5×100×1² = 500 → /100 = 5.0
     // 30 min easy cardio (no zones) → 30 / 15 = 2.0
-    // max RPE 8 → (8 − 6) × 0.5 = 1.0
-    // total = 8.0
+    // 1 set at RPE 8 → avg=8 → (8 − 6) × 0.4 = 0.8 ; hardSetCount=0 → +0
+    // total = 5 + 2 + 0.8 = 7.8
     const sets: LoadSet[] = [
       { performedAt: '2026-04-27T18:00:00Z', weightKg: 100, reps: 5, rpe: 8, trainingMaxKgAtTime: 100 },
     ];
     const cardio: LoadCardio[] = [
       { performedAt: '2026-04-27T19:00:00Z', durationSec: 1800 },
     ];
-    expect(dailyLoad('2026-04-27', sets, cardio)).toBeCloseTo(8, 5);
+    expect(dailyLoad('2026-04-27', sets, cardio)).toBeCloseTo(7.8, 5);
+  });
+
+  it('ignores a lone AMRAP top set surrounded by easy work (no max-RPE spike)', () => {
+    // 4 easy sets at RPE 6 + one AMRAP at RPE 9.5. Pre-v344-style code
+    // would have used max(rpes)=9.5 → bump=(9.5−6)×0.5 = 1.75. New rule
+    // uses avg (6+6+6+6+9.5)/5 = 6.7 → bump=(6.7−6)×0.4 = 0.28, plus one
+    // hard set → 0.2 more. Total ≈ 0.48 — *substantially* lower than the
+    // old 1.75, reflecting that the session was mostly easy.
+    const sets: LoadSet[] = [
+      { performedAt: '2026-04-27T18:00:00Z', weightKg: 60, reps: 8, rpe: 6, trainingMaxKgAtTime: 100 },
+      { performedAt: '2026-04-27T18:05:00Z', weightKg: 60, reps: 8, rpe: 6, trainingMaxKgAtTime: 100 },
+      { performedAt: '2026-04-27T18:10:00Z', weightKg: 60, reps: 8, rpe: 6, trainingMaxKgAtTime: 100 },
+      { performedAt: '2026-04-27T18:15:00Z', weightKg: 60, reps: 8, rpe: 6, trainingMaxKgAtTime: 100 },
+      { performedAt: '2026-04-27T18:30:00Z', weightKg: 95, reps: 5, rpe: 9.5, trainingMaxKgAtTime: 100 },
+    ];
+    const load = dailyLoad('2026-04-27', sets, []);
+    // Tonnage component: 4×(60×8×0.36) + 1×(95×5×0.9025) ≈ 691 + 429 ≈ 1120/100 = 11.2
+    // RPE bump: ≈ 0.48 (see above)
+    // Total: ~11.68 — and crucially much less than what max-RPE would give.
+    const oldRule = 11.2 + (9.5 - 6) * 0.5; // = 12.95
+    expect(load).toBeLessThan(oldRule);
+    expect(load).toBeGreaterThan(11); // tonnage still dominates
+  });
+
+  it('respects a genuinely hard session (avg RPE ≈ 8)', () => {
+    // All 5 sets at RPE 8. avg=8 → 0.8; hardSetCount=0 → 0. Total RPE bump 0.8.
+    // (The hard-count bump only kicks in at RPE ≥ 8.5.)
+    const sets: LoadSet[] = [
+      { performedAt: '2026-04-27T18:00:00Z', weightKg: 80, reps: 5, rpe: 8, trainingMaxKgAtTime: 100 },
+      { performedAt: '2026-04-27T18:05:00Z', weightKg: 80, reps: 5, rpe: 8, trainingMaxKgAtTime: 100 },
+      { performedAt: '2026-04-27T18:10:00Z', weightKg: 80, reps: 5, rpe: 8, trainingMaxKgAtTime: 100 },
+      { performedAt: '2026-04-27T18:15:00Z', weightKg: 80, reps: 5, rpe: 8, trainingMaxKgAtTime: 100 },
+      { performedAt: '2026-04-27T18:20:00Z', weightKg: 80, reps: 5, rpe: 8, trainingMaxKgAtTime: 100 },
+    ];
+    const load = dailyLoad('2026-04-27', sets, []);
+    // Tonnage: 5×(80×5×0.64) = 1280/100 = 12.8
+    // RPE bump: 0.8 → total ≈ 13.6
+    expect(load).toBeCloseTo(13.6, 1);
   });
 
   it('only counts sets/cardio on the given day', () => {
@@ -560,6 +598,35 @@ describe('banister', () => {
     const r = banister(days);
     expect(r.coldStart).toBe(true);
   });
+
+  it('uncoupled rolling ACWR returns null with < 35 days history', () => {
+    const r = banister(constSeries(30, 10));
+    expect(r.acwrRolling).toBeNull();
+  });
+
+  it('uncoupled rolling ACWR ≈ 1.0 at steady state', () => {
+    const r = banister(constSeries(60, 10));
+    expect(r.acwrRolling).not.toBeNull();
+    expect(r.acwrRolling!).toBeCloseTo(1.0, 5);
+  });
+
+  it('uncoupled rolling ACWR is acute mean ÷ chronic mean, no overlap', () => {
+    // 28 days at load=2 (chronic), then 7 days at load=10 (acute).
+    // Expected: acute=10, chronic=2 → ACWR = 5.0.
+    const series: { date: string; load: number }[] = [];
+    const start = new Date('2026-01-01T00:00:00Z').getTime();
+    for (let i = 0; i < 28; i += 1) {
+      const d = new Date(start + i * 86400000).toISOString().slice(0, 10);
+      series.push({ date: d, load: 2 });
+    }
+    for (let i = 28; i < 35; i += 1) {
+      const d = new Date(start + i * 86400000).toISOString().slice(0, 10);
+      series.push({ date: d, load: 10 });
+    }
+    const r = banister(series);
+    expect(r.acwrRolling).not.toBeNull();
+    expect(r.acwrRolling!).toBeCloseTo(5.0, 5);
+  });
 });
 
 describe('deloadSuggestion (with banister)', () => {
@@ -578,24 +645,25 @@ describe('deloadSuggestion (with banister)', () => {
     };
   }
 
-  it('trips deload-now when ACWR > 1.5', () => {
-    // 60 days at load=5 then a sharp 30-day spike at load=50.
-    // ATL converges fast (τ=7 → ~99% in 30d), CTL drags (τ=42).
-    // Result: ACWR > 1.5 (+2) and TSB < -15 (+1) → urgency 3 → deload-now.
+  it('trips deload-now when uncoupled rolling ACWR > 1.5', () => {
+    // 60 days at load=5 (steady chronic baseline), then 7 days at load=50.
+    // Uncoupled rolling ACWR = mean(last 7 days = 50) / mean(prior 28 days = 5)
+    //                        = 10.0 → +2 urgency. Plus negative TSB from the
+    // sharp acute spike → +1 more → deload-now.
     const series: { date: string; load: number }[] = [];
     const start = new Date('2026-01-01T00:00:00Z').getTime();
     for (let i = 0; i < 60; i += 1) {
       const d = new Date(start + i * 86400000).toISOString().slice(0, 10);
       series.push({ date: d, load: 5 });
     }
-    for (let i = 60; i < 90; i += 1) {
+    for (let i = 60; i < 67; i += 1) {
       const d = new Date(start + i * 86400000).toISOString().slice(0, 10);
       series.push({ date: d, load: 50 });
     }
     const ban = banister(series);
     expect(ban.coldStart).toBe(false);
-    expect(ban.acwr).not.toBeNull();
-    expect(ban.acwr!).toBeGreaterThan(1.5);
+    expect(ban.acwrRolling).not.toBeNull();
+    expect(ban.acwrRolling!).toBeGreaterThan(1.5);
 
     const r = deloadSuggestion({
       recentWeeks: [week({ stressScore: 30 })],

@@ -134,12 +134,12 @@ export function LoadView() {
             info="Acute Training Load — exponentially-weighted 7-day average of daily training load. Represents short-term fatigue; rises quickly after hard sessions and decays in a few days of rest."
           />
           <div
-            className={`relative rounded-lg border p-3 text-center ${acwrTone(ban.acwr)}`}
+            className={`relative rounded-lg border p-3 text-center ${acwrTone(ban.acwrRolling)}`}
           >
-            <InfoTip text="Acute:Chronic Workload Ratio — last 7 days of load divided by last 28 days. Sweet spot 0.8–1.3 (green). Below 0.5 = undertraining, above 1.5 = injury-risk spike (red). 1.3–1.5 = caution (yellow)." />
+            <InfoTip text="ACWR — uncoupled rolling window. Acute = mean load over the last 7 days; chronic = mean load over the 28 days BEFORE that (no overlap). Validated against Gabbett's thresholds: sweet spot 0.8–1.3 (green), 1.3–1.5 = caution (yellow), > 1.5 = injury-risk spike (red), < 0.5 = detraining/returning." />
             <div className="text-xs text-muted">ACWR</div>
             <div className="text-lg font-semibold">
-              {ban.acwr === null ? '—' : ban.acwr.toFixed(2)}
+              {ban.acwrRolling === null ? '—' : ban.acwrRolling.toFixed(2)}
             </div>
           </div>
         </div>
