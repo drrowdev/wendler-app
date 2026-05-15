@@ -89,7 +89,7 @@ export function OnboardingWizard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const settings = useSettings();
-  const defaultTmPercent = settings?.defaultTmPercent ?? 0.9;
+  const defaultTmPercent = settings?.defaultTmPercent ?? 0.85;
 
   const setStep = (step: Step) => {
     const next = { ...persisted, step };

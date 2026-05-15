@@ -8,6 +8,22 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Scientific calculation audit, round 5 (round-2 audit follow-up)
+
+A second-pass audit ran after v348 and found one real bug + one trivial cleanup. Everything else verified clean.
+
+- **The v348 `lastAmrapPerformance` week-aware fix was dead in production (SW v349).** Two call sites (`apps/web/src/lib/wellness.ts:183` and `apps/web/src/lib/deload.ts:82`) build their `MinimalSet[]` by explicit field enumeration and were **stripping `percentOfTm` and `trainingMaxKgAtTime`** — the exact two fields v348 added to `MinimalSet` so the function could infer the Wendler week floor. Both sites now forward those fields. Real impact of the bug:
+  - **Week 2 AMRAP** (floor 3): "crushing" used to require ≥ 8 reps in practice; should require ≥ 6 → **systematically under-classified**.
+  - **Week 3 AMRAP** (floor 1): "crushing" used to require ≥ 8 reps; should require ≥ 4 → **substantially under-classified**, which means TM-bump recommendations from `recommendReturnPlan` / `recommendDeloadScaling` were too conservative on Wk2/Wk3.
+  - The data was always there — `SetRecord` persists both fields and `LiftFocusView` writes them — only the boundary mappers stripped them. The unit tests in v348 passed because they construct `MinimalSet` directly with the fields included.
+- **OnboardingWizard fallback bumped from 0.9 to 0.85** to match the database default and every other consumer (`AmrapAnalysis`, `program/setup`, `program/block`, `db.ts`). Only matters in the brief window before `useSettings` populates.
+
+### Tests
+- 834/834 passing (no test changes — the audit verified the test coverage in `return-plan.test.ts` already covers the floor logic correctly).
+
+### Trust state
+- Round-2 audit verified clean: `acwrUncoupled` boundaries, `consecutiveHighEffortStreak` warmup filter and MAX_SKIPS=1 logic, `rollingBaseline` SD floor with no caller sentinel issues, `previousWeekStarts` alias, `ban.acwr` (legacy EWMA) has zero remaining consumers in UI or thresholds, `MinimalSet` widening propagation everywhere except the two sites fixed above, `e1rmTrend` cadence-independence + span guard, polarized 80/10/10, HR-zone weights, pace PRs, bodyweight UX, analytics warmup policy consistency.
+
 ### Fixed — Scientific calculation audit, round 4 (polish bucket)
 
 A batched cleanup of the MED + LOW items the audit surfaced. No headline numbers should move; these are correctness sharpening, naming hygiene, and edge-case guards.

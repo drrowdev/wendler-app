@@ -190,6 +190,11 @@ export function useReturnPlan(args: {
         skipped: s.skipped,
         deletedAt: s.deletedAt,
         sessionId: s.sessionId,
+        // Forwarded for lastAmrapPerformance's week-aware floor inference
+        // (v348). Without these, the function falls back to absolute-rep
+        // thresholds and systematically under-classifies Wk2 / Wk3 AMRAPs.
+        percentOfTm: s.percentOfTm,
+        trainingMaxKgAtTime: s.trainingMaxKgAtTime,
       })),
       mainLiftMovementIds,
       upcomingRaces,
