@@ -9,7 +9,9 @@
 export type ParsedChatActionKind =
   | 'log_injury'
   | 'set_training_max'
-  | 'set_block_volume_preset';
+  | 'set_block_volume_preset'
+  | 'schedule_deload'
+  | 'substitute_movement';
 
 interface ParsedActionBase {
   id: string;
@@ -41,10 +43,29 @@ export interface ParsedSetBlockVolumePresetAction extends ParsedActionBase {
   reason: string;
 }
 
+export interface ParsedScheduleDeloadAction extends ParsedActionBase {
+  kind: 'schedule_deload';
+  reason: string;
+}
+
+export interface ParsedSubstituteMovementAction extends ParsedActionBase {
+  kind: 'substitute_movement';
+  blockId?: string;
+  dayId?: string;
+  dayIndex?: number;
+  currentMovementId: string;
+  currentMovementName: string;
+  newMovementId: string;
+  newMovementName: string;
+  reason: string;
+}
+
 export type ParsedChatAction =
   | ParsedLogInjuryAction
   | ParsedSetTrainingMaxAction
-  | ParsedSetBlockVolumePresetAction;
+  | ParsedSetBlockVolumePresetAction
+  | ParsedScheduleDeloadAction
+  | ParsedSubstituteMovementAction;
 
 const ACTIONS_OPEN = '<actions>';
 const ACTIONS_CLOSE = '</actions>';
@@ -159,6 +180,40 @@ function validateOne(raw: unknown, getId: () => string): ParsedChatAction | null
       kind: 'set_block_volume_preset',
       ...(typeof r.blockId === 'string' && r.blockId.length > 0 ? { blockId: r.blockId } : {}),
       preset: r.preset as 'minimal' | 'standard' | 'high',
+      reason: r.reason.trim().slice(0, 300),
+    };
+  }
+
+  if (kind === 'schedule_deload') {
+    if (typeof r.reason !== 'string' || !r.reason.trim()) return null;
+    return {
+      ...base,
+      kind: 'schedule_deload',
+      reason: r.reason.trim().slice(0, 300),
+    };
+  }
+
+  if (kind === 'substitute_movement') {
+    if (typeof r.currentMovementId !== 'string' || !r.currentMovementId.trim()) return null;
+    if (typeof r.newMovementId !== 'string' || !r.newMovementId.trim()) return null;
+    if (typeof r.currentMovementName !== 'string' || !r.currentMovementName.trim()) return null;
+    if (typeof r.newMovementName !== 'string' || !r.newMovementName.trim()) return null;
+    if (r.currentMovementId === r.newMovementId) return null;
+    if (typeof r.reason !== 'string' || !r.reason.trim()) return null;
+    const dayIndex =
+      typeof r.dayIndex === 'number' && Number.isInteger(r.dayIndex) && r.dayIndex >= 0 && r.dayIndex < 10
+        ? r.dayIndex
+        : undefined;
+    return {
+      ...base,
+      kind: 'substitute_movement',
+      ...(typeof r.blockId === 'string' && r.blockId.length > 0 ? { blockId: r.blockId } : {}),
+      ...(typeof r.dayId === 'string' && r.dayId.length > 0 ? { dayId: r.dayId } : {}),
+      ...(dayIndex !== undefined ? { dayIndex } : {}),
+      currentMovementId: r.currentMovementId.trim(),
+      currentMovementName: r.currentMovementName.trim().slice(0, 80),
+      newMovementId: r.newMovementId.trim(),
+      newMovementName: r.newMovementName.trim().slice(0, 80),
       reason: r.reason.trim().slice(0, 300),
     };
   }

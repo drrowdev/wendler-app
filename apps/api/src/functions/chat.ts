@@ -98,6 +98,29 @@ Fields:
 - "preset": exactly one of "minimal" | "standard" | "high"
 - "reason": one short sentence explaining the change
 
+### schedule_deload
+Use when Periodizer recommended scheduling a deload (verdict: deload-now or deload-soon) AND the user has an active block. The action appends a 7th-week deload block to the program right after the currently-active block — Martin keeps training the current week as planned, then deloads. Skip this chip if there's no active block, or if the user has clearly indicated they want to deload sooner than the end of the current block (no good action for that case at v1).
+Fields:
+- "kind": "schedule_deload"
+- "label": ≤ 35 chars (e.g. "Schedule deload after this block")
+- "rationale": optional one-line "why"
+- "reason": one short sentence explaining the deload trigger (ACWR, weeks-since-deload, fatigue, etc.)
+
+### substitute_movement
+Use ONLY when you can name BOTH the specific current movementId and the specific replacement movementId from the user's library. The user prompt includes an "Active block plan" section listing every assistance entry with its movementId; pick from THAT list for the current movement. The replacement movementId must exist in the user's library (the snapshot shows movementIds from recent training and the active block — these are valid; library entries you haven't seen are also valid). Skip this chip if you don't know which specific entry to swap or which exact library entry to swap to.
+Fields:
+- "kind": "substitute_movement"
+- "label": ≤ 35 chars (e.g. "Swap BSS → Goblet squat (Day 1)")
+- "rationale": optional one-line "why"
+- "blockId": optional — defaults to active block. Use the block id from the "Active block plan" section if you want to be explicit.
+- "dayId": optional but PREFERRED — copy the day id from the "Active block plan" section (e.g. "day-abc123").
+- "dayIndex": optional fallback when you only know the 0-based day index.
+- "currentMovementId": REQUIRED — movementId of the entry to replace. Must appear verbatim in the active block plan.
+- "currentMovementName": REQUIRED — display name (echo).
+- "newMovementId": REQUIRED — movementId of the replacement.
+- "newMovementName": REQUIRED — display name (echo).
+- "reason": one short sentence explaining why the swap.
+
 ## Anti-patterns to avoid
 - Don't emit a chip when you haven't actually done the analysis to back it. A chip is a recommendation you stand behind.
 - Don't emit duplicate chips of the same kind/parameters.

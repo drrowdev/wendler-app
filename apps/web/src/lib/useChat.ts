@@ -46,7 +46,7 @@ export function useChatList(): Chat[] | undefined {
 
 async function buildContextBlob(): Promise<string> {
   const db = getDb();
-  const [sets, cardio, recovery, races, tms, settings, movements] = await Promise.all([
+  const [sets, cardio, recovery, races, tms, settings, movements, blocks] = await Promise.all([
     db.sets.toArray(),
     db.cardio.toArray(),
     db.recovery.toArray(),
@@ -54,6 +54,7 @@ async function buildContextBlob(): Promise<string> {
     db.trainingMaxes.toArray(),
     db.settings.get('singleton'),
     db.movements.toArray(),
+    db.blocks.toArray(),
   ]);
   const movementName = new Map(movements.map((m) => [m.id, m.name]));
   const summary = buildChatContext({
@@ -66,7 +67,51 @@ async function buildContextBlob(): Promise<string> {
     profile: settings?.trainingProfile,
     movementName,
   });
-  return renderChatContextAsText(summary);
+  const baseText = renderChatContextAsText(summary);
+
+  // Append an "Active block plan" section so the chat agent knows what's
+  // currently prescribed and can target specific days/movements with
+  // substitute_movement / schedule_deload action chips. Surfaced as a
+  // separate section so the existing snapshot rendering stays untouched.
+  const activeBlock = blocks.find((b) => !b.completedAt);
+  if (!activeBlock) return baseText;
+
+  const lines: string[] = ['', '## Active block plan'];
+  lines.push(`- Block: ${activeBlock.name} (id=\`${activeBlock.id}\`)`);
+  lines.push(
+    `- Kind: ${activeBlock.kind}${activeBlock.seventhWeekKind ? ` · ${activeBlock.seventhWeekKind}` : ''}`,
+  );
+  if (activeBlock.assistanceVolume) {
+    const preset =
+      typeof activeBlock.assistanceVolume === 'string'
+        ? activeBlock.assistanceVolume
+        : 'custom';
+    lines.push(`- Assistance volume preset: ${preset}`);
+  }
+  const days = activeBlock.plan?.days ?? [];
+  if (days.length > 0) {
+    lines.push('- Days:');
+    days.forEach((day, i) => {
+      const dayHeader = `  - Day ${i}${day.label ? ` "${day.label}"` : ''} (id=\`${day.id}\`)${
+        day.mainLifts.length > 0 ? ` · main lifts: ${day.mainLifts.join(', ')}` : ' · accessory day'
+      }`;
+      lines.push(dayHeader);
+      if (day.assistance.length > 0) {
+        for (const entry of day.assistance) {
+          const mid = entry.movementId ?? '(no id)';
+          const reps =
+            entry.repsMax != null
+              ? `${entry.reps}-${entry.repsMax}`
+              : String(entry.reps);
+          const amrap = entry.isAmrap ? '+' : '';
+          lines.push(
+            `    - ${entry.category}: ${entry.movementName} (id=\`${mid}\`) — ${entry.sets}×${reps}${amrap}${entry.unit === 'sec' ? ' sec' : ''}`,
+          );
+        }
+      }
+    });
+  }
+  return baseText + '\n' + lines.join('\n');
 }
 
 function titleFromFirstMessage(content: string): string {

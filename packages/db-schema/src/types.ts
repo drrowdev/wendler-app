@@ -1300,7 +1300,9 @@ export type ChatRole = 'user' | 'assistant';
 export type ChatActionKind =
   | 'log_injury'
   | 'set_training_max'
-  | 'set_block_volume_preset';
+  | 'set_block_volume_preset'
+  | 'schedule_deload'
+  | 'substitute_movement';
 
 export type ChatActionStatus = 'pending' | 'applied' | 'dismissed';
 
@@ -1341,10 +1343,49 @@ export interface SetBlockVolumePresetChatAction extends ChatActionBase {
   reason: string;
 }
 
+/**
+ * Append a 7th-week deload block to the active program right after the
+ * currently-active block. Conservative placement: doesn't truncate the
+ * active block — the user finishes their current week as planned, then the
+ * deload becomes active on completion. Phase 4 follow-up.
+ */
+export interface ScheduleDeloadChatAction extends ChatActionBase {
+  kind: 'schedule_deload';
+  /** Why a deload is warranted right now — surfaced in the confirm modal. */
+  reason: string;
+}
+
+/**
+ * Swap a single assistance entry's movement on a specific day of the
+ * active block. The handler matches by movementId (preferred) or by
+ * movementName as a fallback, scoped to either a single day (when dayId is
+ * supplied) or the first matching day in the block (when omitted).
+ */
+export interface SubstituteMovementChatAction extends ChatActionBase {
+  kind: 'substitute_movement';
+  /** Optional block id; defaults to the active block. */
+  blockId?: string;
+  /** Stable day id from the active block's plan, when known. Preferred. */
+  dayId?: string;
+  /** 0-based day index in the block plan, used when dayId isn't known. */
+  dayIndex?: number;
+  /** MovementId to remove. Must match an existing AssistanceEntry on the target day. */
+  currentMovementId: string;
+  /** Display name of the movement being removed (for confirm UI). */
+  currentMovementName: string;
+  /** MovementId of the replacement — must exist in the user's library. */
+  newMovementId: string;
+  /** Display name of the replacement (for confirm UI). */
+  newMovementName: string;
+  reason: string;
+}
+
 export type ChatAction =
   | LogInjuryChatAction
   | SetTrainingMaxChatAction
-  | SetBlockVolumePresetChatAction;
+  | SetBlockVolumePresetChatAction
+  | ScheduleDeloadChatAction
+  | SubstituteMovementChatAction;
 
 export interface ChatMessage {
   id: string;

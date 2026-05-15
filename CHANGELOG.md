@@ -8,6 +8,25 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Chat action chips v2: schedule_deload + substitute_movement + plan-aware snapshot (SW v365)
+
+Two new action types covering the two most-asked workflows from the v1 chat tests, plus an enhancement to the chat snapshot so the AI can target specific assistance entries by id.
+
+**Chat snapshot now includes the active block plan.** The training-data snapshot the chat orchestrator builds on every send now appends an "Active block plan" section listing the active block's days (with stable day ids) and every assistance entry (with movementId, sets×reps, category). Without this the AI couldn't reliably target a substitution; with it the model can write a chip referencing the exact entry to swap. Source: `apps/web/src/lib/useChat.ts → buildContextBlob`.
+
+**`schedule_deload` action.** Use case: "should I deload soon?" → Periodizer says deload-soon → chip appears. Apply creates a 7th-week deload block (`kind: 'seventh-week'`, `seventhWeekKind: 'deload'`) sequenced right after the currently-active block in the same program. Conservative: doesn't truncate the active block — Martin finishes the current week as planned and the deload becomes active when the current block is marked done. Confirm modal explains the placement.
+
+**`substitute_movement` action.** Use case: "my right adductor hurts during Bulgarian split squats" → Coach proposes step-up → chip appears with exact source + replacement movementIds. Apply swaps the entry's movementId + movementName on the targeted day (matched by `dayId` preferred, `dayIndex` fallback). Existing sets × reps × category preserved. Validation hard-fails when:
+- the replacement isn't in the user's library
+- no entry matches the source movementId on the resolved day
+- source and replacement movementId are identical
+
+**Server prompt:** chat system prompt gets a section per new kind, with explicit "skip the chip when uncertain about the params" guidance. The substitute_movement section instructs the model to copy movement ids verbatim from the "Active block plan" section so the handler always finds the target.
+
+**Tests:** 928 (was 922 + 6 new — schedule_deload happy path + reason required, substitute_movement happy path + same-id rejection + missing-field rejection + dayIndex out-of-range graceful drop).
+
+Future kinds plug in with the same three-files-per-kind pattern. Next likely adds (deferred until asked): `mark_main_lift_taper`, `apply_recommended_volume_preset`, `create_program_from_template`.
+
 ### Added — Chat action chips: apply recommendations with one tap (SW v364)
 
 Chat AI can now emit concrete, applicable recommendations alongside its prose, rendered as buttons under the assistant reply. v1 vocabulary covers three action kinds spanning the Coach / Programmer / Periodizer domains:

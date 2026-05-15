@@ -102,6 +102,78 @@ describe('parseChatActionsBlock', () => {
     expect(parseChatActionsBlock(raw, ids()).actions).toEqual([]);
   });
 
+  describe('schedule_deload', () => {
+    it('accepts a valid chip', () => {
+      const raw =
+        'x<actions>[{"kind":"schedule_deload","label":"Schedule deload","reason":"ACWR 1.47, weeks since deload 7"}]</actions>';
+      const r = parseChatActionsBlock(raw, ids());
+      expect(r.actions).toHaveLength(1);
+      expect(r.actions[0]?.kind).toBe('schedule_deload');
+    });
+
+    it('rejects when reason is missing', () => {
+      const raw = 'x<actions>[{"kind":"schedule_deload","label":"x"}]</actions>';
+      expect(parseChatActionsBlock(raw, ids()).actions).toEqual([]);
+    });
+  });
+
+  describe('substitute_movement', () => {
+    const good = {
+      kind: 'substitute_movement',
+      label: 'Swap BSS for step-up',
+      blockId: 'block-1',
+      dayId: 'day-1',
+      dayIndex: 0,
+      currentMovementId: 'seed:bulgarian-split-squat',
+      currentMovementName: 'Bulgarian Split Squat',
+      newMovementId: 'seed:step-up',
+      newMovementName: 'Step-up',
+      reason: 'Quad-biased single-leg substitute that works around the right adductor',
+    };
+
+    it('accepts a valid chip with all fields', () => {
+      const r = parseChatActionsBlock(`x<actions>${JSON.stringify([good])}</actions>`, ids());
+      expect(r.actions).toHaveLength(1);
+      expect(r.actions[0]).toMatchObject({
+        kind: 'substitute_movement',
+        blockId: 'block-1',
+        dayId: 'day-1',
+        dayIndex: 0,
+        currentMovementId: 'seed:bulgarian-split-squat',
+        newMovementId: 'seed:step-up',
+      });
+    });
+
+    it('rejects when current and new movementId are identical', () => {
+      const bad = { ...good, newMovementId: good.currentMovementId };
+      const r = parseChatActionsBlock(`x<actions>${JSON.stringify([bad])}</actions>`, ids());
+      expect(r.actions).toEqual([]);
+    });
+
+    it('rejects when a movementId field is missing or empty', () => {
+      for (const field of [
+        'currentMovementId',
+        'currentMovementName',
+        'newMovementId',
+        'newMovementName',
+        'reason',
+      ]) {
+        const bad = { ...good, [field]: '' };
+        const r = parseChatActionsBlock(`x<actions>${JSON.stringify([bad])}</actions>`, ids());
+        expect(r.actions, `expected reject when ${field} empty`).toEqual([]);
+      }
+    });
+
+    it('drops invalid dayIndex but keeps the chip when other fields valid', () => {
+      const r = parseChatActionsBlock(
+        `x<actions>${JSON.stringify([{ ...good, dayIndex: -1 }])}</actions>`,
+        ids(),
+      );
+      expect(r.actions).toHaveLength(1);
+      expect((r.actions[0] as { dayIndex?: number }).dayIndex).toBeUndefined();
+    });
+  });
+
   it('rejects labels that are empty or too long', () => {
     const raw1 = 'x<actions>[{"kind":"log_injury","label":"","area":"knee"}]</actions>';
     expect(parseChatActionsBlock(raw1, ids()).actions).toEqual([]);

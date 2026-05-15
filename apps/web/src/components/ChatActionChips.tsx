@@ -11,6 +11,8 @@ import type { ChatAction } from '@wendler/db-schema';
 import {
   applySetTrainingMax,
   applySetBlockVolumePreset,
+  applyScheduleDeload,
+  applySubstituteMovement,
   dismissAction,
 } from '@/lib/chat-actions';
 import { InjurySheet } from '@/components/injury/InjurySheet';
@@ -79,6 +81,11 @@ function ChatActionChip({
     } else if (action.kind === 'set_block_volume_preset') {
       const r = await applySetBlockVolumePreset(chatId, messageId, action);
       result = r.ok ? { ok: true } : { ok: false, error: r.error };
+    } else if (action.kind === 'schedule_deload') {
+      const r = await applyScheduleDeload(chatId, messageId, action);
+      result = r.ok ? { ok: true } : { ok: false, error: r.error };
+    } else if (action.kind === 'substitute_movement') {
+      result = await applySubstituteMovement(chatId, messageId, action);
     } else {
       result = { ok: false, error: 'Unknown action kind.' };
     }
@@ -123,6 +130,38 @@ function ChatActionChip({
             volume?
           </p>
           <p className="mt-2 text-xs italic text-muted">{action.reason}</p>
+        </>
+      );
+    }
+    if (action.kind === 'schedule_deload') {
+      return (
+        <>
+          <p className="text-sm">
+            Schedule a 7th-week deload block right after the currently-active block?
+          </p>
+          <p className="mt-2 text-xs italic text-muted">{action.reason}</p>
+          <p className="mt-2 text-[11px] text-muted">
+            The new block lands in /program. The active block isn&apos;t modified — finish your
+            current week as planned and the deload becomes active when you mark the block done.
+          </p>
+        </>
+      );
+    }
+    if (action.kind === 'substitute_movement') {
+      return (
+        <>
+          <p className="text-sm">
+            Replace{' '}
+            <span className="font-semibold">{action.currentMovementName}</span> with{' '}
+            <span className="font-semibold">{action.newMovementName}</span>
+            {typeof action.dayIndex === 'number' ? ` on Day ${action.dayIndex + 1}` : ''}{' '}
+            in the active block?
+          </p>
+          <p className="mt-2 text-xs italic text-muted">{action.reason}</p>
+          <p className="mt-2 text-[11px] text-muted">
+            Existing sets × reps + category are preserved. The swap applies to the per-day
+            default — per-week overrides are untouched.
+          </p>
         </>
       );
     }

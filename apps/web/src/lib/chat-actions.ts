@@ -141,3 +141,165 @@ export async function applySetBlockVolumePreset(
     return { ok: false, error: (e as Error).message };
   }
 }
+
+/**
+ * Apply a `schedule_deload` action: create a 7th-week deload block in the
+ * active program, sequenced right after the currently-active block. Does
+ * NOT truncate the active block — the user finishes their current week as
+ * planned, then the deload block becomes active. Mirrors the most
+ * conservative interpretation of "deload next" Wendler is built around.
+ */
+export async function applyScheduleDeload(
+  chatId: string,
+  messageId: string,
+  action: ChatAction & { kind: 'schedule_deload' },
+): Promise<{ ok: true; block: ProgramBlock } | { ok: false; error: string }> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const all = await db.blocks.toArray();
+  const activeBlock = all.find((b) => !b.completedAt);
+  if (!activeBlock) {
+    return { ok: false, error: 'No active block found.' };
+  }
+  // Find the highest sequenceIndex inside the same program so we can slot
+  // the new block right after. When the active block has no programId
+  // (free-standing), the new deload block is also free-standing.
+  const programId = activeBlock.programId;
+  const peers = programId
+    ? all.filter((b) => b.programId === programId)
+    : [activeBlock];
+  const maxSeq = peers.reduce(
+    (acc, b) => Math.max(acc, b.sequenceIndex ?? 0),
+    0,
+  );
+  const deloadBlock: ProgramBlock = {
+    id: nanoid(),
+    name: 'Deload week',
+    kind: 'seventh-week',
+    seventhWeekKind: 'deload',
+    weeksBeforeDeload: 1,
+    includesDeload: true,
+    supplementalTemplate: activeBlock.supplementalTemplate,
+    mainScheme: activeBlock.mainScheme,
+    createdAt: now,
+    updatedAt: now,
+    ...(programId ? { programId } : {}),
+    sequenceIndex: maxSeq + 1,
+  };
+  try {
+    await db.blocks.put(deloadBlock);
+    await updateActionStatus(chatId, messageId, action.id, {
+      status: 'applied',
+      appliedAt: now,
+    });
+    kickSync();
+    return { ok: true, block: deloadBlock };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/**
+ * Apply a `substitute_movement` action: swap one assistance entry's
+ * movement on a specific day of a block. Matches the target entry by
+ * movementId, scoped to a specific day via `dayId` (preferred) or
+ * `dayIndex`, falling back to the first matching entry in the block
+ * when neither is set.
+ *
+ * Validation hard-fails (rather than silently doing nothing) when:
+ *   - the target block can't be found
+ *   - the replacement movementId isn't in the user's library
+ *   - no entry matches the currentMovementId on the resolved day
+ *
+ * On success, the entry's movementId + movementName are updated. Other
+ * fields (sets, reps, category, etc.) are preserved.
+ */
+export async function applySubstituteMovement(
+  chatId: string,
+  messageId: string,
+  action: ChatAction & { kind: 'substitute_movement' },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const db = getDb();
+  const now = new Date().toISOString();
+  let block: ProgramBlock | undefined;
+  if (action.blockId) {
+    block = await db.blocks.get(action.blockId);
+  }
+  if (!block) {
+    const all = await db.blocks.toArray();
+    block = all.find((b) => !b.completedAt);
+  }
+  if (!block) return { ok: false, error: 'No active block found.' };
+  if (!block.plan || block.plan.days.length === 0) {
+    return { ok: false, error: 'Active block has no assistance plan yet.' };
+  }
+
+  const newMovement = await db.movements.get(action.newMovementId);
+  if (!newMovement) {
+    return {
+      ok: false,
+      error: `Replacement movement \`${action.newMovementId}\` is not in your library.`,
+    };
+  }
+
+  // Resolve target day. dayId wins; then dayIndex; then "the first day
+  // that has a matching entry".
+  let targetDayIdxs: number[] = [];
+  if (action.dayId) {
+    const idx = block.plan.days.findIndex((d) => d.id === action.dayId);
+    if (idx < 0) {
+      return { ok: false, error: `Day id \`${action.dayId}\` not found in block.` };
+    }
+    targetDayIdxs = [idx];
+  } else if (typeof action.dayIndex === 'number') {
+    if (action.dayIndex < 0 || action.dayIndex >= block.plan.days.length) {
+      return { ok: false, error: `dayIndex ${action.dayIndex} is out of range.` };
+    }
+    targetDayIdxs = [action.dayIndex];
+  } else {
+    targetDayIdxs = block.plan.days.map((_, i) => i);
+  }
+
+  let swapped = false;
+  const newDays = block.plan.days.map((d, di) => {
+    if (!targetDayIdxs.includes(di)) return d;
+    if (swapped) return d; // only swap on the first matching day
+    const newAssistance = d.assistance.map((e) => {
+      if (swapped) return e;
+      if (e.movementId !== action.currentMovementId) return e;
+      swapped = true;
+      return {
+        ...e,
+        movementId: action.newMovementId,
+        movementName: action.newMovementName || newMovement.name,
+        // Clear the auto-generated suggester rationale — it described the
+        // old pick.
+        suggestionRationale: undefined,
+      };
+    });
+    return { ...d, assistance: newAssistance };
+  });
+  if (!swapped) {
+    return {
+      ok: false,
+      error: `No assistance entry with movementId \`${action.currentMovementId}\` found on the target day(s).`,
+    };
+  }
+
+  const updated: ProgramBlock = {
+    ...block,
+    plan: { ...block.plan, days: newDays },
+    updatedAt: now,
+  };
+  try {
+    await db.blocks.put(updated);
+    await updateActionStatus(chatId, messageId, action.id, {
+      status: 'applied',
+      appliedAt: now,
+    });
+    kickSync();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
