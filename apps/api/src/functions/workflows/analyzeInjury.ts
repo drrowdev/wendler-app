@@ -85,6 +85,29 @@ async function analyzeInjury(
   req: HttpRequest,
   ctx: InvocationContext,
 ): Promise<HttpResponseInit> {
+  try {
+    return await analyzeInjuryInner(req, ctx);
+  } catch (err) {
+    const message = (err as Error)?.message ?? 'unknown error';
+    const stack = (err as Error)?.stack ?? '';
+    ctx.log(`workflows.analyzeInjury: UNCAUGHT ${message}\n${stack}`);
+    // Return a structured agent error rather than a 500 so the client can
+    // surface the failure to the user. Stack stays in server logs only.
+    return {
+      status: 200,
+      jsonBody: {
+        ok: false,
+        errorCode: 'unknown',
+        errors: [`Analyze-injury workflow crashed: ${message}`],
+      },
+    };
+  }
+}
+
+async function analyzeInjuryInner(
+  req: HttpRequest,
+  ctx: InvocationContext,
+): Promise<HttpResponseInit> {
   const { user, reason } = await verifyRequest(req);
   if (!user) {
     ctx.log(`workflows.analyzeInjury: unauthenticated (${reason ?? 'unknown'})`);

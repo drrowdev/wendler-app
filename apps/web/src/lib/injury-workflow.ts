@@ -130,10 +130,20 @@ export async function analyzeInjury(
           errors: ['Not authenticated. Sign in and try again.'],
         };
       }
+      // Try to surface the real error body — 5xx responses from Azure
+      // Functions are typically HTML or JSON; either way we want
+      // SOMETHING informative back to the user, not just "HTTP 500".
+      let detail = '';
+      try {
+        const text = await res.text();
+        if (text) detail = text.length > 300 ? text.slice(0, 300) + '…' : text;
+      } catch {
+        // ignore body read failures
+      }
       return {
         ok: false,
-        errorCode: 'llm-unreachable',
-        errors: [`Server returned HTTP ${res.status}.`],
+        errorCode: res.status >= 500 ? 'unknown' : 'llm-unreachable',
+        errors: [`Server returned HTTP ${res.status}.${detail ? ` ${detail}` : ''}`],
       };
     }
     const body = (await res.json()) as AgentResponse<InjuryAnalysisResult>;

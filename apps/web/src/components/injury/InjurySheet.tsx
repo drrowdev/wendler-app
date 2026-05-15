@@ -159,7 +159,9 @@ export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
         className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-border bg-card p-4"
         onClick={(e) => e.stopPropagation()}
       >
-        {!proposal ? (
+        {busy ? (
+          <AnalyzingState area={finalArea} />
+        ) : !proposal ? (
           <CaptureForm
             area={area}
             setArea={setArea}
@@ -558,6 +560,73 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
           {busy ? 'Saving…' : 'Save'}
         </button>
       </div>
+    </div>
+  );
+}
+
+// AnalyzingState — full-form loading animation shown while the Coach
+// workflow runs. Cycles through descriptive status lines so the user gets
+// a sense of what's actually happening (each step corresponds to a real
+// stage of the workflow even though the UI can't observe them in real
+// time — the analyze call returns once at the end, ~5-15s).
+const ANALYZING_STEPS_PREFIX = [
+  'Reading the description and the affected movements…',
+] as const;
+
+function AnalyzingState({ area }: { area: string }) {
+  const STEPS = [
+    ANALYZING_STEPS_PREFIX[0],
+    `Mapping ${area} demand across your full library…`,
+    'Coach is identifying the underlying pattern…',
+    'Cross-referencing your active programming…',
+    'Building per-movement adjustments…',
+    'Grounding alternatives in the deterministic substitution helper…',
+    'Almost there — finalising the proposal…',
+  ];
+  const total = STEPS.length;
+  const [stepIdx, setStepIdx] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setStepIdx((i) => Math.min(i + 1, total - 1));
+    }, 1800);
+    return () => clearInterval(interval);
+  }, [total]);
+
+  return (
+    <div className="flex min-h-[420px] flex-col items-center justify-center gap-6 p-6 text-center">
+      <div className="relative h-16 w-16">
+        <div className="absolute inset-0 animate-ping rounded-full border-2 border-accent/30" />
+        <div className="absolute inset-2 animate-pulse rounded-full bg-accent/20" />
+        <div className="absolute inset-5 rounded-full bg-accent shadow-lg shadow-accent/40" />
+      </div>
+      <div className="space-y-2">
+        <h2 className="text-lg font-semibold">Coach is analysing</h2>
+        <p className="text-xs text-muted">
+          Anatomical reasoning + library cross-referencing usually takes 5-15 seconds.
+        </p>
+      </div>
+      <ul className="space-y-1.5 text-left text-xs">
+        {STEPS.map((step, i) => {
+          const done = i < stepIdx;
+          const current = i === stepIdx;
+          return (
+            <li
+              key={i}
+              className={`flex items-start gap-2 transition-opacity ${
+                done ? 'opacity-50' : current ? 'opacity-100' : 'opacity-30'
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`mt-0.5 w-3 shrink-0 ${current ? 'animate-pulse text-accent' : ''}`}
+              >
+                {done ? '✓' : current ? '◐' : '·'}
+              </span>
+              <span className={current ? 'text-fg' : 'text-muted'}>{step}</span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
