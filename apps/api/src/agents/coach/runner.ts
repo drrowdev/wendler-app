@@ -56,7 +56,14 @@ export async function runCoach(
     ]);
   }
 
-  const model = input.model ?? process.env.ANTHROPIC_COACH_MODEL ?? process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+  // Coach default model: Haiku 4.5. Coach is a structured-output specialist
+  // (anatomical reasoning over the user's library → strict JSON adjustment
+  // list) — exactly the workload Haiku 4.5 handles fastest. Sonnet-class
+  // reasoning isn't worth the 3-5x slower generation here, and the longer
+  // calls were tripping the Azure SWA proxy timeout. Override globally via
+  // ANTHROPIC_COACH_MODEL if you want Sonnet or Opus.
+  const model =
+    input.model ?? process.env.ANTHROPIC_COACH_MODEL ?? 'claude-haiku-4-5';
   // Coach typically emits 1500-2500 tokens of JSON (summary + 3-5
   // adjustments + monitoring + consult). 4000 has plenty of headroom and
   // keeps generation latency below the SWA proxy timeout. Lifted via
