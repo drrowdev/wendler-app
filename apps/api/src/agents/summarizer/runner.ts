@@ -45,7 +45,7 @@ export async function runSummarizer(
   }
 
   const model = input.model ?? process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
-  const maxTokens = input.maxTokens ?? Number(process.env.ANTHROPIC_MAX_TOKENS ?? '4000');
+  const maxTokens = input.maxTokens ?? Number(process.env.ANTHROPIC_MAX_TOKENS ?? '6000');
   // Summarizer is presentation; some narrative variety is welcome but
   // reliability matters more than novelty. 0.3 mirrors Programmer.
   const temperature =

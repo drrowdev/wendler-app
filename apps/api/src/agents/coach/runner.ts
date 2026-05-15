@@ -57,7 +57,7 @@ export async function runCoach(
   }
 
   const model = input.model ?? process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
-  const maxTokens = input.maxTokens ?? Number(process.env.ANTHROPIC_MAX_TOKENS ?? '4000');
+  const maxTokens = input.maxTokens ?? Number(process.env.ANTHROPIC_MAX_TOKENS ?? '6000');
   // Coach defaults to 0.2 — slightly more conservative than Programmer's 0.3.
   // Anatomical reasoning + safety bias don't benefit from token-level
   // randomness; structured-output reliability is more important here.

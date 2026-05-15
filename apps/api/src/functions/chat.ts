@@ -188,7 +188,7 @@ export async function chat(
   }
 
   const model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
-  const maxTokens = Number(process.env.ANTHROPIC_CHAT_MAX_TOKENS ?? '4000');
+  const maxTokens = Number(process.env.ANTHROPIC_CHAT_MAX_TOKENS ?? '8000');
   const temperature = Number(process.env.ANTHROPIC_CHAT_TEMPERATURE ?? '0.3');
 
   const dateLine = todayLocal ? `Today's date: ${todayLocal}.` : '';

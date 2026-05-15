@@ -50,7 +50,7 @@ export async function runPeriodizer(
   }
 
   const model = input.model ?? process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
-  const maxTokens = input.maxTokens ?? Number(process.env.ANTHROPIC_MAX_TOKENS ?? '4000');
+  const maxTokens = input.maxTokens ?? Number(process.env.ANTHROPIC_MAX_TOKENS ?? '6000');
   // Periodizer is structural reasoning over a small, well-defined signal
   // set — high reliability on the verdict matters far more than creative
   // variety. Default temp 0.2 mirrors Coach.
