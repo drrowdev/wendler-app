@@ -371,9 +371,26 @@ describe('consecutiveHighEffortStreak', () => {
     ).toBe(1);
   });
 
-  it('breaks on missing RPE (cant evaluate)', () => {
+  it('skips one no-RPE session at the tail rather than breaking the streak', () => {
+    // Latest session has no RPE recorded (e.g. user forgot to log it or
+    // it was imported from Strava). The prior session was clearly hard.
+    // Pre-fix: returned 0 (the latest session terminated the walk).
+    // Post-fix: skips up to MAX_SKIPS=1 no-RPE sessions and counts the
+    // hard one behind it.
     expect(
       consecutiveHighEffortStreak([s('25', 18, 9), s('27', 18)]),
+    ).toBe(1);
+  });
+
+  it('still breaks after two consecutive no-RPE sessions (avoids riding ancient streaks)', () => {
+    // Two no-RPE sessions in a row exhausts the skip budget; the walk
+    // gives up before reaching the ancient hard session.
+    expect(
+      consecutiveHighEffortStreak([
+        s('20', 18, 9),
+        s('25', 18), // no RPE
+        s('27', 18), // no RPE
+      ]),
     ).toBe(0);
   });
 });
@@ -446,11 +463,25 @@ describe('rollingBaseline', () => {
     expect(b.meanStress).toBe(45);
   });
 
-  it('computes mean and SD of stress + RPE', () => {
+  it('computes mean and sample SD of stress + RPE (Bessel correction)', () => {
     const b = rollingBaseline([w(40, 7), w(50, 8), w(60, 7.5)]);
     expect(b.meanStress).toBeCloseTo(50, 5);
-    expect(b.sdStress).toBeCloseTo(Math.sqrt(((40 - 50) ** 2 + 0 + (60 - 50) ** 2) / 3), 5);
+    // Sample SD with N-1 denominator (Bessel correction): sqrt(200/2) = 10
+    expect(b.sdStress).toBeCloseTo(Math.sqrt(((40 - 50) ** 2 + 0 + (60 - 50) ** 2) / 2), 5);
     expect(b.meanRpe).toBeCloseTo(7.5, 5);
+  });
+
+  it('floors stress SD to avoid pretending tight baselines from small N', () => {
+    // Two weeks with identical stress = true SD is 0; without a floor the
+    // z-test would treat every wobble as infinite-sigma.
+    const b = rollingBaseline([w(40, 7), w(40, 7)]);
+    expect(b.sdStress).toBeGreaterThanOrEqual(5);
+  });
+
+  it('returns the SD floor when there is exactly one trained week (N=1, no variance)', () => {
+    const b = rollingBaseline([w(40, 7)]);
+    expect(b.weeks).toBe(1);
+    expect(b.sdStress).toBeGreaterThanOrEqual(5);
   });
 });
 

@@ -216,13 +216,31 @@ export function e1rmTrend(
 
 /**
  * Compares the user's last AMRAP set on a given lift against its prescribed
- * rep count. Returns:
- *   - 'crushing' when reps_logged - reps_prescribed >= 3
- *   - 'on-target' when within ±2
- *   - 'struggling' when reps_logged - reps_prescribed <= -2
+ * floor reps. Wendler 5/3/1 top-set floors by week:
+ *   - Week 1 (5/5/5+) at ~85% TM → floor 5
+ *   - Week 2 (3/3/3+) at ~90% TM → floor 3
+ *   - Week 3 (5/3/1+) at ~95% TM → floor 1
+ *
+ * The set's `percentOfTm` is the canonical signal; when present we map it
+ * to the closest 5/3/1 week floor. Without it, we infer the prescribed
+ * floor from the set's intensity (weightKg ÷ trainingMaxKgAtTime) when
+ * that's known, then fall back to absolute-rep heuristics.
+ *
+ * Verdicts (relative to floor):
+ *   - 'crushing' when reps_logged − floor >= 3 (the canonical "bump your
+ *     TM" rule from 5/3/1 Forever)
+ *   - 'on-target' when within ±2 of floor
+ *   - 'struggling' when reps_logged − floor <= -2
  *   - 'unknown' when no recent AMRAP can be found
  */
 export type AmrapPerformance = 'crushing' | 'on-target' | 'struggling' | 'unknown';
+
+function floorRepsForPct(pct: number): number {
+  // 85% ⇒ 5, 90% ⇒ 3, 95% ⇒ 1. Nearest-snap with halfway boundaries.
+  if (pct >= 0.925) return 1;
+  if (pct >= 0.875) return 3;
+  return 5;
+}
 
 export function lastAmrapPerformance(sets: MinimalSet[], movementId: string): AmrapPerformance {
   const amraps = sets
@@ -237,15 +255,26 @@ export function lastAmrapPerformance(sets: MinimalSet[], movementId: string): Am
     .sort((a, b) => (a.performedAt < b.performedAt ? 1 : -1));
   if (amraps.length === 0) return 'unknown';
   const last = amraps[0]!;
-  // Prescribed reps for AMRAP sets in 5/3/1: w1=5, w2=3, w3=1.
-  // We don't know which week without more context; infer from the rep target
-  // commonly set by the app via percentOfTm, but a robust shortcut is the
-  // expected floor (5 for w1, 3 for w2, 1 for w3). Anything ≥ floor + 3 is
-  // crushing; floor ± 2 is on-target; below floor − 2 is struggling.
-  // Without explicit week metadata, fall back to absolute thresholds:
-  //   ≥ 8 reps → crushing, 3–7 → on-target, ≤2 → struggling.
-  if (last.reps >= 8) return 'crushing';
-  if (last.reps <= 2) return 'struggling';
+  // Prefer explicit percentOfTm; else derive from weight÷TM-snapshot; else
+  // fall back to a coarse rep-based heuristic.
+  let floor: number;
+  if (typeof last.percentOfTm === 'number' && last.percentOfTm > 0) {
+    floor = floorRepsForPct(last.percentOfTm);
+  } else if (
+    typeof last.trainingMaxKgAtTime === 'number' &&
+    last.trainingMaxKgAtTime > 0
+  ) {
+    floor = floorRepsForPct(last.weightKg / last.trainingMaxKgAtTime);
+  } else {
+    // No week metadata: fall back to absolute thresholds (≥8 crushing,
+    // ≤2 struggling, else on-target). Same as the pre-week-aware logic.
+    if (last.reps >= 8) return 'crushing';
+    if (last.reps <= 2) return 'struggling';
+    return 'on-target';
+  }
+  const delta = last.reps - floor;
+  if (delta >= 3) return 'crushing';
+  if (delta <= -2) return 'struggling';
   return 'on-target';
 }
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { nanoid } from 'nanoid';
 import type { MainLift, Race, RaceKind, RacePriority } from '@wendler/db-schema';
-import { useBlocks, useSchedule } from '@/lib/hooks';
+import { useBlocks, useSchedule, useSettings } from '@/lib/hooks';
 import { getDb } from '@/lib/db';
 import { kickSync } from '@/lib/sync';
 import {
@@ -88,6 +88,8 @@ export function OnboardingWizard({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const settings = useSettings();
+  const defaultTmPercent = settings?.defaultTmPercent ?? 0.9;
 
   const setStep = (step: Step) => {
     const next = { ...persisted, step };
@@ -141,7 +143,7 @@ export function OnboardingWizard({
               id: nanoid(),
               lift,
               trainingMaxKg: kg,
-              tmPercent: 0.9,
+              tmPercent: defaultTmPercent,
               createdAt: now,
               source: 'manual',
               note: 'Set during onboarding',

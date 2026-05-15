@@ -12,6 +12,14 @@ export interface MinimalSet {
   skipped?: boolean;
   deletedAt?: string;
   sessionId?: string;
+  /**
+   * Wendler 5/3/1 percentage of training max for this set, when known.
+   * Lets analytics that need to know "which week's AMRAP was this?"
+   * infer floor reps from intensity (5/3/1 top sets ≈ 85/90/95 %).
+   */
+  percentOfTm?: number;
+  /** Snapshot of the lift's TM at the time the set was performed. */
+  trainingMaxKgAtTime?: number;
 }
 
 export interface MinimalSession {

@@ -88,9 +88,10 @@ export interface WeeklyLoad {
   avgFatigue?: number;
   /**
    * Composite stress score, 0–100. Transparent recipe:
-   *   tonnage   contribution: min(50, weightedTonnageKg / 100)
-   *   cardio    contribution: min(20, cardioMinutes / 15)
-   *   rpe       contribution: max(0, (avgRpe - 6) * 5)   when reported
+   *   tonnage   contribution: min(50, weightedTonnageKg / 100)         // IF²-weighted, not raw
+   *   cardio    contribution: min(cardioCap, weightedCardioMinutes / 15) // HR-zone weighted; cap is 30 by default or dynamic (see dynamicCardioCap)
+   *   strengthHR contribution: min(10, strengthHrWeightedMin / 15)     // Strava strength-HR enrichments (kept out of cardioMinutes)
+   *   rpe       contribution: max(0, (avgRpe - 6) * 5)                 // when reported
    *   recovery  penalty:      max(0, (fatigue - 5) * 2) - max(0, (sleep - 7) * 2)
    * Higher = more accumulated stress; 80+ suggests pulling back.
    */
@@ -104,10 +105,18 @@ function isoMonday(d: Date): string {
   return monday.toISOString().slice(0, 10);
 }
 
+// Parse an ISO timestamp normalising to UTC. Legacy rows that lacked a
+// timezone marker would otherwise be interpreted as local time and drift
+// across week boundaries unpredictably between devices.
+function parseIsoUtc(iso: string): number {
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(iso)) return new Date(iso).getTime();
+  return new Date(iso + 'Z').getTime();
+}
+
 function inWeek(iso: string, weekStart: string): boolean {
   const ws = new Date(weekStart + 'T00:00:00Z').getTime();
   const we = ws + 7 * 86400000;
-  const t = new Date(iso).getTime();
+  const t = parseIsoUtc(iso);
   return t >= ws && t < we;
 }
 
@@ -305,10 +314,50 @@ export function currentWeekStart(now: Date = new Date()): string {
   return isoMonday(now);
 }
 
+/**
+ * Return `count` Monday-anchored ISO date strings ending at the **current**
+ * week (the Monday of `now`'s week is the last entry). Misleading name kept
+ * for backward compat; prefer `recentWeekStartsIncludingCurrent` in new code.
+ *
+ * Example: `previousWeekStarts(May 14 2026, 4)` →
+ *   `['2026-04-27', '2026-05-04', '2026-05-11', '2026-05-13'? no — '2026-05-11']`
+ * Actually: the Mondays of the last 4 weeks, including this week.
+ *
+ * @deprecated Use `recentWeekStartsIncludingCurrent` — the original name
+ * suggests "weeks strictly before `now`" which is the opposite of what
+ * this returns.
+ */
 export function previousWeekStarts(now: Date = new Date(), count: number): string[] {
+  return recentWeekStartsIncludingCurrent(now, count);
+}
+
+/**
+ * Return `count` Monday-anchored ISO date strings, the most recent of which
+ * is the Monday of the week containing `now`. Order is oldest-first.
+ */
+export function recentWeekStartsIncludingCurrent(
+  now: Date = new Date(),
+  count: number,
+): string[] {
   const out: string[] = [];
   const monday = new Date(isoMonday(now) + 'T00:00:00Z');
   for (let i = 0; i < count; i += 1) {
+    const d = new Date(monday.getTime() - i * 7 * 86400000);
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out.reverse();
+}
+
+/**
+ * Return `count` Monday-anchored ISO date strings for the `count` weeks
+ * STRICTLY BEFORE `now`'s week. Order is oldest-first. Use this when you
+ * genuinely want "the prior N weeks, not including this one" (e.g. for
+ * computing a baseline that excludes the in-progress week).
+ */
+export function priorWeekStarts(now: Date = new Date(), count: number): string[] {
+  const out: string[] = [];
+  const monday = new Date(isoMonday(now) + 'T00:00:00Z');
+  for (let i = 1; i <= count; i += 1) {
     const d = new Date(monday.getTime() - i * 7 * 86400000);
     out.push(d.toISOString().slice(0, 10));
   }
@@ -370,9 +419,30 @@ export function consecutiveHighEffortStreak(
   const sessionAvgThreshold = threshold - 0.5;
   const hardSetMinCount = 3;
   let streak = 0;
+  // Limit how many consecutive no-RPE sessions we'll skip over before
+  // giving up. Avoids letting an extended layoff or Strava-imported set
+  // ride atop an ancient hard streak.
+  let consecutiveSkips = 0;
+  const MAX_SKIPS = 1;
   for (let i = sessions.length - 1; i >= 0; i -= 1) {
-    const rpes = sessions[i]!.map((s) => s.rpe).filter((r): r is number => typeof r === 'number');
-    if (rpes.length === 0) break;
+    // Use working RPEs only; warmups rarely carry an RPE in practice but
+    // any future schema change that defaults warmups should not silently
+    // pull the session average down.
+    const work = (sessions[i] as Array<LoadSet & { kind?: string }>).filter(
+      (s) => s.kind !== 'warmup',
+    );
+    const rpes = work
+      .map((s) => s.rpe)
+      .filter((r): r is number => typeof r === 'number');
+    if (rpes.length === 0) {
+      // No RPE recorded for this session — neither confirms nor breaks the
+      // streak. Skip a bounded number of times so a single unlogged session
+      // doesn't erase real history, then stop walking back.
+      consecutiveSkips += 1;
+      if (consecutiveSkips > MAX_SKIPS) break;
+      continue;
+    }
+    consecutiveSkips = 0;
     const avgRpe = rpes.reduce((a, b) => a + b, 0) / rpes.length;
     const hardSetCount = rpes.filter((r) => r >= threshold).length;
     const isHighEffort = avgRpe >= sessionAvgThreshold || hardSetCount >= hardSetMinCount;
@@ -391,40 +461,61 @@ export interface LoadBaseline {
   weeks: number;
   /** Mean weekly stressScore over the baseline window. */
   meanStress: number;
-  /** Standard deviation of weekly stressScore (population). */
+  /**
+   * Sample standard deviation of weekly stressScore (Bessel-corrected),
+   * floored at STRESS_SD_FLOOR so 2–3-week baselines don't produce an
+   * unrealistically tight z-distribution that classes every new week as
+   * an outlier.
+   */
   sdStress: number;
   /** Mean avgRpe across baseline weeks where RPE was reported. */
   meanRpe?: number;
-  /** SD of avgRpe across baseline weeks where RPE was reported. */
+  /** Sample SD of avgRpe across baseline weeks where RPE was reported. */
   sdRpe?: number;
 }
+
+const STRESS_SD_FLOOR = 5;
+const RPE_SD_FLOOR = 0.3;
 
 /**
  * Build a personal baseline from a list of weekly summaries (typically the
  * 4 weeks immediately preceding the week being evaluated). Weeks with no
  * training are excluded so a recent layoff doesn't artificially deflate
  * the baseline. Returns `weeks: 0` when there's nothing to baseline against.
+ *
+ * SD computed with Bessel correction (N-1 denominator) because the 4 baseline
+ * weeks are a *sample* of the user's long-run distribution, not the whole
+ * population. With N=2 a population-SD denominator returns ~½ the true
+ * spread, making the z-test in `deloadSuggestion` over-reject (every week
+ * looks like an outlier). Floors prevent zero-variance baselines from
+ * dividing by ~0 when all weeks happen to share the same stress score.
  */
 export function rollingBaseline(weeks: WeeklyLoad[]): LoadBaseline {
   const trained = weeks.filter(
     (w) => w.stressScore > 0 || w.strengthTonnageKg > 0 || w.cardioMinutes > 0,
   );
   if (trained.length === 0) {
-    return { weeks: 0, meanStress: 0, sdStress: 0 };
+    return { weeks: 0, meanStress: 0, sdStress: STRESS_SD_FLOOR };
   }
   const stresses = trained.map((w) => w.stressScore);
   const meanStress = stresses.reduce((a, b) => a + b, 0) / stresses.length;
-  const sdStress = Math.sqrt(
-    stresses.reduce((a, b) => a + (b - meanStress) ** 2, 0) / stresses.length,
-  );
+  const stressVariance =
+    stresses.length > 1
+      ? stresses.reduce((a, b) => a + (b - meanStress) ** 2, 0) / (stresses.length - 1)
+      : 0;
+  const sdStress = Math.max(STRESS_SD_FLOOR, Math.sqrt(stressVariance));
   const rpes = trained
     .map((w) => w.avgRpe)
     .filter((v): v is number => typeof v === 'number');
   const meanRpe = rpes.length ? rpes.reduce((a, b) => a + b, 0) / rpes.length : undefined;
-  const sdRpe =
-    meanRpe !== undefined
-      ? Math.sqrt(rpes.reduce((a, b) => a + (b - meanRpe) ** 2, 0) / rpes.length)
-      : undefined;
+  let sdRpe: number | undefined;
+  if (meanRpe !== undefined) {
+    const rpeVariance =
+      rpes.length > 1
+        ? rpes.reduce((a, b) => a + (b - meanRpe) ** 2, 0) / (rpes.length - 1)
+        : 0;
+    sdRpe = Math.max(RPE_SD_FLOOR, Math.sqrt(rpeVariance));
+  }
   return {
     weeks: trained.length,
     meanStress,
@@ -482,8 +573,6 @@ const WEEKS_BETWEEN_DELOADS_SOFT = 4;
 const WEEKS_BETWEEN_DELOADS_HARD = 6;
 /** Minimum trained weeks required before the personal baseline takes over from absolute thresholds. */
 const BASELINE_MIN_WEEKS = 2;
-/** Floors prevent tiny SDs from making every wobble look like a 5-sigma event. */
-const RPE_SD_FLOOR = 0.3;
 
 export function deloadSuggestion(input: DeloadInputs): DeloadSuggestion {
   const reasons: string[] = [];

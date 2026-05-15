@@ -8,6 +8,22 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Scientific calculation audit, round 4 (polish bucket)
+
+A batched cleanup of the MED + LOW items the audit surfaced. No headline numbers should move; these are correctness sharpening, naming hygiene, and edge-case guards.
+
+- **M5 — Stress score JSDoc now matches the code.** The recipe in the comment claimed cardio cap 20 and raw minutes; the code actually uses HR-zone-weighted minutes with a dynamic cap (default 30), plus a separate strengthHR component capped at 10. The docstring is now an accurate cheat-sheet. Also added a `parseIsoUtc` helper so legacy rows without a timezone marker can no longer be silently re-parsed as local time and drift between weeks across devices.
+- **M7 — `consecutiveHighEffortStreak` excludes warmups from the session-average RPE.** The JSDoc said it did already; the code didn't. Future schema work that defaults a warmup RPE won't silently change deload decisions.
+- **M8 — Streak skips no-RPE sessions instead of breaking.** Pre-v348 a single unlogged-RPE session erased the entire walk-back ("you forgot to log RPE today → previous 3 days of grinding don't count"). Now skips up to 1 consecutive no-RPE session, then gives up. Strava-imported sets (no RPE) no longer permanently disable streak detection. New test pair locks both halves in.
+- **M9 — `rollingBaseline` uses sample SD with a floor.** Was population SD with no guard against zero variance. With N=2 the population denominator gave ~½ the true spread, making the z-test in the RPE-vs-baseline check over-reject (every week looked like an outlier). Bessel correction (N-1 denominator) plus floors (`STRESS_SD_FLOOR=5`, `RPE_SD_FLOOR=0.3`) so 2-week baselines and zero-variance baselines both behave sensibly. Updated 1 test, added 2.
+- **M11 — `lastAmrapPerformance` is now Wendler-week aware.** Pre-fix used absolute rep thresholds (≥8 crushing, ≤2 struggling) — a Wk1 AMRAP at 75 % TM hitting 7 reps was "on-target" but a Wk3 AMRAP at 95 % TM hitting 7 reps was crushing (floor 1 + 6 = TM-bump territory) and both got the same label. `MinimalSet` now optionally carries `percentOfTm` + `trainingMaxKgAtTime`; the function infers the prescribed floor (5/3/1 for w1/w2/w3 ≈ 85/90/95 % TM) and compares against `floor + 3` (crushing) / `floor − 2` (struggling). Falls back to absolute thresholds when neither field is set.
+- **M12 — Added `recentWeekStartsIncludingCurrent` and `priorWeekStarts`** as clearly-named siblings of `previousWeekStarts` (which despite its name *includes* the current week). Old function marked `@deprecated` but kept as an alias so existing callers keep working. Future callers won't fall into the off-by-one trap.
+- **L1 — OnboardingWizard respects `settings.defaultTmPercent`.** Previously hardcoded 90 % regardless of the user's settings default (which is 85 %). One source of truth.
+- **L2 — `acwrTone` no longer screams "danger" red on low ACWR.** Returning users with ACWR < 0.5 used to see red (with no matching reason text from the deload engine). Low ACWR is detraining / ramping back up, not injury risk — now uses calm blue. Red is reserved for ACWR > 1.5 (the actual injury-risk zone). 1.3–1.5 stays yellow.
+
+### Tests
+- 834/834 passing. 3 added (M8 + M9), 2 updated (M9 SD denominator change, M8 streak skipping).
+
 ### Fixed — Scientific calculation audit, round 3
 
 - **M2 — `e1rmTrend` cadence-independent (SW v347).** The strength-trend signal that feeds the return-plan recommendations used to regress e1RM against `[0, 1, 2, ...]` — the data-point index — not actual calendar days. So a 2× / week lifter and a 1× / week lifter making the SAME true progress per calendar week saw different per-point slopes, and the ±0.6 %/week threshold fired at different actual rates of progress depending on cadence. A user with mismatched cadences across the four main lifts (squat 2× / press 1×) got artificial asymmetry in the aggregate trend.

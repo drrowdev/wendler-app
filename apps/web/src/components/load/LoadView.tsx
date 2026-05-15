@@ -35,8 +35,13 @@ function tsbTone(tsb: number): string {
 function acwrTone(acwr: number | null): string {
   if (acwr === null) return 'border-border bg-card';
   if (acwr >= 0.8 && acwr <= 1.3) return 'border-green-500/40 bg-green-500/10';
-  if (acwr < 0.5 || acwr > 1.5) return 'border-red-500/40 bg-red-500/10';
-  return 'border-yellow-500/40 bg-yellow-500/10';
+  if (acwr > 1.5) return 'border-red-500/40 bg-red-500/10';
+  if (acwr > 1.3) return 'border-yellow-500/40 bg-yellow-500/10';
+  // Low end is detraining / returning — not an injury-risk state. The
+  // deload engine doesn't fire any reason for low ACWR, so we shouldn't
+  // signal "danger" red here; use a calm blue accent instead.
+  if (acwr < 0.5) return 'border-sky-500/40 bg-sky-500/10';
+  return 'border-border bg-card';
 }
 
 export function LoadView() {
