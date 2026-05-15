@@ -8,6 +8,12 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Changed
+- **High-effort session detection no longer fires on a single hard top set (SW v344).** `consecutiveHighEffortStreak` used to count any session whose **max** RPE hit 8.5+ as "high effort" — meaning one AMRAP top set at RPE 9 surrounded by easy supplemental and assistance work would mark the whole session as a grinder. That's not how Wendler training looks: the AMRAP is supposed to be hard; the rest isn't.
+  - **New rule:** a session counts as high-effort only when **either** the average RPE across all working sets ≥ 8.0 **or** 3+ individual sets hit RPE 8.5+. Either condition genuinely means "this session was a grind."
+  - User-facing reason text is now "N high-effort sessions in a row" with a sub-explanation ("avg RPE ≥ 8 or 3+ sets at RPE 8.5+") instead of the misleading "N sessions at RPE 8.5+" which only described the per-set check.
+  - Old test "uses the session max RPE — one heavy top set is enough" is replaced by "ignores a single heavy top set surrounded by easy sets — Wendler shape". Two new tests cover the average-RPE and many-hard-sets branches.
+
 ### Fixed
 - **LineChart y-axis labels no longer clipped (SW v343).** The shared `LineChart` component had a hardcoded `padX = 44`, which wasn't enough for labels like "208.5 kg" — `textAnchor="end"` at `x=padX-6` made the labels grow leftward and the leading digit fell off the SVG viewBox (rendered as "08.5 kg"). `padX` is now computed from the longest formatted label (~7px per char at fontSize 12, plus 14px breathing room, never less than 44). This fixes the per-movement history e1RM chart and benefits any other LineChart usage with multi-digit y-values.
 - **Movement-history chart rounds e1RM to integers for cleaner display.** "208 kg" beats "208.45 kg" for at-a-glance scanning, and one fewer character helps the axis fit.

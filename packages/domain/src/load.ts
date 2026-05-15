@@ -345,10 +345,16 @@ function groupSetsIntoSessions(sets: LoadSet[], gapMs: number): LoadSet[][] {
 }
 
 /**
- * Longest tail run of sessions whose **max** RPE met or exceeded `threshold`,
- * counting backwards from the most recent session. A single heavy top set
- * is enough to mark a session as high-effort — that's the failure mode we
- * care about (one all-out top set per day, three days running).
+ * Longest tail run of sessions that count as "high effort", measured by
+ * either:
+ *   - the **average RPE across non-warmup sets** in the session ≥ a soft
+ *     threshold (default 8.0), OR
+ *   - **3 or more individual sets at RPE ≥ `threshold`** (default 8.5)
+ *
+ * Counts backward from the most recent session. The combined rule captures
+ * "the whole session was a grind" or "many sets were brutal" without
+ * being tripped by a single heavy AMRAP top set surrounded by easy
+ * supplemental/assistance work (Wendler's normal shape).
  *
  * Returns 0 when no sets are provided or RPE is never reported.
  */
@@ -358,12 +364,19 @@ export function consecutiveHighEffortStreak(
   gapMs = 18 * 3600 * 1000,
 ): number {
   const sessions = groupSetsIntoSessions(sets, gapMs);
+  // The session-average threshold sits 0.5 below the per-set threshold:
+  // a session where the typical set is RPE 8 is hard; one outlier set at
+  // 9 surrounded by 6s and 7s is not.
+  const sessionAvgThreshold = threshold - 0.5;
+  const hardSetMinCount = 3;
   let streak = 0;
   for (let i = sessions.length - 1; i >= 0; i -= 1) {
     const rpes = sessions[i]!.map((s) => s.rpe).filter((r): r is number => typeof r === 'number');
     if (rpes.length === 0) break;
-    const maxRpe = Math.max(...rpes);
-    if (maxRpe >= threshold) streak += 1;
+    const avgRpe = rpes.reduce((a, b) => a + b, 0) / rpes.length;
+    const hardSetCount = rpes.filter((r) => r >= threshold).length;
+    const isHighEffort = avgRpe >= sessionAvgThreshold || hardSetCount >= hardSetMinCount;
+    if (isHighEffort) streak += 1;
     else break;
   }
   return streak;
@@ -558,10 +571,10 @@ export function deloadSuggestion(input: DeloadInputs): DeloadSuggestion {
   if (input.recentSets && input.recentSets.length > 0) {
     const streak = consecutiveHighEffortStreak(input.recentSets);
     if (streak >= 3) {
-      reasons.push(`${streak} consecutive sessions at RPE 8.5+.`);
+      reasons.push(`${streak} high-effort sessions in a row (avg RPE ≥ 8 or 3+ sets at RPE 8.5+).`);
       urgency += 3;
     } else if (streak >= 2) {
-      reasons.push(`${streak} sessions in a row at RPE 8.5+.`);
+      reasons.push(`${streak} high-effort sessions back-to-back.`);
       urgency += 1;
     }
   }

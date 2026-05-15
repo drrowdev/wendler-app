@@ -329,10 +329,45 @@ describe('consecutiveHighEffortStreak', () => {
     ).toBe(2);
   });
 
-  it('uses the session max RPE — one heavy top set is enough', () => {
-    // Same day: warmup at RPE 5 + top set at RPE 9. Session counts as high.
+  it('ignores a single heavy top set surrounded by easy sets — Wendler shape', () => {
+    // Same day: 4 easy sets (RPE 6/7) + one all-out top set (RPE 9.5).
+    // Average is ~7, only one hard set → NOT counted as high-effort. This
+    // is the normal Wendler shape (one AMRAP top set, easy supplemental)
+    // and should not, on its own, trigger a deload warning.
     expect(
-      consecutiveHighEffortStreak([s('27', 16, 5), s('27', 17, 9)]),
+      consecutiveHighEffortStreak([
+        s('27', 16, 6),
+        s('27', 16, 7),
+        s('27', 17, 7),
+        s('27', 17, 9.5),
+      ]),
+    ).toBe(0);
+  });
+
+  it('counts a session when the average RPE is at or above 8', () => {
+    // Every set was a grind: average RPE = 8.0 → high-effort.
+    expect(
+      consecutiveHighEffortStreak([
+        s('27', 16, 8),
+        s('27', 16, 8),
+        s('27', 17, 8),
+        s('27', 17, 8),
+      ]),
+    ).toBe(1);
+  });
+
+  it('counts a session when 3+ individual sets hit RPE 8.5+', () => {
+    // Many hard sets, average drags down to 7.7 but the volume of hard
+    // sets (4 × RPE 9 alongside 2 × RPE 6) still counts as a grinder day.
+    expect(
+      consecutiveHighEffortStreak([
+        s('27', 16, 6),
+        s('27', 16, 6),
+        s('27', 17, 9),
+        s('27', 17, 9),
+        s('27', 18, 9),
+        s('27', 18, 9),
+      ]),
     ).toBe(1);
   });
 
@@ -373,7 +408,7 @@ describe('deloadSuggestion (with set-level history)', () => {
       recentSets: [s('25', 9), s('26', 9), s('27', 9)],
     });
     expect(r.recommendation).toBe('deload-now');
-    expect(r.reasons.some((x) => x.includes('consecutive sessions'))).toBe(true);
+    expect(r.reasons.some((x) => x.includes('high-effort sessions'))).toBe(true);
   });
 
   it('does not flag when streak is 1', () => {
