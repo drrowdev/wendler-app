@@ -43,7 +43,9 @@ export async function deleteWithTombstones(kind: SyncKind, ids: string[]): Promi
                               ? db.aiGenerations
                               : kind === 'chat'
                                 ? db.chats
-                                : null;
+                                : kind === 'injury'
+                                  ? db.injuries
+                                  : null;
   if (!table) throw new Error(`deleteWithTombstones: kind '${kind}' is not deletable`);
 
   await db.transaction('rw', table, db.tombstones, async () => {

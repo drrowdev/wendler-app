@@ -8,6 +8,42 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Agentic Phase 2: Coach agent + injury feature (SW v356)
+
+First user-visible agent ship. New `Injuries` surface lets Martin log a limitation (area, severity, free-text description, affected movements), have a Coach agent (MSK/PT framing, Anthropic Claude, temperature 0.2) propose per-movement adjustments grounded in the live movement library + active programming + recently resolved injuries, then accept/decline each proposal individually. Active limitations surface as a persistent amber banner on Today + Day, with a sheet to mark resolved.
+
+**Schema (v18, `packages/db-schema/src/types.ts`):**
+- New `Injury` entity: `area`, `severity (1-5)`, `description`, `affectedMovementIds[]`, AI-generated `summary`, `adjustments: InjuryAdjustment[]`, `monitoringAdvice`, `consultRecommended` + `consultReason`, `startedAt`, `resolvedAt`, standard CRDT/sync fields.
+- `InjuryAdjustment`: `movementId`, `action` (`skip` | `reduce-load` | `reduce-range` | `modify-execution` | `monitor`), `modification` (text), `reasoning`, `status` (`proposed` | `accepted` | `declined`), `proposedAt` / `acceptedAt` / `declinedAt`, `userEdited?`.
+- Dexie migration v17→v18 in `apps/web/src/lib/db.ts`; `injuries` store keyed on `id, area, startedAt, resolvedAt, updatedAt`.
+
+**Coach agent (`packages/domain/src/agents/coach/`):**
+- Static system prompt: MSK/PT advisor role (NOT diagnostic), conservative-bias framing, anatomical priors, Runna-runs-elsewhere context, output schema.
+- Dynamic user prompt sections (built per call from IndexedDB): About the user (DOB→age, sex, height, training experience), the current injury, other active injuries, recently resolved injuries (recurrence flag), recent training, equipment-filtered movement library.
+- `parseCoachResponse` validator: enforces `summary`, `proposedAdjustments` schema, no duplicate `movementId`s, `consultReason` required when `consultRecommended=true`.
+- 20 tests cover happy path, code-fence stripping, every error branch, About-the-user injection, equipment filtering, recurrence detection.
+
+**Server-side (`apps/api/src/`):**
+- Mirror of domain in `agents/coach/` (Node16/ESM mirror pattern). Default temperature 0.2 via `ANTHROPIC_COACH_TEMPERATURE`.
+- HTTP endpoint `POST /api/agents/coach`.
+- Deterministic `findSubstitution` heuristic in `agents/programmer/substitution.ts` — pattern + primary-muscle overlap scoring; skips for monitor/reduce-range/modify-execution actions.
+- `analyzeInjury` workflow at `POST /api/workflows/analyzeInjury` — Coach call → `findSubstitution` per accepted action → `InjuryAnalysisResult` (Coach proposal + library-grounded alternatives).
+- `apps/api/src/agents/registry.ts` now lists `programmer` + `coach`.
+
+**Client UI (`apps/web/src/components/injury/` + `app/recovery/injuries/`):**
+- `InjurySheet` — modal with two-step flow: capture form (area combobox with custom "other", severity 1-5, description, movement multi-select) → proposal review (per-adjustment Accept/Decline, Accept all/Decline all, alternatives expandable, monitoring + PT-consult callouts).
+- `injury-workflow.ts` — client wrapper that builds the Coach user prompt + library payload from IndexedDB and posts to the workflow endpoint.
+- `ActiveLimitationsBanner` — amber strip mounted on Today + Day; tapping opens a sheet listing all active injuries with a per-injury "Mark resolved" CTA + link to history.
+- `/recovery/injuries` page — Active + Resolved sections, "+ Log limitation" entry point, per-injury detail (accepted/declined adjustments, monitoring, consult-recommended banner, reopen, delete with tombstone).
+- New `Injuries` row in `/more`.
+
+**Sync:**
+- `'injury'` added to `SyncKind`; outbound collect, inbound apply, tombstone routing all wired in `apps/web/src/lib/sync.ts`.
+- `deleteWithTombstones` (`apps/web/src/lib/delete.ts`) supports `injury`.
+- `useAllInjuries()` + `useActiveInjuries()` hooks in `apps/web/src/lib/hooks.ts`.
+
+Notes: prompts contain zero hardcoded user data — system prompts hold role + schema + anatomical priors; everything user-specific (TM%, goals, schedule, equipment, library, recent history, active limitations, profile) is constructed per call from IndexedDB. Tests: 863/863.
+
 ### Added — Agentic Phase 1: agent contract foundation (SW v355)
 
 Refactor-only ship. No user-visible change. Establishes the type-level + module-level scaffolding the rest of the agentic rollout (Phases 2–4) builds on. Reviewed against the master plan in `~/.copilot/session-state/.../files/agentic-master-plan.md`.

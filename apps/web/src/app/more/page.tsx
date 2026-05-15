@@ -4,6 +4,7 @@ const ITEMS = [
   { href: '/chat', label: 'Chat', desc: 'AI coach grounded in your training data', icon: '💬' },
   { href: '/goals', label: 'Goals', desc: 'PR targets, race times, habits', icon: '🎯' },
   { href: '/profile', label: 'Training Profile', desc: 'Movement focus, phase, filters, AI notes, bodyweight', icon: '🧭' },
+  { href: '/recovery/injuries', label: 'Injuries', desc: 'Active limitations + history; Coach-proposed adjustments', icon: '🩹' },
   { href: '/races', label: 'Races', desc: 'Race calendar, taper priority, results', icon: '🏁' },
   { href: '/movements', label: 'Movements', desc: 'Library, custom lifts, cues', icon: '🏋️' },
   { href: '/notifications', label: 'Notifications', desc: 'Auto-event history, AI rationales', icon: '🔔' },

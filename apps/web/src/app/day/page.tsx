@@ -59,6 +59,7 @@ import {
 import { useDeloadScalingPrompt } from '@/lib/deload';
 import { useMovements } from '@/lib/hooks';
 import { PreWorkoutCheckIn } from '@/components/PreWorkoutCheckIn';
+import { ActiveLimitationsBanner } from '@/components/injury/ActiveLimitationsBanner';
 
 export default function DayPageWrapper() {
   return (
@@ -287,6 +288,7 @@ function DayPage() {
   return (
     <div className="space-y-6">
       <PreWorkoutCheckIn />
+      <ActiveLimitationsBanner />
       <header className="flex items-baseline justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">

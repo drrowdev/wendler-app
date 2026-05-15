@@ -13,6 +13,7 @@ import {
   useSchedule,
 } from '@/lib/hooks';
 import { TaperBanner } from '@/components/TaperBanner';
+import { ActiveLimitationsBanner } from '@/components/injury/ActiveLimitationsBanner';
 import { NextUpCard } from '@/components/NextUpCard';
 import { ThisWeekCard } from '@/components/ThisWeekCard';
 import { TrainingMaxesCard } from '@/components/TrainingMaxesCard';
@@ -105,6 +106,7 @@ export default function Home() {
       </header>
 
       <TaperBanner />
+      <ActiveLimitationsBanner />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="space-y-6">
