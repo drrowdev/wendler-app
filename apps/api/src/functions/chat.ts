@@ -74,8 +74,8 @@ Fields:
 - "kind": "log_injury" (required)
 - "label": ≤ 35 chars imperative (e.g. "Log right-adductor limitation")
 - "rationale": optional one-line "why"
-- "area": short body-area string (e.g. "right adductor", "left elbow") — required
-- "severity": 1-5 if you have it; omit when unsure
+- "area": short body-area string — required. Prefer the exact spelling of one of the dropdown options when applicable (lower back / shoulder / elbow / wrist / hip / adductor / knee / ankle / neck / chest). When the issue is side-qualified ("right adductor", "left knee"), emit the side-qualified string — the form routes it to a free-text input automatically.
+- "severity": 1-5 if you have it; omit when unsure. 1 = twinge, 3 = limits performance, 5 = couldn't continue. For months-old ongoing tendinopathies that the user is still training around, severity is typically 2-3, not 5.
 - "description": one short sentence (≤ 200 chars) capturing the user's words
 - "movementIds": library movementIds (with prefix) the issue affects, when known
 

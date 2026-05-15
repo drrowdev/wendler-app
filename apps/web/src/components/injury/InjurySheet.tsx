@@ -47,8 +47,19 @@ interface Props {
 
 export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
   const movements = useMovements();
-  const [area, setArea] = useState(injury?.area ?? origin?.area ?? 'lower back');
-  const [customArea, setCustomArea] = useState('');
+  // Pre-fill from origin / existing injury. When the supplied area doesn't
+  // exactly match one of the dropdown options (case-insensitive), route it
+  // to "other" and pre-populate the custom-area input so the user sees the
+  // suggested area instead of a silent fallback to "lower back". This also
+  // covers cases where the chat AI emits a side-qualified area like
+  // "right adductor" — the dropdown only has "adductor", but the more
+  // specific string is preserved as the actual stored value.
+  const initialAreaRaw = injury?.area ?? origin?.area ?? 'lower back';
+  const matchesOption = COMMON_AREAS.some(
+    (a) => a.toLowerCase() === initialAreaRaw.toLowerCase() && a !== 'other',
+  );
+  const [area, setArea] = useState(matchesOption ? initialAreaRaw : 'other');
+  const [customArea, setCustomArea] = useState(matchesOption ? '' : initialAreaRaw);
   const [severity, setSeverity] = useState<InjurySeverity>(
     injury?.severity ?? origin?.severity ?? 3,
   );
