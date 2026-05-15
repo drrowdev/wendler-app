@@ -74,6 +74,20 @@ function titleFromFirstMessage(content: string): string {
   return firstLine.length <= 80 ? firstLine : firstLine.slice(0, 77) + '…';
 }
 
+export interface ToolCallStatus {
+  /** Anthropic tool_use id — stable for the duration of the turn. */
+  id: string;
+  /** Tool name as registered (e.g. "consult_coach"). */
+  name: string;
+  /** When the dispatch started (perf.now-style ms timestamp). */
+  startedAtMs: number;
+  /** When the dispatch finished. Undefined while still in flight. */
+  endedAtMs?: number;
+  /** Tokens consumed by the specialist call. Undefined while in flight. */
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
 export interface UseChatSender {
   send: (content: string, opts?: SendOptions) => Promise<string>;
   /** Conversation id (existing or newly minted on first send). */
@@ -81,6 +95,8 @@ export interface UseChatSender {
   sending: boolean;
   /** In-progress streaming text (assistant turn being received). */
   streaming: string;
+  /** Tool calls dispatched during the current turn (most-recent last). Cleared between turns. */
+  toolCalls: ToolCallStatus[];
   error: string | null;
 }
 
@@ -94,6 +110,7 @@ export function useChatSender(externalId: string | null): UseChatSender {
   const [id, setId] = useState<string | null>(externalId);
   const [sending, setSending] = useState(false);
   const [streaming, setStreaming] = useState('');
+  const [toolCalls, setToolCalls] = useState<ToolCallStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   // Keep internal id in sync when the parent switches conversations
@@ -112,6 +129,7 @@ export function useChatSender(externalId: string | null): UseChatSender {
       setError(null);
       setSending(true);
       setStreaming('');
+      setToolCalls([]);
       try {
         const db = getDb();
         const now = new Date().toISOString();
@@ -200,12 +218,43 @@ export function useChatSender(externalId: string | null): UseChatSender {
               const evt = JSON.parse(json) as
                 | { type: 'delta'; text: string }
                 | { type: 'done'; modelInfo: unknown }
-                | { type: 'error'; detail: string };
+                | { type: 'error'; detail: string }
+                | { type: 'tool_use_start'; id: string; name: string }
+                | {
+                    type: 'tool_use_end';
+                    id: string;
+                    name: string;
+                    durationMs: number;
+                    inputTokens: number;
+                    outputTokens: number;
+                  };
               if (evt.type === 'delta') {
                 accumulated += evt.text;
                 setStreaming(accumulated);
               } else if (evt.type === 'error') {
                 streamErr = evt.detail;
+              } else if (evt.type === 'tool_use_start') {
+                setToolCalls((prev) => [
+                  ...prev,
+                  {
+                    id: evt.id,
+                    name: evt.name,
+                    startedAtMs: Date.now(),
+                  },
+                ]);
+              } else if (evt.type === 'tool_use_end') {
+                setToolCalls((prev) =>
+                  prev.map((tc) =>
+                    tc.id === evt.id
+                      ? {
+                          ...tc,
+                          endedAtMs: Date.now(),
+                          inputTokens: evt.inputTokens,
+                          outputTokens: evt.outputTokens,
+                        }
+                      : tc,
+                  ),
+                );
               }
             } catch {
               // Tolerate keep-alives or malformed lines without aborting.
@@ -241,7 +290,7 @@ export function useChatSender(externalId: string | null): UseChatSender {
     [id, sending],
   );
 
-  return { send, id, sending, streaming, error };
+  return { send, id, sending, streaming, toolCalls, error };
 }
 
 /** Rename a chat conversation. */

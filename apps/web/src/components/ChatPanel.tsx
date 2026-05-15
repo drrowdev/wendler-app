@@ -60,7 +60,7 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
   useEffect(() => {
     if (!listRef.current) return;
     listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [chat?.messages.length, sender.sending, sender.streaming]);
+  }, [chat?.messages.length, sender.sending, sender.streaming, sender.toolCalls.length]);
 
   const submit = async (text: string) => {
     if (!text.trim() || sender.sending) return;
@@ -137,7 +137,7 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
               <MessageBubble key={m.id} message={m} />
             ))}
             {sender.sending && (
-              <StreamingBubble text={sender.streaming} />
+              <StreamingBubble text={sender.streaming} toolCalls={sender.toolCalls} />
             )}
           </ul>
         )}
@@ -213,10 +213,35 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   );
 }
 
-function StreamingBubble({ text }: { text: string }) {
+function StreamingBubble({
+  text,
+  toolCalls,
+}: {
+  text: string;
+  toolCalls: import('@/lib/useChat').ToolCallStatus[];
+}) {
   return (
     <li className="flex justify-start">
       <div className="max-w-[90%] rounded-lg border border-border bg-card px-3 py-2 text-sm text-fg">
+        {toolCalls.length > 0 && (
+          <ul className="mb-2 space-y-0.5 text-[11px]">
+            {toolCalls.map((tc) => (
+              <li key={tc.id} className="flex items-center gap-1.5 text-muted">
+                <span aria-hidden>{tc.endedAtMs ? '✓' : '↻'}</span>
+                <span className="font-semibold text-fg/80">{specialistLabel(tc.name)}</span>
+                {tc.endedAtMs && (
+                  <span className="text-muted">
+                    ({Math.round((tc.endedAtMs - tc.startedAtMs) / 100) / 10}s
+                    {tc.outputTokens != null && tc.outputTokens > 0
+                      ? ` · ${tc.outputTokens} tok`
+                      : ''}
+                    )
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
         {text ? (
           <>
             <MarkdownBody content={text} />
@@ -229,12 +254,31 @@ function StreamingBubble({ text }: { text: string }) {
               <span className="animate-pulse [animation-delay:120ms]">•</span>
               <span className="animate-pulse [animation-delay:240ms]">•</span>
             </span>
-            <span className="ml-2">Thinking…</span>
+            <span className="ml-2">
+              {toolCalls.some((tc) => !tc.endedAtMs)
+                ? 'Consulting specialists…'
+                : 'Thinking…'}
+            </span>
           </span>
         )}
       </div>
     </li>
   );
+}
+
+function specialistLabel(toolName: string): string {
+  switch (toolName) {
+    case 'consult_coach':
+      return 'Coach';
+    case 'consult_programmer':
+      return 'Programmer';
+    case 'consult_periodizer':
+      return 'Periodizer';
+    case 'summarize_week':
+      return 'Weekly summary';
+    default:
+      return toolName;
+  }
 }
 
 function MarkdownBody({ content }: { content: string }) {

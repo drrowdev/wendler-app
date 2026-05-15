@@ -38,6 +38,22 @@ export const REGISTERED_AGENTS: AgentRegistration[] = [
     version: '1.0.0',
     httpAvailable: true,
   },
+  {
+    name: 'periodizer',
+    description:
+      'Periodization specialist for deload timing, block-to-block transitions, race-week tapers, ' +
+      'return-from-layoff ramps. Phase 4 ships the implementation.',
+    version: '0.0.0',
+    httpAvailable: false,
+  },
+  {
+    name: 'summarizer',
+    description:
+      'Generates structured weekly training summaries (metrics + commentary). Phase 4 ships ' +
+      'the implementation.',
+    version: '0.0.0',
+    httpAvailable: false,
+  },
 ];
 
 export function getAgent(name: string): AgentRegistration | undefined {

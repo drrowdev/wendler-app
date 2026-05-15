@@ -8,6 +8,32 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Agentic Phase 3: Chat tool-use orchestration (SW v359)
+
+The chat agent now consults specialist tools instead of doing everything in a single LLM call. Cross-domain freeform questions ("my knee hurts AND I have a race in 3 weeks") get routed to the right specialists in parallel and reconciled into one coherent answer.
+
+**Tool registry (`packages/domain/src/agents/<name>/tools.ts` + `apps/api/src/llm/chat-tool-specs.ts`):**
+- `consult_coach` — pain/injury/movement-modification (working dispatch, calls Coach-flavored Claude with the chat snapshot).
+- `consult_programmer` — assistance picks, set/rep prescriptions, "what should this session look like?" (working dispatch, calls Programmer-flavored Claude with the chat snapshot + Martin's locked flavor anchors).
+- `consult_periodizer` — deload timing, taper, race-week structure (registered but Phase-4 dispatch returns "not yet available"; chat agent is told to reconcile around the missing piece).
+- `summarize_week` — weekly digests (same — registered, Phase-4 stub).
+
+**Server (`apps/api/src/functions/chat.ts` rewrite + `apps/api/src/llm/chat-tools.ts`):**
+- Replaces the single-call chat with a tool-use loop. Hard cap of 6 tool calls per turn. All tool calls in a single Claude turn dispatch in parallel.
+- New SSE event types: `tool_use_start { id, name }`, `tool_use_end { id, name, durationMs, inputTokens, outputTokens }`. The existing `delta`/`done`/`error` events are unchanged.
+- `done` event now carries totals across the whole turn (`inputTokens`, `outputTokens`, `llmCalls`, `toolCalls`) so cost-per-turn can be observed end-to-end.
+- Specialists are mirror-pattern Anthropic calls (Node16/ESM, no domain imports) with their own concise system prompts; `ANTHROPIC_TOOL_MAX_TOKENS` env var caps each at ~1500 tokens to keep parent context healthy.
+
+**System prompt:** explicit routing rules for the chat agent — use specialists liberally for cross-domain questions, single-domain questions still benefit from a specialist call for deeper persona/anatomy/programming priors, pure data lookups skip tools to save latency. Chat agent is the reconciler, not the first-principles authority.
+
+**Client (`apps/web/src/lib/useChat.ts` + `components/ChatPanel.tsx`):**
+- `useChatSender` now exposes `toolCalls: ToolCallStatus[]` — id / name / startedAtMs / endedAtMs / token counts. Cleared between turns.
+- `StreamingBubble` renders a tool-call timeline above the streaming text: `↻ Coach` while in flight → `✓ Coach (3.2s · 412 tok)` after each `tool_use_end`. Loading-state text says "Consulting specialists…" instead of "Thinking…" while tools are in flight.
+
+**Tests:** 876/876 (6 new — tool-spec shape coverage including the Phase-4 stubs).
+
+Out of scope this ship (Phase 4): Periodizer + Summarizer implementations; SSE streaming of the FINAL assistant text token-by-token (currently emitted as a single `delta` event after the loop terminates — the streaming caret + bubble UX is preserved but per-token streaming is gone for now).
+
 ### Added — Agentic Phase 2: PainFlag → Injury escalation (SW v358)
 
 Final Phase 2 ship. Closes the loop from per-set pain flagging at training time → tracked, Coach-analysed Injury → suggester routing.

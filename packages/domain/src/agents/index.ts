@@ -10,3 +10,5 @@ export * from './types';
 // `tools.ts` exports for chat tool-use orchestration.
 export * as ProgrammerAgent from './programmer';
 export * as CoachAgent from './coach';
+export * as PeriodizerAgent from './periodizer';
+export * as SummarizerAgent from './summarizer';
