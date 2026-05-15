@@ -8,6 +8,35 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Movement library expansion (SW v351)
+
+Seed library grew from 143 → 184 movements (+41), scoped to a functional gym with barbell + EZ-bar + hammer-curl bar + DBs + KBs + rings + sled + sandbag + plyo box + bands (no cables).
+
+**Tier 1 (26 new) — common gaps:**
+- *EZ-bar variants:* EZ-Bar Curl, EZ-Bar Reverse Curl, EZ-Bar Preacher Curl, EZ-Bar Skull Crusher, EZ-Bar Overhead Tricep Extension
+- *Hammer-curl bar (multi-grip / Swiss):* Hammer Curl Bar Curl, Row, Bench Press
+- *Push:* Floor Press, Z Press
+- *Pull:* Pendlay Row, Chest-Supported DB Row, Meadows Row
+- *Hinge:* Snatch-Grip Deadlift, Rack Pull, Stiff-Leg Deadlift
+- *Squat:* Front-Foot-Elevated Split Squat, Cossack Squat, Sissy Squat
+- *Carry:* Zercher Carry, Front-Rack Carry
+- *Core:* Hollow Body Hold, V-up, Bear Crawl
+- *Plyo/Cond:* Wall Ball, Battle Ropes
+
+**Tier 2 (12 new) — variations:**
+- Concentration Curl, Spider Curl, Zottman Curl, Reverse Curl
+- Pin Press, Spoto Press, Bradford Press, Diamond Push-up
+- B-Stance RDL, Jefferson Curl
+- Shrimp Squat, Curtsy Lunge
+
+**Extras (3 new) — user-requested:**
+- Dragon Flag, Windshield Wipers, Hand-Release Push-up
+
+**Notes on convention:**
+- Specialty bars (EZ-bar, hammer-curl bar, safety-bar) all use `equipment: 'barbell'` with the bar type encoded in the name — matches the existing Safety-Bar Squat precedent.
+- Bar weight is **not** auto-tracked. Enter total load including bar; the app treats `weightKg` as opaque user input. Means EZ-bar curl at "30 kg" means "30 kg total" same as a barbell curl at "30 kg total".
+- Seed upsert is idempotent and adds-only by ID — new movements appear on existing installs without disturbing customizations.
+
 ### Fixed — Scientific calculation audit, round 6 (round-3 audit follow-up)
 
 The round-3 re-audit found two LOW-severity polish items. Both fixed.
