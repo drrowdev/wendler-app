@@ -21,6 +21,13 @@ export interface PainFlagValue {
   area: string;
   severity: Severity;
   note?: string;
+  /**
+   * True when the user explicitly chose to escalate the pain flag into a
+   * tracked Injury (Coach proposal flow). The caller is responsible for
+   * opening the InjurySheet pre-filled with this value's area / severity /
+   * note + the bound movementId. Only offered when severity >= 3.
+   */
+  escalate?: boolean;
 }
 
 interface Props {
@@ -110,6 +117,31 @@ export function PainFlagModal({ initial, onSave, onCancel, onClear }: Props) {
             className="mt-1 w-full rounded-lg border border-border bg-bg px-3 py-2"
           />
         </label>
+
+        {severity >= 3 && (
+          <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+            <div className="font-semibold text-amber-200">
+              Severity {severity}/5 — make this an active limitation?
+            </div>
+            <p className="mt-1 text-amber-100/90">
+              Active limitations stay visible across all training surfaces and route the assistance suggester around the affected movement until you mark them resolved. Coach will propose specific adjustments you can accept individually.
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                onSave({
+                  area: finalArea,
+                  severity,
+                  note: note.trim() || undefined,
+                  escalate: true,
+                })
+              }
+              className="mt-2 w-full rounded-lg border border-amber-500/60 bg-amber-500/15 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-500/25"
+            >
+              Save flag + open Coach for limitation →
+            </button>
+          </div>
+        )}
 
         <div className="mt-4 flex gap-2">
           <button

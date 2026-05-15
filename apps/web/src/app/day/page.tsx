@@ -48,6 +48,7 @@ import { PreLiftingWarmup } from '@/components/PreLiftingWarmup';
 import { AmrapAnalysis } from '@/components/AmrapAnalysis';
 import { PainFlagModal, type PainFlagValue } from '@/components/PainFlagModal';
 import { WellnessSheet } from '@/components/WellnessSheet';
+import { InjurySheet } from '@/components/injury/InjurySheet';
 import { WelcomeBackCard } from '@/components/WelcomeBackCard';
 import { DeloadAssistanceCard } from '@/components/DeloadAssistanceCard';
 import { VolumeRecommendationBanner } from '@/components/VolumeRecommendationBanner';
@@ -590,6 +591,9 @@ function LiftTrack({
   const movementHistory = useSetsForMovement(movement?.id ?? '');
   const painFlag = useRecentPainFlag(movement?.id);
   const [showPainFlag, setShowPainFlag] = useState(false);
+  const [escalateInjury, setEscalateInjury] = useState<
+    { area: string; severity: 1 | 2 | 3 | 4 | 5; description: string; movementId?: string } | undefined
+  >();
 
   const resolvedDayIndex = planDayIndex ?? Math.max(0, dayOrder.indexOf(lift));
 
@@ -896,6 +900,14 @@ function LiftTrack({
               });
             }
             setShowPainFlag(false);
+            if (val.escalate) {
+              setEscalateInjury({
+                area: val.area,
+                severity: val.severity,
+                description: val.note ?? '',
+                movementId: movement.id,
+              });
+            }
           }}
           onClear={async () => {
             const flagged = loggedSets
@@ -906,6 +918,13 @@ function LiftTrack({
             }
             setShowPainFlag(false);
           }}
+        />
+      )}
+      {escalateInjury && (
+        <InjurySheet
+          origin={escalateInjury}
+          onSaved={() => setEscalateInjury(undefined)}
+          onCancel={() => setEscalateInjury(undefined)}
         />
       )}
     </section>

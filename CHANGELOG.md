@@ -8,6 +8,16 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Agentic Phase 2: PainFlag → Injury escalation (SW v358)
+
+Final Phase 2 ship. Closes the loop from per-set pain flagging at training time → tracked, Coach-analysed Injury → suggester routing.
+
+**`PainFlagModal`:** When the user picks severity ≥ 3, an amber "Make this an active limitation?" callout appears below the note field with a "Save flag + open Coach for limitation →" button. Clicking it saves the per-set pain flag normally AND signals escalation back to the caller via a new `escalate?: boolean` field on `PainFlagValue`.
+
+**`/day` page:** New `escalateInjury` state captures the area / severity / note + bound `movementId` from the lift's pain flag. When set, an `InjurySheet` opens pre-filled via its existing `origin` prop — the user picks any additional affected movements (deadbug et al.), tweaks the description, and runs Coach analysis without re-typing the basics.
+
+Together with v356/v357 this means: flag pain on a set → escalate from the same modal → Coach proposes per-movement adjustments → accept individually → suggester routes around them on the next assistance generation → AssistanceTrack shows the modification chip at training time. End-to-end, all on-device data, no hardcoded movement IDs anywhere in the path.
+
 ### Added — Agentic Phase 2: Coach agent injury → suggester wiring (SW v357)
 
 Closes the loop on Phase 2: the Programmer agent (assistance suggester) now reads accepted Coach adjustments and routes around them every generation. Live banner + per-entry chip surface the same modifications at training time so the user never trains a movement an active limitation said to skip / load less / shorten range on.
