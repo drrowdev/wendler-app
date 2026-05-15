@@ -56,8 +56,18 @@ export async function runCoach(
     ]);
   }
 
-  const model = input.model ?? process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
-  const maxTokens = input.maxTokens ?? Number(process.env.ANTHROPIC_MAX_TOKENS ?? '6000');
+  const model = input.model ?? process.env.ANTHROPIC_COACH_MODEL ?? process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
+  // Coach typically emits 1500-2500 tokens of JSON (summary + 3-5
+  // adjustments + monitoring + consult). 4000 has plenty of headroom and
+  // keeps generation latency below the SWA proxy timeout. Lifted via
+  // ANTHROPIC_COACH_MAX_TOKENS or the global ANTHROPIC_MAX_TOKENS env.
+  const maxTokens =
+    input.maxTokens ??
+    Number(
+      process.env.ANTHROPIC_COACH_MAX_TOKENS ??
+        process.env.ANTHROPIC_MAX_TOKENS ??
+        '4000',
+    );
   // Coach defaults to 0.2 — slightly more conservative than Programmer's 0.3.
   // Anatomical reasoning + safety bias don't benefit from token-level
   // randomness; structured-output reliability is more important here.

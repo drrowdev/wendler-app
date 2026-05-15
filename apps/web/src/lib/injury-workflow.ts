@@ -69,7 +69,18 @@ export async function analyzeInjury(
     ?.availableEquipment;
 
   // Filter library by equipment so the Coach only sees what the user can do.
-  const filteredMovements = filterByEquipment(movements, availableEquipment);
+  const equipmentFilteredMovements = filterByEquipment(movements, availableEquipment);
+
+  // Further focus the library to keep Coach's prompt under the SWA proxy
+  // ceiling. Drops single-joint isolation + pure prehab — Coach never
+  // proposes these as substitutions for compound-movement injuries, and
+  // they account for ~25-30% of a typical library. Always keeps any
+  // movement the user explicitly tagged as affected (so the entry stays
+  // visible to Coach even if it'd otherwise be filtered out).
+  const filteredMovements = focusLibraryForCoach(
+    equipmentFilteredMovements,
+    input.initialMovementIds,
+  );
 
   // Compose the user-profile dynamic context (DOB → age, etc).
   const profileForCoach = buildProfileForCoach(userProfile, await currentBodyweight());
@@ -166,6 +177,64 @@ function filterByEquipment(
   if (!availableEquipment || availableEquipment.length === 0) return movements;
   const allowed = new Set(availableEquipment);
   return movements.filter((m) => m.equipment === 'bodyweight' || allowed.has(m.equipment));
+}
+
+/**
+ * Drop categories of movements that Coach almost never proposes as
+ * substitutions, to keep the user-prompt small enough for the Anthropic
+ * call to finish inside the SWA proxy timeout.
+ *
+ * Always retains any movement the user explicitly tagged on the injury
+ * (so Coach can still reason about THOSE), plus all compound multi-joint
+ * movements (push/pull/squat/hinge/single-leg/carry patterns).
+ *
+ * Drops:
+ *  - Pure single-joint isolation (curls, lateral raises, kickbacks,
+ *    calf raises, shrugs, leg curls, leg extensions, pec deck etc.)
+ *  - Pure prehab (band pull-aparts, face pulls, clamshells, glute bridges,
+ *    Y-T-W raises, lateral band walks)
+ *  - Plyometrics (box jumps, broad jumps, depth jumps — unlikely to be
+ *    swap targets for resistance-training injuries)
+ *
+ * Heuristic — uses the `pattern` field plus primary-muscle profile.
+ */
+function focusLibraryForCoach(
+  movements: Movement[],
+  alwaysKeepIds: readonly string[] | undefined,
+): Movement[] {
+  const keepSet = new Set(alwaysKeepIds ?? []);
+  return movements.filter((m) => {
+    if (keepSet.has(m.id)) return true;
+    const pattern = (m.pattern ?? '').toLowerCase();
+    const primary = (m.primaryMuscles ?? []).map((p) => p.toLowerCase());
+    // Keep compound patterns outright — these are the bulk of Coach's
+    // working set.
+    if (
+      pattern === 'squat' ||
+      pattern === 'hinge' ||
+      pattern === 'push-horizontal' ||
+      pattern === 'push-vertical' ||
+      pattern === 'pull-horizontal' ||
+      pattern === 'pull-vertical' ||
+      pattern === 'carry' ||
+      pattern === 'core'
+    ) {
+      return true;
+    }
+    // Drop plyometrics + pure prehab.
+    if (pattern === 'plyo' || pattern === 'prehab' || pattern === 'mobility') {
+      return false;
+    }
+    // For isolation pattern, drop single-joint-only movements (one primary
+    // muscle, typical biceps/triceps/calves/shoulders isolation). Keep
+    // movements with 2+ primary muscles — those are compound-ish enough
+    // to be substitution candidates.
+    if (pattern === 'isolation') {
+      return primary.length >= 2;
+    }
+    // Unknown / new patterns: keep by default, better safe than missing.
+    return true;
+  });
 }
 
 function buildProfileForCoach(
