@@ -22,6 +22,7 @@ import {
   type StrengthHrEnrichment,
   type Tombstone,
   type TrainingMaxRecord,
+  type UserProfile,
   type UserSettings,
   type WellnessFlag,
 } from '@wendler/db-schema';
@@ -60,6 +61,7 @@ class WendlerDb extends Dexie {
   notifications!: Table<Notification, string>;
   aiGenerations!: Table<AiGeneration, string>;
   chats!: Table<Chat, string>;
+  userProfile!: Table<UserProfile, 'singleton'>;
 
   constructor() {
     super('wendler-app');
@@ -357,6 +359,33 @@ class WendlerDb extends Dexie {
     // v16 schema: add `chats` table. User-AI chat conversations grounded
     // in the training-data snapshot built by buildChatContext. Indexes on
     // createdAt + updatedAt for the conversation list. Synced via LWW.
+    this.version(16).stores({
+      movements: 'id, name, equipment, pattern, isMainLift, isCustom',
+      trainingMaxes: 'id, lift, createdAt',
+      settings: 'id',
+      sets: 'id, movementId, sessionId, performedAt, kind',
+      sessions: 'id, performedAt, mainLift, week, blockId',
+      blocks: 'id, kind, startedAt, completedAt, createdAt, programId',
+      programs: 'id, createdAt, completedAt',
+      schedule: 'id',
+      syncMeta: 'id',
+      goals: 'id, kind, deadline, createdAt, completedAt',
+      cardio: 'id, performedAt, modality, externalId',
+      recovery: 'id',
+      pushSub: 'id',
+      tombstones: 'id, kind, recordId, deletedAt',
+      runPlan: 'id',
+      strengthHr: 'id, performedAt, externalId',
+      races: 'id, date, priority, completedAt, createdAt',
+      wellness: 'id, kind, startedAt, recoveredAt, updatedAt',
+      notifications: 'id, createdAt, channel, severity, readAt, updatedAt',
+      aiGenerations: 'id, createdAt, blockId, weekScope, outcome, source, updatedAt',
+      chats: 'id, createdAt, updatedAt',
+    });
+    // v17 schema: add `userProfile` singleton table. Demographics
+    // (dateOfBirth, sex, heightCm) + training background. Feeds Coach +
+    // Programmer + Periodizer + Summarizer agent prompts as dynamic context.
+    // All fields optional. Synced via LWW.
     this.version(SCHEMA_VERSION).stores({
       movements: 'id, name, equipment, pattern, isMainLift, isCustom',
       trainingMaxes: 'id, lift, createdAt',
@@ -379,6 +408,7 @@ class WendlerDb extends Dexie {
       notifications: 'id, createdAt, channel, severity, readAt, updatedAt',
       aiGenerations: 'id, createdAt, blockId, weekScope, outcome, source, updatedAt',
       chats: 'id, createdAt, updatedAt',
+      userProfile: 'id',
     });
   }
 }

@@ -680,6 +680,41 @@ export interface RecoveryEntry {
   updatedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// User profile (demographics + training background)
+// ---------------------------------------------------------------------------
+// One singleton row keyed `'singleton'`. All fields optional — the user fills
+// in what they want. Demographics feed the Coach agent's anatomical reasoning
+// (sex- and age-modulated injury patterns), the Programmer agent's
+// conservatism on TM% and deload frequency, and the Summarizer's narrative
+// context. Stored locally + synced via the existing LWW pipeline.
+
+export type UserSex = 'male' | 'female';
+
+export type TrainingExperience = 'novice' | 'intermediate' | 'advanced' | 'elite';
+
+export interface UserProfile {
+  /** Always 'singleton'. */
+  id: 'singleton';
+  /** YYYY-MM-DD. Stored as DOB so it never goes stale; display layer computes age. */
+  dateOfBirth?: string;
+  sex?: UserSex;
+  heightCm?: number;
+  trainingExperience?: TrainingExperience;
+  yearsLifting?: number;
+  yearsRunning?: number;
+  /**
+   * Free-text background — feeds verbatim into Coach and Periodizer prompts.
+   * Examples: "Former rugby player. Left ACL reconstruction 2018, fully
+   * recovered. Recurring lower-back tightness; PT-cleared but a sensitivity."
+   */
+  backgroundNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Soft-delete marker (very unlikely for a singleton, but kept for sync uniformity). */
+  deletedAt?: string;
+}
+
 /**
  * Four-axis training profile types are owned by `@wendler/domain`. Re-exported
  * here so consumers that only depend on db-schema still see them.

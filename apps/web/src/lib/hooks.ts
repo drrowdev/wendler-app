@@ -23,6 +23,10 @@ export function useSettings() {
   return useLiveQuery(() => getDb().settings.get('singleton'));
 }
 
+export function useUserProfile() {
+  return useLiveQuery(() => getDb().userProfile.get('singleton'));
+}
+
 export function useMovements() {
   return useLiveQuery(() => getDb().movements.orderBy('name').toArray(), []);
 }

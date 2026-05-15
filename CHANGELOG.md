@@ -8,6 +8,31 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Agentic-architecture prerequisites (SW v353)
+
+Two prerequisite cleanup commits land before Phase 1 of the agentic rollout. No agent code yet — these are data-quality + user-context foundations the agents will rely on.
+
+**Movement library cleanup (Prereq 1):**
+- New `adductors` value in the `MuscleGroup` enum. The previous enum had no first-class way to tag adductor involvement, which would have hurt Coach agent quality for adductor-related injuries.
+- 30 seed movements now have additional/fixed secondary-muscle tags:
+  - **Adductors added** on 10 movements: Sumo Deadlift, Cossack Squat, Bulgarian Split Squat, Reverse Lunge, Single-Leg RDL, Front Rack Lunge, Kettlebell Lunge, Pistol Squat, Jumping Lunge, Copenhagen Plank, Front-Foot-Elevated Split Squat, Curtsy Lunge, Dead Bug.
+  - **Core added** on 8 standing pressing / curl / extension variants (DB Shoulder Press, Arnold Press, Lateral Raise, Tricep Pushdown, Overhead Tricep Extension, Russian Twist, Lateral Band Walk, EZ-Bar Overhead Tricep Extension).
+  - **Erectors added** on 7 Olympic / dynamic-hinge variants (Power Snatch, Squat Snatch, DB Snatch, DB Clean, KB Snatch, KB Clean, Sandbag Clean).
+  - **Other stabilizer tags** on Hammer Curl, Hollow Body Hold, EZ-Bar Skull Crusher.
+- Validators in `assistance-response.ts` (domain) and `apps/api/src/llm/validate.ts` (mirror) updated to accept the new enum value.
+- New doc-comment at the top of `seed-movements.ts` documents the muscle-tagging convention (primary = prime movers; secondary = stabilizers/synergists).
+
+**UserProfile entity (Prereq 2):**
+- New `userProfile` singleton table (schema v17). Fields: `dateOfBirth`, `sex` (male/female), `heightCm`, `trainingExperience` (novice/intermediate/advanced/elite), `yearsLifting`, `yearsRunning`, `backgroundNotes` (free text). All optional.
+- New `useUserProfile()` hook + Dexie migration + sync wiring (LWW like `chats`).
+- New `AboutYouCard` component at the top of `/profile`. Replaces the old `BodyweightCard` mount — bodyweight is now entered here and writes a `RecoveryEntry` for today (preserves the per-day history that `effectiveLoadKg` depends on). One UI surface for current bw, time-series preserved for e1RM calculations.
+- All demographic data is local + synced via the existing LWW pipeline (same trust boundary as training data). Never sent to third parties; sent to Claude only as part of agent context.
+
+This data will feed the Coach agent's anatomical reasoning (sex-/age-modulated injury patterns), the Programmer agent's conservatism on TM% and deload frequency, and the Periodizer/Summarizer's narrative context. Phase 1 of the agentic rollout begins next.
+
+### Tests
+- 835/835 passing.
+
 ### Changed — Suggester: structural variety, not temperature-driven (SW v352)
 
 A bug-class fix to the assistance-suggester's variety mechanism. Previously it leaned on temperature to introduce variation between regenerations; that's the wrong lever for strict-JSON output and was producing diminishing returns.

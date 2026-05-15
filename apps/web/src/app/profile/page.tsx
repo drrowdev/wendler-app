@@ -9,7 +9,7 @@
 
 import Link from 'next/link';
 import { TrainingGoalsSection } from '@/components/TrainingGoalsSection';
-import { BodyweightCard } from '@/components/Readiness';
+import { AboutYouCard } from '@/components/AboutYouCard';
 
 export default function ProfilePage() {
   return (
@@ -27,9 +27,9 @@ export default function ProfilePage() {
         </p>
       </header>
 
-      <TrainingGoalsSection />
+      <AboutYouCard />
 
-      <BodyweightCard />
+      <TrainingGoalsSection />
     </div>
   );
 }

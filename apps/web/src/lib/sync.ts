@@ -42,7 +42,8 @@ export type SyncKind =
   | 'wellness'
   | 'notification'
   | 'aiGeneration'
-  | 'chat';
+  | 'chat'
+  | 'userProfile';
 
 export interface OutboundDoc {
   kind: SyncKind;
@@ -422,6 +423,20 @@ async function collectOutbound(sinceIso: string): Promise<OutboundDoc[]> {
     }
   }
 
+  // User profile (v17) — singleton row. LWW on updatedAt.
+  const userProfile = await db.userProfile.get('singleton');
+  if (userProfile) {
+    const ts = latestTimestamp(userProfile.updatedAt, userProfile.createdAt)!;
+    if (ts > since) {
+      out.push({
+        kind: 'userProfile',
+        recordId: 'singleton',
+        updatedAt: ts,
+        payload: userProfile,
+      });
+    }
+  }
+
   // Tombstones — propagate deletes. Push every tombstone touched since lastPushedAt.
   const tombstones = await db.tombstones.toArray();
   for (const t of tombstones) {
@@ -639,6 +654,12 @@ async function applyIncoming(doc: IncomingDoc) {
     case 'chat': {
       const incoming = doc.payload as Chat;
       await lwwPut(db.chats, incoming, incoming.id);
+      break;
+    }
+    case 'userProfile': {
+      // Singleton (id === 'singleton'). LWW by updatedAt.
+      const incoming = doc.payload as { id: 'singleton'; updatedAt: string };
+      await lwwPut(db.userProfile, incoming, 'singleton');
       break;
     }
   }

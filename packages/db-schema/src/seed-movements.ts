@@ -3,6 +3,21 @@ import type { Movement } from './types';
 /**
  * Built-in movement library. Stable IDs use the prefix `seed:` so they never collide with
  * user-created movements.
+ *
+ * MUSCLE-TAGGING CONVENTION
+ * -------------------------
+ *  - `primaryMuscles`: muscles the movement *targets* — the prime movers responsible
+ *    for the bulk of the work. For Bench Press this is `chest`; for Deadlift it's
+ *    `hamstrings`, `glutes`, `erectors`.
+ *  - `secondaryMuscles`: muscles that *stabilize* or *assist meaningfully* during
+ *    the lift. For Bench Press this includes `triceps` and `shoulders` (synergists)
+ *    but NOT `lats` (only a passive stabilizer). For standing pressing, `core`
+ *    belongs in secondary as the anti-extension stabilizer.
+ *
+ * Both lists feed the Coach agent's anatomical reasoning and the Programmer
+ * agent's family/muscle-balance rules. Coverage matters: if a movement
+ * meaningfully stresses a muscle that's relevant for injury reasoning
+ * (e.g. adductors on single-leg loaded work), tag it.
  */
 export const SEED_MOVEMENTS: Movement[] = [
   // The Big Four (5/3/1 main lifts)
@@ -81,7 +96,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'barbell',
     pattern: 'hinge',
     primaryMuscles: ['glutes', 'hamstrings', 'quads'],
-    secondaryMuscles: ['back', 'traps', 'forearms', 'erectors'],
+    secondaryMuscles: ['back', 'traps', 'forearms', 'erectors', 'adductors'],
     isCompound: true,
   },
   {
@@ -175,7 +190,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'dumbbell',
     pattern: 'push-vertical',
     primaryMuscles: ['shoulders'],
-    secondaryMuscles: ['triceps'],
+    secondaryMuscles: ['triceps', 'core'],
     isCompound: true,
   },
   {
@@ -255,7 +270,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'dumbbell',
     pattern: 'hinge',
     primaryMuscles: ['hamstrings', 'glutes'],
-    secondaryMuscles: ['core', 'erectors'],
+    secondaryMuscles: ['core', 'erectors', 'adductors'],
     isCompound: true,
   },
   {
@@ -292,7 +307,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'dumbbell',
     pattern: 'squat',
     primaryMuscles: ['quads', 'glutes'],
-    secondaryMuscles: ['hamstrings', 'core'],
+    secondaryMuscles: ['hamstrings', 'core', 'adductors'],
     isCompound: true,
   },
   {
@@ -310,7 +325,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'dumbbell',
     pattern: 'squat',
     primaryMuscles: ['quads', 'glutes'],
-    secondaryMuscles: ['hamstrings', 'core'],
+    secondaryMuscles: ['hamstrings', 'core', 'adductors'],
     isCompound: true,
   },
   {
@@ -410,7 +425,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'dumbbell',
     pattern: 'push-vertical',
     primaryMuscles: ['shoulders'],
-    secondaryMuscles: ['triceps', 'chest'],
+    secondaryMuscles: ['triceps', 'chest', 'core'],
     isCompound: true,
   },
   {
@@ -419,7 +434,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'dumbbell',
     pattern: 'push-vertical',
     primaryMuscles: ['shoulders'],
-    secondaryMuscles: [],
+    secondaryMuscles: ['core', 'traps'],
   },
   {
     id: 'seed:rear-delt-fly',
@@ -505,7 +520,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'dumbbell',
     pattern: 'pull-horizontal',
     primaryMuscles: ['biceps', 'forearms'],
-    secondaryMuscles: [],
+    secondaryMuscles: ['forearms'],
   },
   {
     id: 'seed:preacher-curl',
@@ -521,7 +536,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'cable',
     pattern: 'push-vertical',
     primaryMuscles: ['triceps'],
-    secondaryMuscles: [],
+    secondaryMuscles: ['shoulders'],
   },
   {
     id: 'seed:skull-crusher',
@@ -537,7 +552,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'dumbbell',
     pattern: 'push-vertical',
     primaryMuscles: ['triceps'],
-    secondaryMuscles: ['shoulders'],
+    secondaryMuscles: ['shoulders', 'core'],
   },
 
   // Core
@@ -571,7 +586,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'bodyweight',
     pattern: 'core',
     primaryMuscles: ['core'],
-    secondaryMuscles: ['obliques'],
+    secondaryMuscles: ['obliques', 'adductors'],
   },
   {
     id: 'seed:bird-dog',
@@ -587,7 +602,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'bodyweight',
     pattern: 'core',
     primaryMuscles: ['obliques', 'core'],
-    secondaryMuscles: [],
+    secondaryMuscles: ['core'],
   },
   {
     id: 'seed:cable-crunch',
@@ -656,7 +671,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'barbell',
     pattern: 'hinge',
     primaryMuscles: ['glutes', 'hamstrings', 'shoulders', 'traps'],
-    secondaryMuscles: ['quads', 'back', 'core', 'forearms'],
+    secondaryMuscles: ['quads', 'back', 'core', 'forearms', 'erectors'],
   },
   {
     id: 'seed:squat-snatch',
@@ -664,7 +679,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'barbell',
     pattern: 'hinge',
     primaryMuscles: ['glutes', 'hamstrings', 'shoulders', 'traps', 'quads'],
-    secondaryMuscles: ['back', 'core', 'forearms'],
+    secondaryMuscles: ['back', 'core', 'forearms', 'erectors'],
   },
   {
     id: 'seed:clean-and-jerk',
@@ -712,7 +727,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'barbell',
     pattern: 'squat',
     primaryMuscles: ['quads', 'glutes'],
-    secondaryMuscles: ['hamstrings', 'core', 'shoulders'],
+    secondaryMuscles: ['hamstrings', 'core', 'shoulders', 'adductors'],
   },
   {
     id: 'seed:zercher-squat',
@@ -738,7 +753,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'dumbbell',
     pattern: 'hinge',
     primaryMuscles: ['glutes', 'hamstrings', 'shoulders'],
-    secondaryMuscles: ['traps', 'core', 'forearms'],
+    secondaryMuscles: ['traps', 'core', 'forearms', 'erectors'],
   },
   {
     id: 'seed:db-clean',
@@ -746,7 +761,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'dumbbell',
     pattern: 'hinge',
     primaryMuscles: ['glutes', 'hamstrings', 'traps'],
-    secondaryMuscles: ['shoulders', 'core', 'forearms'],
+    secondaryMuscles: ['shoulders', 'core', 'forearms', 'erectors'],
   },
   {
     id: 'seed:db-thruster',
@@ -812,7 +827,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'kettlebell',
     pattern: 'hinge',
     primaryMuscles: ['glutes', 'hamstrings', 'shoulders'],
-    secondaryMuscles: ['traps', 'core', 'forearms'],
+    secondaryMuscles: ['traps', 'core', 'forearms', 'erectors'],
   },
   {
     id: 'seed:kb-clean',
@@ -820,7 +835,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'kettlebell',
     pattern: 'hinge',
     primaryMuscles: ['glutes', 'hamstrings', 'traps'],
-    secondaryMuscles: ['shoulders', 'core', 'forearms'],
+    secondaryMuscles: ['shoulders', 'core', 'forearms', 'erectors'],
   },
   {
     id: 'seed:kb-press',
@@ -900,7 +915,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'kettlebell',
     pattern: 'squat',
     primaryMuscles: ['quads', 'glutes'],
-    secondaryMuscles: ['hamstrings', 'core'],
+    secondaryMuscles: ['hamstrings', 'core', 'adductors'],
   },
   {
     id: 'seed:kb-deadlift',
@@ -918,7 +933,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'sandbag',
     pattern: 'hinge',
     primaryMuscles: ['glutes', 'hamstrings', 'back'],
-    secondaryMuscles: ['traps', 'core', 'forearms', 'shoulders'],
+    secondaryMuscles: ['traps', 'core', 'forearms', 'shoulders', 'erectors'],
   },
   {
     id: 'seed:sandbag-bear-hug-squat',
@@ -1000,7 +1015,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'bodyweight',
     pattern: 'squat',
     primaryMuscles: ['quads', 'glutes'],
-    secondaryMuscles: ['hamstrings', 'core', 'calves'],
+    secondaryMuscles: ['hamstrings', 'core', 'calves', 'adductors'],
   },
   {
     id: 'seed:handstand-pushup',
@@ -1092,7 +1107,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'bodyweight',
     pattern: 'squat',
     primaryMuscles: ['quads', 'glutes', 'calves'],
-    secondaryMuscles: ['hamstrings', 'core'],
+    secondaryMuscles: ['hamstrings', 'core', 'adductors'],
   },
   {
     id: 'seed:broad-jump',
@@ -1152,7 +1167,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'bodyweight',
     pattern: 'core',
     primaryMuscles: ['obliques', 'core'],
-    secondaryMuscles: ['glutes', 'hamstrings', 'shoulders'],
+    secondaryMuscles: ['glutes', 'hamstrings', 'shoulders', 'adductors'],
   },
   {
     id: 'seed:nordic-hamstring-curl',
@@ -1168,7 +1183,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'other',
     pattern: 'squat',
     primaryMuscles: ['glutes'],
-    secondaryMuscles: ['quads', 'hamstrings'],
+    secondaryMuscles: ['quads', 'hamstrings', 'core'],
   },
   {
     id: 'seed:ring-pushup',
@@ -1268,7 +1283,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'barbell',
     pattern: 'push-vertical',
     primaryMuscles: ['triceps'],
-    secondaryMuscles: [],
+    secondaryMuscles: ['shoulders'],
   },
   {
     id: 'seed:ez-bar-overhead-tricep-extension',
@@ -1276,7 +1291,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'barbell',
     pattern: 'push-vertical',
     primaryMuscles: ['triceps'],
-    secondaryMuscles: ['shoulders'],
+    secondaryMuscles: ['shoulders', 'core'],
   },
 
   // ─── Hammer-curl bar (multi-grip / Swiss bar) ───
@@ -1392,7 +1407,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'dumbbell',
     pattern: 'squat',
     primaryMuscles: ['quads', 'glutes'],
-    secondaryMuscles: ['hamstrings', 'core'],
+    secondaryMuscles: ['hamstrings', 'core', 'adductors'],
   },
   {
     id: 'seed:cossack-squat',
@@ -1400,7 +1415,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'bodyweight',
     pattern: 'squat',
     primaryMuscles: ['quads', 'glutes'],
-    secondaryMuscles: ['hamstrings', 'core'],
+    secondaryMuscles: ['hamstrings', 'core', 'adductors'],
     externallyLoadable: true,
   },
   {
@@ -1439,7 +1454,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'bodyweight',
     pattern: 'core',
     primaryMuscles: ['core'],
-    secondaryMuscles: [],
+    secondaryMuscles: ['shoulders'],
   },
   {
     id: 'seed:v-up',
@@ -1576,7 +1591,7 @@ export const SEED_MOVEMENTS: Movement[] = [
     equipment: 'bodyweight',
     pattern: 'squat',
     primaryMuscles: ['glutes', 'quads'],
-    secondaryMuscles: ['hamstrings', 'core'],
+    secondaryMuscles: ['hamstrings', 'core', 'adductors'],
     externallyLoadable: true,
   },
 

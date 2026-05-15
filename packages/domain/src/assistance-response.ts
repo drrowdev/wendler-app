@@ -61,6 +61,7 @@ const VALID_MUSCLES: ReadonlySet<MuscleGroup> = new Set<MuscleGroup>([
   'hamstrings',
   'glutes',
   'calves',
+  'adductors',
   'chest',
   'back',
   'lats',

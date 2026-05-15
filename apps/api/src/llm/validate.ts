@@ -45,6 +45,7 @@ export type MuscleGroup =
   | 'hamstrings'
   | 'glutes'
   | 'calves'
+  | 'adductors'
   | 'chest'
   | 'back'
   | 'lats'
@@ -100,6 +101,7 @@ const VALID_MUSCLES: ReadonlySet<MuscleGroup> = new Set<MuscleGroup>([
   'hamstrings',
   'glutes',
   'calves',
+  'adductors',
   'chest',
   'back',
   'lats',
