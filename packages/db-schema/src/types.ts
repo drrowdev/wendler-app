@@ -821,6 +821,49 @@ export interface Injury {
   deletedAt?: string;
 }
 
+// ---------------------------------------------------------------------------
+// WeeklyReview — Phase 4 (Summarizer agent).
+//
+// Persisted output of the /api/workflows/weeklyReview pipeline (Periodizer
+// verdict + Summarizer's 6-section narrative + raw aggregates). One record
+// per ISO week (keyed on weekStart, which must be a Monday). Regenerating
+// for the same week overwrites the existing row.
+
+export type WeeklyReviewVerdict =
+  | 'deload-now'
+  | 'deload-soon'
+  | 'continue'
+  | 'taper-now'
+  | 'ramp-up'
+  | 'tm-test'
+  | 'extend-block';
+
+export interface WeeklyReviewSection {
+  heading: string;
+  /** Markdown body. May be empty (e.g. Active limitations when there are none). */
+  markdown: string;
+}
+
+export interface WeeklyReview {
+  id: string;
+  /** Monday of the week being reviewed (YYYY-MM-DD). Acts as a stable secondary key. */
+  weekStart: string;
+  /** Sunday of the week being reviewed (YYYY-MM-DD). */
+  weekEnd: string;
+  /** Periodizer's verdict for the just-ended week. */
+  verdict: WeeklyReviewVerdict;
+  /** One-line summary the UI shows above the sections. */
+  headline: string;
+  /** 6-section narrative (Training summary, Strength trend, Running + cardio, Load + recovery, Active limitations, Looking ahead). */
+  sections: WeeklyReviewSection[];
+  /** 0-4 short chip-style highlights. */
+  highlights: string[];
+  /** Generation timestamp. Used to surface "Generated N minutes ago" in the UI. */
+  generatedAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+}
+
 /**
  * Four-axis training profile types are owned by `@wendler/domain`. Re-exported
  * here so consumers that only depend on db-schema still see them.

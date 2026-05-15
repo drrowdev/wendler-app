@@ -25,6 +25,7 @@ import {
   type Injury,
   type UserProfile,
   type UserSettings,
+  type WeeklyReview,
   type WellnessFlag,
 } from '@wendler/db-schema';
 import { DEFAULT_DAY_ORDER } from '@wendler/domain';
@@ -64,6 +65,7 @@ class WendlerDb extends Dexie {
   chats!: Table<Chat, string>;
   userProfile!: Table<UserProfile, 'singleton'>;
   injuries!: Table<Injury, string>;
+  weeklyReviews!: Table<WeeklyReview, string>;
 
   constructor() {
     super('wendler-app');
@@ -417,6 +419,35 @@ class WendlerDb extends Dexie {
     // declined per-movement adjustments produced by the Coach agent.
     // Indexed on resolvedAt so the active-limitations banner query is
     // O(active) rather than O(all). Synced via LWW.
+    this.version(18).stores({
+      movements: 'id, name, equipment, pattern, isMainLift, isCustom',
+      trainingMaxes: 'id, lift, createdAt',
+      settings: 'id',
+      sets: 'id, movementId, sessionId, performedAt, kind',
+      sessions: 'id, performedAt, mainLift, week, blockId',
+      blocks: 'id, kind, startedAt, completedAt, createdAt, programId',
+      programs: 'id, createdAt, completedAt',
+      schedule: 'id',
+      syncMeta: 'id',
+      goals: 'id, kind, deadline, createdAt, completedAt',
+      cardio: 'id, performedAt, modality, externalId',
+      recovery: 'id',
+      pushSub: 'id',
+      tombstones: 'id, kind, recordId, deletedAt',
+      runPlan: 'id',
+      strengthHr: 'id, performedAt, externalId',
+      races: 'id, date, priority, completedAt, createdAt',
+      wellness: 'id, kind, startedAt, recoveredAt, updatedAt',
+      notifications: 'id, createdAt, channel, severity, readAt, updatedAt',
+      aiGenerations: 'id, createdAt, blockId, weekScope, outcome, source, updatedAt',
+      chats: 'id, createdAt, updatedAt',
+      userProfile: 'id',
+      injuries: 'id, area, startedAt, resolvedAt, updatedAt',
+    });
+    // v19 schema (Phase 4 Summarizer): weeklyReviews table — one per ISO
+    // week, keyed by id, indexed by weekStart (Monday YYYY-MM-DD) so the
+    // /stats card can look up the latest review without scanning. Synced
+    // via LWW so the same review surfaces across devices.
     this.version(SCHEMA_VERSION).stores({
       movements: 'id, name, equipment, pattern, isMainLift, isCustom',
       trainingMaxes: 'id, lift, createdAt',
@@ -441,6 +472,7 @@ class WendlerDb extends Dexie {
       chats: 'id, createdAt, updatedAt',
       userProfile: 'id',
       injuries: 'id, area, startedAt, resolvedAt, updatedAt',
+      weeklyReviews: 'id, weekStart, generatedAt, updatedAt',
     });
   }
 }

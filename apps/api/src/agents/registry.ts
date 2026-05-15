@@ -42,17 +42,17 @@ export const REGISTERED_AGENTS: AgentRegistration[] = [
     name: 'periodizer',
     description:
       'Periodization specialist for deload timing, block-to-block transitions, race-week tapers, ' +
-      'return-from-layoff ramps. Phase 4 ships the implementation.',
-    version: '0.0.0',
-    httpAvailable: false,
+      'return-from-layoff ramps. Returns a structured verdict + evidence.',
+    version: '1.0.0',
+    httpAvailable: true,
   },
   {
     name: 'summarizer',
     description:
-      'Generates structured weekly training summaries (metrics + commentary). Phase 4 ships ' +
-      'the implementation.',
-    version: '0.0.0',
-    httpAvailable: false,
+      'Generates structured weekly training summaries (metrics + commentary) by reconciling ' +
+      'Periodizer + Coach specialist outputs with raw weekly signals.',
+    version: '1.0.0',
+    httpAvailable: true,
   },
 ];
 

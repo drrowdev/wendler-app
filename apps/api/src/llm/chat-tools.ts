@@ -23,6 +23,7 @@
 //     per-turn total.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { runPeriodizer } from '../agents/periodizer/runner.js';
 
 export interface ToolDispatchContext {
   /** The full chat context snapshot the parent chat call already has. */
@@ -62,9 +63,9 @@ export async function dispatchTool(
     case 'consult_programmer':
       return dispatchProgrammer(input, ctx);
     case 'consult_periodizer':
-      return notYetAvailable('Periodizer');
+      return dispatchPeriodizer(input, ctx);
     case 'summarize_week':
-      return notYetAvailable('Weekly summarizer');
+      return dispatchSummarizer(input, ctx);
     default:
       return { resultText: `[Tool dispatch error] Unknown tool: ${name}` };
   }
@@ -159,17 +160,128 @@ async function dispatchProgrammer(
 }
 
 // ---------------------------------------------------------------------------
-// Phase-4 stubs.
+// Periodizer specialist — chat flavor.
+//
+// The Periodizer agent itself returns strict structured JSON (verdict +
+// evidence + nextSteps + shortReply) for UI surfacing. For chat tool-use
+// we only need the `shortReply` field; the rest is discarded since the
+// chat orchestrator just embeds prose. We pass through any LLM errors as
+// a readable string so the chat agent can reconcile around them.
 
-function notYetAvailable(label: string): ToolDispatchResult {
+async function dispatchPeriodizer(
+  input: Record<string, unknown>,
+  ctx: ToolDispatchContext,
+): Promise<ToolDispatchResult> {
+  const question = String(input.question ?? '').trim();
+  if (!question) return { resultText: '[Periodizer] No question provided.' };
+
+  const userPromptParts: string[] = [];
+  userPromptParts.push(`<training-data-snapshot>\n${ctx.chatContext}\n</training-data-snapshot>`);
+  if (ctx.todayLocal) userPromptParts.push(`Today: ${ctx.todayLocal}`);
+  userPromptParts.push('## Question routed to you');
+  userPromptParts.push(question);
+
+  // The Periodizer system prompt expects pre-computed signals in its own
+  // section, but at chat-tool-call time we only have the chat snapshot.
+  // That's intentional — the snapshot already includes TSB/CTL/ATL/ACWR
+  // lines for the last 90 days (see chat-context.ts), and the model can
+  // read them from there. We still pass the question so it knows what
+  // verdict to land on.
+
+  const startedAt = Date.now();
+  const result = await runPeriodizer({
+    userPrompt: userPromptParts.join('\n\n'),
+    model: ctx.model,
+  });
+  const elapsedMs = Date.now() - startedAt;
+
+  if (!result.ok) {
+    return {
+      resultText:
+        `[Periodizer call failed — errorCode=${result.errorCode}] ` +
+        result.errors.join('; '),
+      usage: { inputTokens: 0, outputTokens: 0, latencyMs: elapsedMs },
+    };
+  }
+
+  const data = result.data.response;
+  const lines: string[] = [];
+  lines.push(`**Verdict:** ${data.verdict}`);
+  lines.push(data.shortReply);
+  if (data.evidence.length > 0) {
+    lines.push('');
+    lines.push('Evidence:');
+    for (const e of data.evidence.slice(0, 4)) {
+      lines.push(`- ${e.label}: ${e.value} — ${e.interpretation}`);
+    }
+  }
+  if (data.nextSteps.length > 0) {
+    lines.push('');
+    lines.push('Next steps:');
+    for (const s of data.nextSteps.slice(0, 3)) lines.push(`- ${s}`);
+  }
+
   return {
-    resultText:
-      `[${label} specialist not yet available] This specialist is registered ` +
-      `with the orchestrator but its implementation ships in Phase 4. The ` +
-      `chat agent should answer the parts of the question it can with the ` +
-      `data snapshot it already has, and explicitly flag the missing piece ` +
-      `to the user so they know it's coming.`,
+    resultText: lines.join('\n'),
+    usage: {
+      inputTokens: result.usage?.inputTokens ?? 0,
+      outputTokens: result.usage?.outputTokens ?? 0,
+      latencyMs: elapsedMs,
+    },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Summarizer specialist — chat flavor.
+//
+// The Summarizer agent's "real" job (the structured 6-section JSON card)
+// lives in the /api/workflows/weeklyReview workflow which expects a
+// pre-built signal payload assembled from the user's IndexedDB. For chat
+// tool-use we just need a prose recap based on the snapshot the chat
+// already has, so this dispatch makes a focused chat-flavored Anthropic
+// call (similar to dispatchCoach / dispatchProgrammer) rather than going
+// through runSummarizer.
+
+const SUMMARIZER_CHAT_SYSTEM = `You are the weekly-training summarizer embedded inside Martin's PWA chat. The parent chat orchestrator has consulted you to recap a recent training week. You have access to the chat snapshot (last 90 days at daily detail; older as weekly/monthly aggregates).
+
+Your job: produce a concise 4-6 paragraph recap of the week the user asked about (default: the most recent completed Mon-Sun week if no weekStart given). Include:
+- sessions logged + days trained
+- top sets / any PRs on main lifts (concrete numbers)
+- cardio totals: run km, longest run, bike km
+- load/recovery direction: TSB / CTL / ACWR trend, recovery entry averages (fatigue + soreness on the 0-10 Borg scale)
+- 1-2 highlights if there's something genuinely notable (PR, biggest mileage week of the cycle)
+
+Output: ≤400 words of prose with light markdown (bold for highlights, occasional bullet lists for top sets). No tables. No JSON. No code fences. Speak TO Martin in second person.
+
+If the snapshot doesn't contain enough data for the requested week (e.g. user asks about a week before the 90-day window), say so plainly and offer to recap a week we do have data for.
+
+Your response will be folded back into the parent chat as expert input — write for a peer LLM that will reconcile and produce the final user-facing answer.`;
+
+async function dispatchSummarizer(
+  input: Record<string, unknown>,
+  ctx: ToolDispatchContext,
+): Promise<ToolDispatchResult> {
+  const weekStart = typeof input.weekStart === 'string' ? input.weekStart.trim() : undefined;
+
+  const userPromptParts: string[] = [];
+  userPromptParts.push(`<training-data-snapshot>\n${ctx.chatContext}\n</training-data-snapshot>`);
+  if (ctx.todayLocal) userPromptParts.push(`Today: ${ctx.todayLocal}`);
+  if (weekStart) {
+    userPromptParts.push(`Week to summarise: Monday ${weekStart} → the following Sunday.`);
+  } else {
+    userPromptParts.push(
+      'Week to summarise: the most recent COMPLETED Monday→Sunday week relative to today.',
+    );
+  }
+
+  return runSpecialist({
+    system: SUMMARIZER_CHAT_SYSTEM,
+    userPrompt: userPromptParts.join('\n\n'),
+    ctx,
+    temperatureEnv: 'ANTHROPIC_SUMMARIZER_TEMPERATURE',
+    defaultTemperature: 0.3,
+    speciality: 'Summarizer',
+  });
 }
 
 // ---------------------------------------------------------------------------

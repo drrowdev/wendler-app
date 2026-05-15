@@ -44,7 +44,8 @@ export type SyncKind =
   | 'aiGeneration'
   | 'chat'
   | 'userProfile'
-  | 'injury';
+  | 'injury'
+  | 'weeklyReview';
 
 export interface OutboundDoc {
   kind: SyncKind;
@@ -447,6 +448,15 @@ async function collectOutbound(sinceIso: string): Promise<OutboundDoc[]> {
     }
   }
 
+  // WeeklyReviews (v19) — Phase 4 Summarizer outputs. LWW on updatedAt.
+  const weeklyReviews = await db.weeklyReviews.toArray();
+  for (const wr of weeklyReviews) {
+    const ts = latestTimestamp(wr.updatedAt, wr.generatedAt)!;
+    if (ts > since) {
+      out.push({ kind: 'weeklyReview', recordId: wr.id, updatedAt: ts, payload: wr });
+    }
+  }
+
   // Tombstones — propagate deletes. Push every tombstone touched since lastPushedAt.
   const tombstones = await db.tombstones.toArray();
   for (const t of tombstones) {
@@ -491,6 +501,7 @@ async function applyIncoming(doc: IncomingDoc) {
       case 'aiGeneration': await db.aiGenerations.delete(doc.recordId); break;
       case 'chat': await db.chats.delete(doc.recordId); break;
       case 'injury': await db.injuries.delete(doc.recordId); break;
+      case 'weeklyReview': await db.weeklyReviews.delete(doc.recordId); break;
       // settings/schedule/userProfile are singletons — never deleted.
     }
     if (
@@ -520,7 +531,7 @@ async function applyIncoming(doc: IncomingDoc) {
     doc.kind === 'goal' || doc.kind === 'cardio' || doc.kind === 'recovery' ||
     doc.kind === 'race' || doc.kind === 'strengthHr' || doc.kind === 'wellness' ||
     doc.kind === 'notification' || doc.kind === 'aiGeneration' ||
-    doc.kind === 'chat' || doc.kind === 'injury'
+    doc.kind === 'chat' || doc.kind === 'injury' || doc.kind === 'weeklyReview'
   ) {
     const tomb = await db.tombstones.get(`${doc.kind}:${doc.recordId}`);
     if (tomb && tomb.deletedAt >= doc.updatedAt) {
@@ -676,6 +687,11 @@ async function applyIncoming(doc: IncomingDoc) {
     case 'injury': {
       const incoming = doc.payload as { id: string; updatedAt: string };
       await lwwPut(db.injuries, incoming, incoming.id);
+      break;
+    }
+    case 'weeklyReview': {
+      const incoming = doc.payload as { id: string; updatedAt: string };
+      await lwwPut(db.weeklyReviews, incoming, incoming.id);
       break;
     }
   }

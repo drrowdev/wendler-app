@@ -13,6 +13,7 @@ import {
 } from '@/lib/hooks';
 
 import { ActiveGoalsCard } from '@/components/ActiveGoalsCard';
+import { WeeklyReviewCard } from '@/components/WeeklyReviewCard';
 
 import { AnalyticsCard } from '@/components/analytics/AnalyticsCard';
 import { KpiTile } from '@/components/analytics/KpiTile';
@@ -232,6 +233,8 @@ export default function StatsPage() {
       </section>
 
       <ActiveGoalsCard expanded heading="Goals" />
+
+      <WeeklyReviewCard />
 
       {/* Strength cards. In 'all' mode the combined Training calendar is
           slotted between push/pull balance and the muscle heatmap so the

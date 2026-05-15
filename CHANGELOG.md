@@ -8,6 +8,47 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Agentic Phase 4: Periodizer + Summarizer + Weekly Review (SW v362)
+
+Final phase of the agentic rollout. Both remaining specialists ship, plus a Weekly Review surface on /stats that runs them as a workflow.
+
+**Periodizer agent (`packages/domain/src/agents/periodizer/`):**
+- System prompt: Leader/Anchor cadence, 7th-week protocols, taper conventions, return-from-layoff rules, ACWR sweet spot 0.8–1.3, TSB readiness bands, Martin's locked flavor anchors.
+- Verdict vocabulary: `deload-now` / `deload-soon` / `continue` / `taper-now` / `ramp-up` / `tm-test` / `extend-block`. Strict JSON output (verdict + headline + explanation + evidence[] + nextSteps[] + alternativeVerdicts[] + shortReply).
+- Dynamic user prompt: current block + cursor, last-deload date, upcoming priority races, pre-computed Banister/ACWR signals, recent recovery (0-10 Borg scale), recent training summary, active limitations, user profile. No hardcoded user data in the system prompt.
+- Default temperature 0.2 — anatomical/structural reasoning, reliability over creativity.
+- 17 tests covering prompt-builder branches + validator unhappy paths.
+
+**Summarizer agent (`packages/domain/src/agents/summarizer/`):**
+- Reconciliation + presentation specialist. Produces a 6-section narrative (Training summary, Strength trend, Running + cardio, Load + recovery, Active limitations, Looking ahead) + a flat `highlights[]` chip strip.
+- Strict JSON output with exact heading order enforced by the validator + caller-supplied `expectedWeekStart` / `expectedWeekEnd` echo check.
+- Dynamic user prompt: weekly aggregates (sessions, sets, tonnage, top sets, cardio totals + modality mix, recovery averages, end-of-week load signals) + pre-computed specialist input (Periodizer verdict + headline, Coach limitations summary when applicable).
+- 16 tests covering prompt-builder + validator.
+
+**Workflow (`apps/api/src/functions/workflows/weeklyReview.ts`):**
+- POST /api/workflows/weeklyReview. Two-stage pipeline:
+  1. `runPeriodizer` over a pre-built Periodizer user prompt.
+  2. Inject the Periodizer's structured output into the Summarizer prompt (sentinel `<!-- PERIODIZER_INPUT -->` block, with append-fallback).
+  3. `runSummarizer` over the assembled prompt, with the week-start/week-end echo guard.
+- Returns `AgentResponse<WeeklyReviewResult>`. Failures at either stage propagate with the originating `errorCode`.
+
+**Chat tool-use:** the `consult_periodizer` + `summarize_week` Phase-3 stubs now dispatch real specialist calls (Periodizer → structured runner, Summarizer → chat-flavored prose call against the snapshot). Cross-domain questions like "my knee hurts AND I have a race in 3 weeks" now route Coach + Periodizer in parallel and reconcile cleanly.
+
+**Schema (v19, `packages/db-schema`):**
+- New `WeeklyReview` entity (id, weekStart, weekEnd, verdict, headline, sections[], highlights[], generatedAt, updatedAt). Indexed on `weekStart` so the /stats card looks up the latest review in O(1).
+- Dexie migration v18→v19, `'weeklyReview'` `SyncKind`, outbound + inbound + tombstone routing, `deleteWithTombstones` support, `useLatestWeeklyReview` + `useAllWeeklyReviews` hooks.
+
+**UI (`apps/web/src/components/WeeklyReviewCard.tsx`, mounted on /stats):**
+- Empty state: short pitch + Generate button.
+- Generated state: verdict pill, week range, headline, "Generated N min ago", highlights chip strip, 6 expandable section cards (empty bodies hidden), Regenerate button.
+- Workflow helper (`apps/web/src/lib/weeklyReview-workflow.ts`) builds both specialist user prompts from IndexedDB (live signals, no hardcoded user data), defaults the window to the most-recent completed Mon-Sun, persists the result with id reuse on regenerate.
+
+**Tests:** 909 (was 876 + 33 new — 17 Periodizer + 16 Summarizer).
+
+Out of scope this ship: Sunday-evening cron (defer until a worker tier exists), email/Teams delivery (defer), long-form macro planning ("plan the next 12 weeks").
+
+This closes the agentic rollout. All four specialists (Coach, Programmer, Periodizer, Summarizer) are live and callable from chat tool-use; structured workflows (analyzeInjury, weeklyReview) ground multi-step orchestration with deterministic stages between LLM calls.
+
 ### Fixed — Fatigue/soreness UI now shows the actual 0-10 Borg scale (SW v361)
 
 The underlying schema has always stored fatigue and soreness on a 0-10 Borg-style scale (5 buckets at 1, 3, 5, 7, 9). The input pickers labelled the buttons 1-5 and the Readiness card displayed "/5", so when a chat answer cited "fatigue 7/10" it looked like the AI was making up a different scale. This ship aligns the UI with the actual data.

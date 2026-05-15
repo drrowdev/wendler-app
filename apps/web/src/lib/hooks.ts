@@ -53,6 +53,33 @@ export function useActiveInjuries() {
   });
 }
 
+/**
+ * Live-query the most-recent WeeklyReview record (newest weekStart wins).
+ * Returns `undefined` while loading and `null` when no review has been
+ * generated yet.
+ */
+export function useLatestWeeklyReview() {
+  return useLiveQuery(async () => {
+    const all = await getDb().weeklyReviews.toArray();
+    const live = all.filter((r) => !r.deletedAt);
+    if (live.length === 0) return null;
+    live.sort((a, b) => (a.weekStart < b.weekStart ? 1 : -1));
+    return live[0]!;
+  });
+}
+
+/**
+ * Live-query all weekly reviews, newest first. Used by the history view.
+ */
+export function useAllWeeklyReviews() {
+  return useLiveQuery(async () => {
+    const all = await getDb().weeklyReviews.toArray();
+    return all
+      .filter((r) => !r.deletedAt)
+      .sort((a, b) => (a.weekStart < b.weekStart ? 1 : -1));
+  });
+}
+
 export function useMovements() {
   return useLiveQuery(() => getDb().movements.orderBy('name').toArray(), []);
 }
