@@ -161,6 +161,20 @@ export interface BuildAssistancePromptInput {
     /** Filters (formerly "Tier 3 constraints") — surfaced as a separate "Filters" section. */
     constraints?: { kind: string; label: string }[];
   };
+  /**
+   * Deterministic seed for shuffling the per-generation movement-library
+   * section. LLMs exhibit primacy bias — they preferentially pick the
+   * first entries in long lists. Without shuffling, every regeneration
+   * for the same goal/equipment context sees the library in the same
+   * order and tends to pick the same "first OK match" per slot, giving
+   * artificially repetitive results that no amount of temperature can
+   * fix. Production passes `Date.now()`; tests pass a fixed seed for
+   * deterministic snapshots.
+   *
+   * When omitted, the library is rendered in input order (legacy
+   * behaviour — kept so existing snapshot tests don't have to change).
+   */
+  librarySeed?: number;
 }
 
 export interface BuiltAssistancePrompt {
@@ -438,6 +452,7 @@ function buildUserPrompt(input: BuildAssistancePromptInput): string {
     suppressPhaseVolumeMultiplier = false,
     cardioFatigueShift = 0,
     cardioFatigue,
+    librarySeed,
   } = input;
 
   const directives = evaluateGoalsForRules(goalFlags, {
@@ -706,14 +721,17 @@ function buildUserPrompt(input: BuildAssistancePromptInput): string {
     if (blocks.length > 0) {
       sections.push(
         '## Cross-week context (other weeks in this same block)\n' +
-          'Below are the picks from other week scopes of this same block. **You MUST NOT re-use these specific movementIds** for the same slot, as long as a same-family alternative exists in the library OR can be proposed as a `newMovement` (see system rule 10). The expected pattern is same-family rotation across weeks — e.g. Wk1 Goblet Squat → Wk2 Bulgarian Split Squat → Wk3 Step-up for the single-leg/quad slot. Repeating a specific exercise across weeks is permitted only when no equally-good same-family alternative exists AND introducing a `newMovement` is not safe; when this happens, mention it in `blockRationale` (the per-entry `rationale` chip stays user-friendly — do not put "Wk1/Wk2/Wk3 used X" listings into it). Family-dedup rules still apply WITHIN the week you are generating.\n\n' +
+          '**These movementIds are already used in other weeks of this block — actively AVOID picking them again** and explore alternatives in the same pattern/muscle family. The expected pattern is same-family rotation across weeks (e.g. Wk1 Goblet Squat → Wk2 Bulgarian Split Squat → Wk3 Step-up for the single-leg/quad slot), giving the user variety without losing slot coherence. You **MUST NOT** re-use these specific movementIds as long as a same-family alternative exists in the library OR can be proposed as a `newMovement` (see system rule 10). Repeating a specific exercise across weeks is permitted only when no equally-good same-family alternative exists AND introducing a `newMovement` is not safe; when this happens, mention it in `blockRationale` (the per-entry `rationale` chip stays user-friendly — do not put "Wk1/Wk2/Wk3 used X" listings into it). Family-dedup rules still apply WITHIN the week you are generating.\n\n' +
           blocks.join('\n\n'),
       );
     }
   }
 
   // ----- movement library
-  sections.push('## Movement library\n' + renderMovementLibrary(movements, availableEquipment));
+  sections.push(
+    '## Movement library\n' +
+      renderMovementLibrary(movements, availableEquipment, librarySeed),
+  );
 
   sections.push(
     '## Task\nReturn the JSON object described in the system prompt. One object, no prose, no code fence.',
@@ -722,7 +740,11 @@ function buildUserPrompt(input: BuildAssistancePromptInput): string {
   return sections.join('\n\n');
 }
 
-function renderMovementLibrary(movements: Movement[], availableEquipment?: string[]): string {
+function renderMovementLibrary(
+  movements: Movement[],
+  availableEquipment?: string[],
+  seed?: number,
+): string {
   const filtered =
     availableEquipment && availableEquipment.length > 0
       ? movements.filter(
@@ -730,9 +752,17 @@ function renderMovementLibrary(movements: Movement[], availableEquipment?: strin
         )
       : movements;
   if (filtered.length === 0) return '(no movements available — escalate to the user)';
+  // Shuffle the rendered order when a seed is provided. Without this, LLMs
+  // exhibit a strong primacy bias — the first OK match per slot wins every
+  // generation, producing artificially repetitive selections that no amount
+  // of temperature can fix. Shuffling per generation breaks the determinism
+  // structurally while keeping JSON-output reliability high (vs. raising
+  // temperature, which adds token-level noise that risks ID drift and
+  // schema deviations).
+  const ordered = typeof seed === 'number' ? seededShuffle(filtered, seed) : filtered;
   // Compact one-line-per-movement to keep tokens down. Format chosen so the
   // LLM can grep for muscles/equipment without parsing JSON.
-  return filtered
+  return ordered
     .map((m) => {
       const tags: string[] = [];
       if (m.isCompound) tags.push('compound');
@@ -744,4 +774,26 @@ function renderMovementLibrary(movements: Movement[], availableEquipment?: strin
       return `- ${m.id} | "${m.name}" | ${m.pattern} | equip=${m.equipment}${muscles}${tagStr}`;
     })
     .join('\n');
+}
+
+/**
+ * Deterministic Fisher–Yates shuffle keyed by a numeric seed. The RNG is a
+ * mulberry32 — small, fast, good enough for prompt-shuffling. Same seed
+ * always produces the same order so tests can pin to a known shuffle.
+ */
+function seededShuffle<T>(input: readonly T[], seed: number): T[] {
+  const arr = input.slice();
+  let s = seed >>> 0;
+  const rand = (): number => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rand() * (i + 1));
+    [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+  }
+  return arr;
 }

@@ -101,16 +101,19 @@ export async function suggestAssistance(
   //   (3-4 days × 3-5 entries × ~10 short fields + a few blockRationale
   //   lines). Bumped from 4000 because a truncated JSON forces a full
   //   retry — output tokens are cheap relative to that round-trip.
-  // - temperature: 0.3. Structured-output guidance usually says 0.0-0.3
-  //   and we sit at the top of that range. The case for non-zero is real:
-  //   regenerating at T=0 would return the same picks every time, which
-  //   defeats the "give me different ideas" button. But the system prompt
-  //   is doing a lot of work to constrain reasoning (mandatory slots, veto
-  //   rules, exact-ID copy); higher T doesn't cause hallucinated IDs (the
-  //   validator catches those) but it does start making subtly defensible-
-  //   but-wrong slot/pairing choices that pass validation. 0.3 gives
-  //   meaningful regen variety while staying close to the constrained
-  //   path. Nudge to 0.4 if regenerations feel too similar in practice.
+  // - temperature: 0.3. Structured-output guidance for strict JSON-schema
+  //   tasks lands in the 0.0–0.3 band; we sit at the top of that range.
+  //   The case for non-zero is real (regenerating at T=0 returns the same
+  //   picks every time), but token-level entropy is the WRONG lever for
+  //   selection variety — at higher temperatures it manifests as ID drift
+  //   (seed:bench-press → seed:bench_press), creative departures from the
+  //   library when an OK match exists, and JSON schema deviations. The
+  //   variety we want is at the *movement-selection* layer, achieved
+  //   structurally by:
+  //     (a) shuffling the per-day movement-library section on each call
+  //         (kills LLM primacy bias for early-in-list entries)
+  //     (b) directive cross-week dedup ("actively avoid these")
+  //     (c) the hard cross-week validator (system rule 5)
   //
   // Caching note (for whoever adds it next): an input-hash cache still
   // pays its keep at non-zero temperature — saves the round-trip — but
@@ -119,7 +122,7 @@ export async function suggestAssistance(
   // tool, not a planner) but be explicit about it in the cache layer.
   const model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6';
   const maxTokens = Number(process.env.ANTHROPIC_MAX_TOKENS ?? '8000');
-  const temperature = Number(process.env.ANTHROPIC_TEMPERATURE ?? '0.5');
+  const temperature = Number(process.env.ANTHROPIC_TEMPERATURE ?? '0.3');
 
   const client = new Anthropic({ apiKey });
 

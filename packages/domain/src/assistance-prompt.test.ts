@@ -166,6 +166,24 @@ describe('buildAssistancePrompt', () => {
     expect(userPrompt).toContain('Available equipment');
   });
 
+  it('librarySeed shuffles the movement-library section deterministically', () => {
+    const a = buildAssistancePrompt({ ...baseInput, librarySeed: 12345 }).userPrompt;
+    const b = buildAssistancePrompt({ ...baseInput, librarySeed: 12345 }).userPrompt;
+    const c = buildAssistancePrompt({ ...baseInput, librarySeed: 67890 }).userPrompt;
+    const aLib = a.split('## Movement library')[1] ?? '';
+    const bLib = b.split('## Movement library')[1] ?? '';
+    const cLib = c.split('## Movement library')[1] ?? '';
+    // Same seed → same order.
+    expect(aLib).toBe(bLib);
+    // Different seed → different order. (Vanishingly small chance of a
+    // collision on a library of >4 entries — the test fixture has more.)
+    expect(aLib).not.toBe(cLib);
+    // Sanity: shuffled list contains the same set of movements as the unshuffled.
+    const unshuffled = buildAssistancePrompt(baseInput).userPrompt.split('## Movement library')[1] ?? '';
+    const lines = (s: string) => s.split('\n').filter((l) => l.startsWith('- ')).sort();
+    expect(lines(aLib)).toEqual(lines(unshuffled));
+  });
+
   it('warmupCoversPrehab and cardioPeakActive surface as environmental signals', () => {
     const { userPrompt } = buildAssistancePrompt({
       ...baseInput,
@@ -291,7 +309,8 @@ describe('buildAssistancePrompt', () => {
     it('emits the section with each scope and asks for fresh selections this week', () => {
       const { userPrompt } = buildAssistancePrompt({ ...baseInput, otherWeeksContext });
       expect(userPrompt).toContain('## Cross-week context (other weeks in this same block)');
-      expect(userPrompt).toMatch(/MUST NOT re-use these specific movementIds/i);
+      expect(userPrompt).toMatch(/actively AVOID picking them again/i);
+      expect(userPrompt).toMatch(/MUST NOT.* re-use these specific movementIds/i);
       expect(userPrompt).toContain('### Default plan');
       expect(userPrompt).toContain('### Week 1');
       expect(userPrompt).toContain('Dumbbell Curl (curl)');
@@ -310,9 +329,10 @@ describe('buildAssistancePrompt', () => {
       expect(userPrompt).not.toMatch(/canonical Wendler pattern is identical/i);
       expect(userPrompt).not.toMatch(/MAY mirror these picks/i);
       expect(userPrompt).not.toMatch(/for context only/i);
-      // New explicit "do not re-use" rule, with the same-family rotation
-      // example, and the only-when-no-alternative escape hatch.
-      expect(userPrompt).toMatch(/MUST NOT re-use these specific movementIds/i);
+      // New explicit "actively avoid" + "do not re-use" rule, with the same-
+      // family rotation example, and the only-when-no-alternative escape hatch.
+      expect(userPrompt).toMatch(/actively AVOID picking them again/i);
+      expect(userPrompt).toMatch(/MUST NOT.* re-use these specific movementIds/i);
       expect(userPrompt).toMatch(/same-family rotation across weeks/i);
       expect(userPrompt).toMatch(/no equally-good same-family alternative exists/i);
     });

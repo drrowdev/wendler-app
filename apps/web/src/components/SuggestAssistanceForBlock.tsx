@@ -195,6 +195,12 @@ export function SuggestAssistanceForBlock({
   // generation, persists in memory across status transitions so the user
   // can still inspect it after the undo banner is dismissed.
   const [lastAiResponseRaw, setLastAiResponseRaw] = useState<string | undefined>();
+  // Seed for the per-generation movement-library shuffle. Bumped on every
+  // Generate click so each regeneration sees the library in a different
+  // order, breaking the LLM's primacy bias. Initialised once on mount so
+  // the prompt-preview disclosure shows a stable ordering until the user
+  // actually triggers a generation.
+  const [librarySeed, setLibrarySeed] = useState<number>(() => Date.now());
 
   // Reset the inline prompt+response disclosure (and any banner status)
   // when the user switches week tabs. Without this the previously-generated
@@ -300,8 +306,9 @@ export function SuggestAssistanceForBlock({
       suppressPhaseVolumeMultiplier: promptInput.suppressPhaseVolumeMultiplier,
       cardioFatigueShift: promptInput.cardioFatigueShift,
       cardioFatigue: promptInput.cardioFatigue,
+      librarySeed,
     });
-  }, [promptInput, currentPerDayEntries, otherWeeksContext, weekScope, block.mainScheme, block.seventhWeekKind]);
+  }, [promptInput, currentPerDayEntries, otherWeeksContext, weekScope, block.mainScheme, block.seventhWeekKind, librarySeed]);
 
   const callAi = async (
     systemPrompt: string,
@@ -358,6 +365,42 @@ export function SuggestAssistanceForBlock({
     }
 
     setStatus({ kind: 'loading', startedAt: Date.now() });
+
+    // Bump the library-shuffle seed so this generation sees the movement
+    // library in a different order from any prior generation — kills the
+    // LLM's primacy bias structurally instead of leaning on temperature.
+    // Build the prompt INLINE with the fresh seed (don't wait for
+    // useMemo to re-run on the next render). Mirror the new seed into
+    // state so the prompt-preview disclosure updates to match.
+    const seed = Date.now();
+    setLibrarySeed(seed);
+    const freshBuiltPrompt = buildAssistancePrompt({
+      volume: promptInput.volume,
+      days: promptInput.days,
+      movements: promptInput.movements,
+      goalFlags: promptInput.goalFlags,
+      goalNotes: promptInput.goalNotes,
+      existingPerDayEntries: currentPerDayEntries,
+      otherWeeksContext,
+      activeGoalFlavors: promptInput.flatFlavors,
+      cardioPeakActive: promptInput.cardioPeakActive,
+      warmupCoversPrehab: false,
+      availableEquipment: promptInput.availableEquipment,
+      longRunDayIndices: promptInput.longRunDayIndices,
+      blockLabel: promptInput.blockLabel,
+      blockKind: promptInput.blockKind,
+      phase: promptInput.phase,
+      phasePresetShift: promptInput.phasePresetShift,
+      trainingProfileContext: promptInput.trainingProfileContext,
+      weekScope,
+      mainScheme: block.mainScheme,
+      seventhWeekKind: block.seventhWeekKind,
+      suppressPhaseVolumeMultiplier: promptInput.suppressPhaseVolumeMultiplier,
+      cardioFatigueShift: promptInput.cardioFatigueShift,
+      cardioFatigue: promptInput.cardioFatigue,
+      librarySeed: seed,
+    });
+
     const movementIds = movements.map((m) => m.id);
     const availableEquipment = promptInput.availableEquipment;
 
@@ -382,8 +425,8 @@ export function SuggestAssistanceForBlock({
 
     try {
       response = await callAi(
-        builtPrompt.systemPrompt,
-        builtPrompt.userPrompt,
+        freshBuiltPrompt.systemPrompt,
+        freshBuiltPrompt.userPrompt,
         movementIds,
         availableEquipment,
         crossWeekUsedMovementIds,
@@ -414,8 +457,8 @@ export function SuggestAssistanceForBlock({
         const corrective = correctiveLines.join('\n');
         try {
           response = await callAi(
-            builtPrompt.systemPrompt,
-            builtPrompt.userPrompt,
+            freshBuiltPrompt.systemPrompt,
+            freshBuiltPrompt.userPrompt,
             movementIds,
             availableEquipment,
             retryCrossWeekIds,

@@ -8,6 +8,20 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Changed — Suggester: structural variety, not temperature-driven (SW v352)
+
+A bug-class fix to the assistance-suggester's variety mechanism. Previously it leaned on temperature to introduce variation between regenerations; that's the wrong lever for strict-JSON output and was producing diminishing returns.
+
+- **Temperature dropped from 0.5 → 0.3.** Structured-output guidance for strict-schema tasks sits in the 0.0–0.3 band. Higher temperatures don't translate cleanly to "more varied selections" — they translate to "more varied tokens", which manifests as movementId drift (`seed:bench-press` → `seed:bench_press`), JSON schema deviations, and creative departures from the library when an OK match exists. The validator catches these, but retries cost latency.
+- **Movement library is now per-generation shuffled** via `librarySeed` (Fisher–Yates with a mulberry32 RNG keyed on the seed). The client mints a fresh seed each time the user clicks Generate and passes it through `buildAssistancePrompt`. Same seed → identical shuffle (so tests are deterministic); fresh seed every Generate → a different list order each time → the LLM's primacy bias for "first OK match per slot" no longer biases results. This is the *real* variety lever; temperature was a noisy proxy.
+- **Cross-week dedup prompt reframed from neutral to directive.** Was: *"Below are the picks from other week scopes … you MUST NOT re-use these movementIds."* Now: *"**These movementIds are already used in other weeks of this block — actively AVOID picking them again** and explore alternatives in the same pattern/muscle family."* The "actively avoid" framing gives the model a stronger anchoring instruction that doesn't depend on token randomness.
+- **No system-prompt changes beyond cross-week wording.** The 13 system rules, mandatory-slot logic, family-dedup, and validator constraints all remain intact.
+
+The hard cross-week validator (system rule 5) and the corrective-retry logic from v329 remain — variety is encouraged via the three structural mechanisms above and *enforced* by the validator. Worst case is unchanged: same picks across weeks when no same-family alternative exists.
+
+### Tests
+- 835/835 passing. 1 new test locks the seeded-shuffle contract in (same seed → same order; different seed → different order; shuffled set always contains the same movements as unshuffled). 2 existing cross-week-prompt tests updated to match the new directive wording.
+
 ### Added — Movement library expansion (SW v351)
 
 Seed library grew from 143 → 184 movements (+41), scoped to a functional gym with barbell + EZ-bar + hammer-curl bar + DBs + KBs + rings + sled + sandbag + plyo box + bands (no cables).
