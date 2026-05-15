@@ -14,6 +14,7 @@ interface RequestBody {
   maxDayIndex?: number;
   availableEquipment?: string[];
   crossWeekUsedMovementIds?: string[];
+  forbiddenMovementIds?: string[];
   model?: string;
   temperature?: number;
   maxTokens?: number;
@@ -53,6 +54,7 @@ async function programmerAgent(
     maxDayIndex: body.maxDayIndex,
     availableEquipment: body.availableEquipment,
     crossWeekUsedMovementIds: body.crossWeekUsedMovementIds,
+    forbiddenMovementIds: body.forbiddenMovementIds,
     model: body.model,
     temperature: body.temperature,
     maxTokens: body.maxTokens,

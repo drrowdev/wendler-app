@@ -29,6 +29,12 @@ export interface ProgrammerInput {
   availableEquipment?: readonly string[];
   /** Movement IDs already used in OTHER weeks of the same block. Optional. */
   crossWeekUsedMovementIds?: readonly string[];
+  /**
+   * Movement IDs on the user's active-limitations skip list (system rule
+   * 15). Optional; when set, the response validator rejects proposals that
+   * include any of these.
+   */
+  forbiddenMovementIds?: readonly string[];
   /** Override the agent's default model (env: ANTHROPIC_MODEL). */
   model?: string;
   /** Override the agent's default temperature (env: ANTHROPIC_TEMPERATURE). */
@@ -121,6 +127,10 @@ export async function runProgrammer(
     crossWeekUsedMovementIds:
       input.crossWeekUsedMovementIds && input.crossWeekUsedMovementIds.length > 0
         ? new Set(input.crossWeekUsedMovementIds)
+        : undefined,
+    forbiddenMovementIds:
+      input.forbiddenMovementIds && input.forbiddenMovementIds.length > 0
+        ? new Set(input.forbiddenMovementIds)
         : undefined,
   });
 

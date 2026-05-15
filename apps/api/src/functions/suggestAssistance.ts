@@ -29,6 +29,8 @@ interface RequestBody {
    * can ask the model to vary. Optional — omit on first-week generation.
    */
   crossWeekUsedMovementIds?: string[];
+  /** Skip-list movementIds from active limitations (system rule 15). */
+  forbiddenMovementIds?: string[];
 }
 
 /**
@@ -73,6 +75,7 @@ async function suggestAssistance(
     maxDayIndex,
     availableEquipment,
     crossWeekUsedMovementIds,
+    forbiddenMovementIds,
   } = body ?? ({} as RequestBody);
 
   // Legacy request validation — stricter than the runner's checks (the
@@ -110,6 +113,7 @@ async function suggestAssistance(
     maxDayIndex,
     availableEquipment,
     crossWeekUsedMovementIds,
+    forbiddenMovementIds,
   });
 
   if (result.ok) {

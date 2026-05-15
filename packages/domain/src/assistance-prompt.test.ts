@@ -554,4 +554,73 @@ describe('buildAssistancePrompt', () => {
       expect(systemPrompt).toMatch(/swim.*row.*lats/i);
     });
   });
+
+  describe('active limitations (system rule 15)', () => {
+    it('omits the section when activeLimitations is empty or undefined', () => {
+      const a = buildAssistancePrompt(baseInput);
+      expect(a.userPrompt).not.toContain('## Active limitations');
+      const b = buildAssistancePrompt({ ...baseInput, activeLimitations: [] });
+      expect(b.userPrompt).not.toContain('## Active limitations');
+    });
+
+    it('renders area, severity, summary, and per-adjustment lines when present', () => {
+      const { systemPrompt, userPrompt } = buildAssistancePrompt({
+        ...baseInput,
+        activeLimitations: [
+          {
+            area: 'right adductor',
+            severity: 3,
+            summary: 'Strain during loaded split squats; bodyweight fine.',
+            acceptedAdjustments: [
+              {
+                movementId: 'bulgarian-split-squat',
+                movementName: 'Bulgarian Split Squat',
+                action: 'skip',
+                modification: 'Avoid loaded BSS for 2 weeks; substitute step-up.',
+              },
+              {
+                movementId: 'deadbug',
+                movementName: 'Deadbug',
+                action: 'modify-execution',
+                modification: 'Bend the right leg slightly; do not fully extend during contraction.',
+              },
+            ],
+          },
+        ],
+      });
+      expect(systemPrompt).toContain('Active limitations are inviolable');
+      expect(userPrompt).toContain('## Active limitations');
+      expect(userPrompt).toContain('right adductor');
+      expect(userPrompt).toContain('severity 3/5');
+      expect(userPrompt).toContain('Strain during loaded split squats');
+      expect(userPrompt).toContain('skip');
+      expect(userPrompt).toContain('modify-execution');
+      expect(userPrompt).toContain('bulgarian-split-squat');
+      expect(userPrompt).toContain('Deadbug');
+      // Skipped IDs called out in their own line for the validator + LLM.
+      expect(userPrompt).toContain('Skipped movementIds');
+      expect(userPrompt).toContain('`bulgarian-split-squat`');
+      // Modify-execution movement should NOT appear in the skip list.
+      const skippedLine = userPrompt
+        .split('\n')
+        .find((l) => l.startsWith('Skipped movementIds')) ?? '';
+      expect(skippedLine).not.toContain('deadbug');
+    });
+
+    it('renders monitor-only / no-movement injuries with the monitoring-context line', () => {
+      const { userPrompt } = buildAssistancePrompt({
+        ...baseInput,
+        activeLimitations: [
+          {
+            area: 'left elbow',
+            severity: 1,
+            acceptedAdjustments: [],
+          },
+        ],
+      });
+      expect(userPrompt).toContain('left elbow');
+      expect(userPrompt).toContain('monitoring context only');
+      expect(userPrompt).not.toContain('Skipped movementIds');
+    });
+  });
 });

@@ -381,4 +381,73 @@ describe('parseAssistanceResponse', () => {
       expect(r.data.perDay[0]?.entries[0]?.rationale).toBe(exact);
     }
   });
+
+  describe('forbiddenMovementIds (system rule 15)', () => {
+    const validEntry = {
+      slot: 'push',
+      movementId: 'seed:dip',
+      movementName: 'Dip',
+      sets: 3,
+      reps: 8,
+      unit: 'reps',
+      rationale: 'ok',
+    };
+    const goodPayload = {
+      perDay: [{ dayIndex: 0, isAccessoryDay: false, entries: [validEntry] }],
+      blockRationale: ['baseline'],
+    };
+
+    it('passes when no forbiddenMovementIds option is provided', () => {
+      const r = parseAssistanceResponse(JSON.stringify(goodPayload), {
+        allowedMovementIds: allowedIds,
+      });
+      expect(r.ok).toBe(true);
+    });
+
+    it('passes when the proposed movementId is not in the forbidden set', () => {
+      const r = parseAssistanceResponse(JSON.stringify(goodPayload), {
+        allowedMovementIds: allowedIds,
+        forbiddenMovementIds: new Set(['seed:plank']),
+      });
+      expect(r.ok).toBe(true);
+    });
+
+    it('rejects with a system-rule-15 error when the movementId is on the skip list', () => {
+      const r = parseAssistanceResponse(JSON.stringify(goodPayload), {
+        allowedMovementIds: allowedIds,
+        forbiddenMovementIds: new Set(['seed:dip']),
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.errors.some((e) => e.includes('active-limitations skip list'))).toBe(true);
+        expect(r.errors.some((e) => e.includes('system rule 15'))).toBe(true);
+      }
+    });
+
+    it('crossWeekUsedMovementIds takes precedence in error message order, but both checks fire on different entries', () => {
+      const payload = {
+        perDay: [
+          {
+            dayIndex: 0,
+            isAccessoryDay: false,
+            entries: [
+              { ...validEntry, movementId: 'seed:dip' },
+              { ...validEntry, movementId: 'seed:curl', slot: 'isolation' },
+            ],
+          },
+        ],
+        blockRationale: ['x'],
+      };
+      const r = parseAssistanceResponse(JSON.stringify(payload), {
+        allowedMovementIds: allowedIds,
+        crossWeekUsedMovementIds: new Set(['seed:dip']),
+        forbiddenMovementIds: new Set(['seed:curl']),
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.errors.some((e) => e.includes('already used in another week'))).toBe(true);
+        expect(r.errors.some((e) => e.includes('skip list'))).toBe(true);
+      }
+    });
+  });
 });

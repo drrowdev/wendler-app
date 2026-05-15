@@ -19,6 +19,7 @@ import {
 import type { Movement, SetRecord } from '@wendler/db-schema';
 import { getDb } from '@/lib/db';
 import { fmtKg } from '@/lib/format';
+import { useActiveInjuries } from '@/lib/hooks';
 import { SectionHeader } from './SessionParts';
 
 const CATEGORY_LABEL: Record<AssistanceCategory, string> = Object.fromEntries(
@@ -171,6 +172,21 @@ function AssistanceEntryCard({
   const isBand = movement?.equipment === 'band';
   const hideWeight = isBand;
 
+  // Active-limitation matching — if the user has an accepted injury
+  // adjustment that targets this entry's movement, surface it as a chip
+  // next to the prescription so they see the modification at training time.
+  const activeInjuries = useActiveInjuries();
+  const limitation = useMemo(() => {
+    if (!entry.movementId || !activeInjuries) return undefined;
+    for (const inj of activeInjuries) {
+      const adj = inj.adjustments.find(
+        (a) => a.status === 'accepted' && a.movementId === entry.movementId,
+      );
+      if (adj) return { injury: inj, adjustment: adj };
+    }
+    return undefined;
+  }, [activeInjuries, entry.movementId]);
+
   const targetSets = entry.sets;
   const doneCount = myLogged.length;
   const complete = doneCount >= targetSets;
@@ -281,6 +297,14 @@ function AssistanceEntryCard({
               {entry.loadHint}
             </span>
           )}
+          {limitation && (
+            <span
+              className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300 ring-1 ring-amber-500/40"
+              title={`${limitation.injury.area}: ${limitation.adjustment.modification}`}
+            >
+              ⚠ {limitation.adjustment.action.replace('-', ' ')}
+            </span>
+          )}
         </span>
         <span className="text-xs text-muted" aria-hidden>
           {expanded ? '▾' : '▸'}
@@ -290,6 +314,16 @@ function AssistanceEntryCard({
       {expanded && (
         <div className="border-t border-border/50 px-3 pb-3 pt-2">
           {entry.notes && <div className="mb-2 text-xs text-muted">{entry.notes}</div>}
+
+          {limitation && (
+            <div className="mb-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-200">
+              <span className="font-semibold uppercase tracking-wide">
+                ⚠ {limitation.adjustment.action.replace('-', ' ')}
+              </span>{' '}
+              · <span className="capitalize">{limitation.injury.area}</span>
+              <div className="mt-0.5 text-amber-100/90">{limitation.adjustment.modification}</div>
+            </div>
+          )}
 
           {missingMovement && (
             <div className="mb-2 rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1 text-xs text-amber-300">

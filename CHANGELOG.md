@@ -8,6 +8,34 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Agentic Phase 2: Coach agent injury → suggester wiring (SW v357)
+
+Closes the loop on Phase 2: the Programmer agent (assistance suggester) now reads accepted Coach adjustments and routes around them every generation. Live banner + per-entry chip surface the same modifications at training time so the user never trains a movement an active limitation said to skip / load less / shorten range on.
+
+**Suggester prompt (`packages/domain/src/assistance-prompt.ts`):**
+- New `activeLimitations` input (per-call, built upstream from `useActiveInjuries()`). Each limitation contributes area + severity + Coach summary + accepted per-movement adjustments (`skip` / `reduce-load` / `reduce-range` / `modify-execution` / `monitor`).
+- New user-prompt section `## Active limitations` rendered when any active injury exists. Skipped movementIds are called out in their own line for the LLM and the validator to consume identically.
+- New system rule **15: Active limitations are inviolable.** Per-action behaviour:
+  - `skip` — never include the listed movementId; substitute a same-family alternative.
+  - `reduce-load` / `reduce-range` / `modify-execution` — include but surface the modification text in the per-entry `rationale` chip; never pick a heavier or higher-skill same-family variant.
+  - `monitor` — fine to include, but don't stack another fatiguing variant of the same primary mover on the same day.
+  - Cross-family substitution explicitly encouraged.
+
+**Validator (`packages/domain/src/assistance-response.ts` + `apps/api/src/llm/validate.ts` mirror):**
+- New `forbiddenMovementIds` option. When the LLM returns a movementId on the user's accepted skip list, the response is rejected with a system-rule-15 error. Same defense-in-depth pattern as `crossWeekUsedMovementIds`.
+
+**Server (`apps/api`):**
+- `runProgrammer` accepts `forbiddenMovementIds` and passes it to the validator.
+- `POST /api/agents/programmer` and `POST /api/suggestAssistance` both forward the field from the request body.
+
+**Client (`apps/web`):**
+- `SuggestAssistanceForBlock.tsx` reads `useActiveInjuries()`, builds the `activeLimitations` payload (with looked-up movement names) + `forbiddenMovementIds` skip list, threads them into both `buildAssistancePrompt` call sites and into the API request body. Original generate + corrective-retry paths both get the skip list so the retry can't accidentally re-propose a skipped movement.
+- `AssistanceTrack.tsx` per-entry row matches each entry's `movementId` against active injuries and renders an amber chip (`⚠ {action}`, `title=` modification text) next to the prescription summary, plus an inline modification banner inside the expanded entry. Means the user sees the limitation at training time, not just on `/recovery/injuries`.
+
+**Tests:** 870/870 (7 new — 3 prompt-builder cases for the limitations section + 4 validator cases for `forbiddenMovementIds`).
+
+Notes: feature is fully driven by data on the user's device — no hardcoded movement IDs anywhere in the prompt/validator path. When no active injuries exist, behaviour is unchanged from v356.
+
 ### Added — Agentic Phase 2: Coach agent + injury feature (SW v356)
 
 First user-visible agent ship. New `Injuries` surface lets Martin log a limitation (area, severity, free-text description, affected movements), have a Coach agent (MSK/PT framing, Anthropic Claude, temperature 0.2) propose per-movement adjustments grounded in the live movement library + active programming + recently resolved injuries, then accept/decline each proposal individually. Active limitations surface as a persistent amber banner on Today + Day, with a sheet to mark resolved.

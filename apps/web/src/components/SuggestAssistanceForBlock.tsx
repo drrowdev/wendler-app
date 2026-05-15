@@ -42,7 +42,7 @@ import { defaultFlavorsForKind } from '@wendler/db-schema';
 import { authFetch } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 import { notify } from '@/lib/notify';
-import { useGoals, usePrograms, useRunPlan, useSettings, useUpcomingRaces, useAllSessions, useCardioRecent } from '@/lib/hooks';
+import { useGoals, usePrograms, useRunPlan, useSettings, useUpcomingRaces, useAllSessions, useCardioRecent, useActiveInjuries } from '@/lib/hooks';
 import { useVolumeRecommendation } from '@/lib/useVolumeRecommendation';
 import { recordAiGeneration, markAiGenerationUndone } from '@/lib/aiGenerations';
 import { PhaseAutoBadge } from '@/components/PhaseAutoBadge';
@@ -161,6 +161,31 @@ export function SuggestAssistanceForBlock({
   const runPlan = useRunPlan();
   const settings = useSettings();
   const allSessions = useAllSessions();
+  const activeInjuries = useActiveInjuries();
+  const activeLimitations = useMemo(() => {
+    if (!activeInjuries || activeInjuries.length === 0) return undefined;
+    const movementsById = new Map(movements.map((m) => [m.id, m] as const));
+    return activeInjuries.map((inj) => ({
+      area: inj.area,
+      severity: inj.severity,
+      summary: inj.summary,
+      acceptedAdjustments: inj.adjustments
+        .filter((a) => a.status === 'accepted')
+        .map((a) => ({
+          movementId: a.movementId,
+          movementName: movementsById.get(a.movementId)?.name,
+          action: a.action,
+          modification: a.modification,
+        })),
+    }));
+  }, [activeInjuries, movements]);
+  const forbiddenMovementIds = useMemo(() => {
+    if (!activeLimitations) return undefined;
+    const ids = activeLimitations.flatMap((l) =>
+      l.acceptedAdjustments.filter((a) => a.action === 'skip').map((a) => a.movementId),
+    );
+    return ids.length > 0 ? ids : undefined;
+  }, [activeLimitations]);
   // Recent cardio drives the cardio-fatigue shift signal. 35 entries covers
   // the 7-day recent window + 28-day baseline comfortably (most users run
   // 3-6 cardio sessions/week, so 35 ≈ 6-10 weeks of history).
@@ -307,8 +332,9 @@ export function SuggestAssistanceForBlock({
       cardioFatigueShift: promptInput.cardioFatigueShift,
       cardioFatigue: promptInput.cardioFatigue,
       librarySeed,
+      activeLimitations,
     });
-  }, [promptInput, currentPerDayEntries, otherWeeksContext, weekScope, block.mainScheme, block.seventhWeekKind, librarySeed]);
+  }, [promptInput, currentPerDayEntries, otherWeeksContext, weekScope, block.mainScheme, block.seventhWeekKind, librarySeed, activeLimitations]);
 
   const callAi = async (
     systemPrompt: string,
@@ -316,6 +342,7 @@ export function SuggestAssistanceForBlock({
     movementIds: string[],
     availableEquipment: string[] | undefined,
     crossWeekUsedMovementIds: string[] | undefined,
+    forbiddenIds: string[] | undefined,
     extraSystem?: string,
   ): Promise<AiResponse> => {
     const res = await authFetch('/api/suggestAssistance', {
@@ -329,6 +356,7 @@ export function SuggestAssistanceForBlock({
         maxDayIndex: days.length - 1,
         availableEquipment,
         crossWeekUsedMovementIds,
+        forbiddenMovementIds: forbiddenIds,
       }),
     });
     if (!res.ok) {
@@ -399,6 +427,7 @@ export function SuggestAssistanceForBlock({
       cardioFatigueShift: promptInput.cardioFatigueShift,
       cardioFatigue: promptInput.cardioFatigue,
       librarySeed: seed,
+      activeLimitations,
     });
 
     const movementIds = movements.map((m) => m.id);
@@ -430,6 +459,7 @@ export function SuggestAssistanceForBlock({
         movementIds,
         availableEquipment,
         crossWeekUsedMovementIds,
+        forbiddenMovementIds,
       );
       if (!response.ok) {
         // Corrective retry. If the only failures are cross-week-dedup
@@ -462,6 +492,7 @@ export function SuggestAssistanceForBlock({
             movementIds,
             availableEquipment,
             retryCrossWeekIds,
+            forbiddenMovementIds,
             corrective,
           );
         } catch (err) {

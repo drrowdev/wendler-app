@@ -175,6 +175,33 @@ export interface BuildAssistancePromptInput {
    * behaviour — kept so existing snapshot tests don't have to change).
    */
   librarySeed?: number;
+  /**
+   * Active injuries (Phase 2 / Coach agent integration) — limitations the
+   * user is currently training around. Each entry contributes the area +
+   * severity + Coach summary as context, and a list of accepted
+   * per-movement adjustments the suggester MUST respect (system rule 15).
+   *
+   * Adjustments with `action === 'skip'` are inviolable — those movementIds
+   * are added to the avoid list and the validator rejects responses that
+   * include them. Adjustments with `reduce-load` / `reduce-range` /
+   * `modify-execution` / `monitor` allow the movement to be picked but the
+   * suggester is required to surface the modification text in the per-entry
+   * `rationale` chip so the user sees it next to the pick.
+   *
+   * When undefined or empty, no `## Active limitations` section is emitted
+   * and behaviour is unchanged.
+   */
+  activeLimitations?: Array<{
+    area: string;
+    severity: 1 | 2 | 3 | 4 | 5;
+    summary?: string;
+    acceptedAdjustments: Array<{
+      movementId: string;
+      movementName?: string;
+      action: 'skip' | 'reduce-load' | 'reduce-range' | 'modify-execution' | 'monitor';
+      modification: string;
+    }>;
+  }>;
 }
 
 export interface BuiltAssistancePrompt {
@@ -262,6 +289,12 @@ The user message conveys the block's actual shape: number of training days, main
    - **Mandates and prehab remain inviolable** at any trim level. If a mandate would be the highest-priority trim target by the ranking above, skip it and trim the next-highest.
    - **Surface the recovery-cost reasoning in \`blockRationale\`** as a plain-English block-level note ("Trimmed posterior-chain volume to protect your running recovery this week"). Keep per-entry \`rationale\` chips short and user-facing as defined below.
    - The section only appears when the signal is real and the active phase is \`normal\` or \`peak\`. It is automatically suppressed during \`deload\` and \`taper\` (the budget you see is already cut upstream there).
+15. **Active limitations are inviolable.** When the user message includes an \`## Active limitations\` section, every adjustment listed there has been explicitly accepted by the user and must be honored on every day of the response.
+   - **\`skip\`**: NEVER include the listed \`movementId\` in any \`entries\` array. The validator rejects responses that propose a skipped movement. If a goal mandate would have placed the skipped movement, substitute a same-family alternative from the library.
+   - **\`reduce-load\` / \`reduce-range\` / \`modify-execution\`**: You MAY include the listed movement, but you MUST surface the modification text in the per-entry \`rationale\` chip in plain English (e.g. "Reduced range — adductor flare-up; only quarter-depth.") so the user sees it next to the pick. Do not pick a heavier or higher-skill variant from the same family that would defeat the modification.
+   - **\`monitor\`**: Include normally if it fits, but do NOT also schedule another fatiguing variant of the same primary mover on the same day — the user is watching this movement for symptoms and stacking would mask the signal. Mention "monitoring" in the rationale chip when picked.
+   - **Cross-family substitutions are encouraged** when a limitation removes a primary slot option (e.g. right-adductor pain → skip Bulgarian split squat → pick a quad-biased step-up or goblet squat for the single-leg slot rather than skipping the slot entirely).
+   - When a limitation drove a substitution or a modification chip, summarize the trade-off briefly in \`blockRationale\` ("Adapted single-leg work around your right-adductor flare-up — kept the slot but swapped to step-ups.").
 
 # Slot vocabulary (use these exact strings in output \`slot\` field)
 
@@ -453,6 +486,7 @@ function buildUserPrompt(input: BuildAssistancePromptInput): string {
     cardioFatigueShift = 0,
     cardioFatigue,
     librarySeed,
+    activeLimitations,
   } = input;
 
   const directives = evaluateGoalsForRules(goalFlags, {
@@ -653,6 +687,42 @@ function buildUserPrompt(input: BuildAssistancePromptInput): string {
       'Mention the recovery-cost reasoning in your `blockRationale` bullets in plain English ("Trimmed posterior-chain volume to protect running recovery this week"). Per-entry `rationale` chips stay short and user-facing.',
     ];
     sections.push('## Recent cardio load\n' + lines.join('\n'));
+  }
+
+  // ----- active limitations (Phase 2 / Coach agent integration). The list
+  // is built upstream from useActiveInjuries() — every adjustment listed
+  // here has been explicitly accepted by the user. System rule 15 governs
+  // how the LLM must honor them: skip = inviolable, others surface
+  // modification text in the rationale chip.
+  if (activeLimitations && activeLimitations.length > 0) {
+    const limLines: string[] = [];
+    limLines.push(
+      'You are training around the following ACTIVE limitations. System rule 15 is in force — skip lines are inviolable, modification lines must be surfaced in the per-entry `rationale` chip.',
+      '',
+    );
+    activeLimitations.forEach((lim, i) => {
+      limLines.push(
+        `${i + 1}. **${lim.area}** (severity ${lim.severity}/5)${lim.summary ? ` — ${lim.summary}` : ''}`,
+      );
+      if (lim.acceptedAdjustments.length === 0) {
+        limLines.push('   - No specific movement adjustments — treat as monitoring context only.');
+      } else {
+        lim.acceptedAdjustments.forEach((adj) => {
+          const label = adj.movementName ? `${adj.movementName} (\`${adj.movementId}\`)` : `\`${adj.movementId}\``;
+          limLines.push(`   - **${adj.action}** · ${label} — ${adj.modification}`);
+        });
+      }
+    });
+    const skipped = activeLimitations.flatMap((l) =>
+      l.acceptedAdjustments.filter((a) => a.action === 'skip').map((a) => a.movementId),
+    );
+    if (skipped.length > 0) {
+      limLines.push('');
+      limLines.push(
+        `Skipped movementIds (NEVER include in any entries): ${skipped.map((id) => `\`${id}\``).join(', ')}.`,
+      );
+    }
+    sections.push('## Active limitations\n' + limLines.join('\n'));
   }
 
   // ----- existing entries (cross-day dedup set + skip-filled-days directive)

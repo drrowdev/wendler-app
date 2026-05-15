@@ -171,6 +171,14 @@ export interface ParseAssistanceResponseOptions {
    * (no two day-mates may share a movementId, regardless of this set).
    */
   crossWeekUsedMovementIds?: ReadonlySet<string>;
+  /**
+   * Movement IDs the user has actively excluded via an accepted
+   * `skip`-action injury adjustment. The validator rejects any entry that
+   * proposes one of these — system rule 15 ("active limitations are
+   * inviolable"). Optional; omit when the user has no active
+   * skip-adjustments.
+   */
+  forbiddenMovementIds?: ReadonlySet<string>;
 }
 
 /**
@@ -309,6 +317,11 @@ function validateEntry(
     } else if (options.crossWeekUsedMovementIds?.has(e.movementId)) {
       errors.push(
         `${where}.movementId=${JSON.stringify(e.movementId)} is already used in another week of this block. Pick a different specific movementId from the same family, or propose a newMovement (system rule 5 + rule 10).`,
+      );
+      bad = true;
+    } else if (options.forbiddenMovementIds?.has(e.movementId)) {
+      errors.push(
+        `${where}.movementId=${JSON.stringify(e.movementId)} is on the user's active-limitations skip list and must not be proposed (system rule 15). Substitute a same-family alternative from the library.`,
       );
       bad = true;
     } else {

@@ -169,6 +169,12 @@ export interface ParseAssistanceResponseOptions {
    * corrective-retry path can prompt the model to vary picks.
    */
   crossWeekUsedMovementIds?: ReadonlySet<string>;
+  /**
+   * MovementIds the user has actively excluded via an accepted skip-action
+   * injury adjustment (mirror of domain — system rule 15). When set, the
+   * validator rejects any entry that proposes one of these.
+   */
+  forbiddenMovementIds?: ReadonlySet<string>;
 }
 
 function stripCodeFence(raw: string): string {
@@ -284,6 +290,11 @@ function validateEntry(
     } else if (options.crossWeekUsedMovementIds?.has(e.movementId)) {
       errors.push(
         `${where}.movementId=${JSON.stringify(e.movementId)} is already used in another week of this block. Pick a different specific movementId from the same family, or propose a newMovement (system rule 5 + rule 10).`,
+      );
+      bad = true;
+    } else if (options.forbiddenMovementIds?.has(e.movementId)) {
+      errors.push(
+        `${where}.movementId=${JSON.stringify(e.movementId)} is on the user's active-limitations skip list and must not be proposed (system rule 15). Substitute a same-family alternative from the library.`,
       );
       bad = true;
     } else {
