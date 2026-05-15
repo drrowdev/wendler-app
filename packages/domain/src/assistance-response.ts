@@ -40,6 +40,8 @@ const VALID_EQUIPMENT: ReadonlySet<EquipmentType> = new Set<EquipmentType>([
   'machine',
   'cable',
   'band',
+  'weighted-vest',
+  'dip-belt',
   'other',
 ]);
 

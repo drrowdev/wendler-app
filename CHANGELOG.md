@@ -8,6 +8,16 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Scientific calculation audit, round 6 (round-3 audit follow-up)
+
+The round-3 re-audit found two LOW-severity polish items. Both fixed.
+
+- **Polarized HR-zones card no longer sends contradictory signals (SW v350).** The card used two different "easy share" thresholds: `easyMin = 0.80` drove the per-bucket arrow (amber "Easy 75% ↓"), but `easyVerdictMin = 0.70` drove the verdict text. So a runner with easyShare = 75 % saw "Easy 75 % ↓" in amber AND "✓ On target — solid 80/20 distribution" emerald, simultaneously. Aligned `easyVerdictMin` to `easyMin` (0.80) — one threshold, one message. Verdict text already said "below 80%" so the wording is now also literally correct.
+- **Equipment whitelist drift between `assistance-response.ts` and `apps/api/src/llm/validate.ts` resolved.** The two files are documented as kept in lockstep but the domain copy was missing `weighted-vest` and `dip-belt`. Both files now match. No user-visible effect (the production validator is the API copy), but the domain copy is no longer stale.
+
+### Round-3 audit verdict
+After three audit passes (rounds 1, 2, and 3), no HIGH or MED items remain. The round-2 bug pattern (destructive field enumeration into `MinimalSet`) was verified clean across every `.map((s) => ({` site in the codebase. Cross-cutting integration (suggester ↔ analytics, deload-scaling ↔ MinimalSet, chat-context ↔ load) verified consistent. The numbers can be trusted as displayed.
+
 ### Fixed — Scientific calculation audit, round 5 (round-2 audit follow-up)
 
 A second-pass audit ran after v348 and found one real bug + one trivial cleanup. Everything else verified clean.

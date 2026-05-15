@@ -395,8 +395,15 @@ const DEFAULT_TARGETS = {
   /** Hard (Z4+Z5) share target band. */
   hardMin: 0.1,
   hardMax: 0.25,
-  /** Loose lower band for the verdict ("below 80%" copy fires earlier). */
-  easyVerdictMin: 0.7,
+  /**
+   * Lower band for the verdict line. Aligned with `easyMin` (0.80) so the
+   * "Easy share is below 80%" verdict fires whenever the per-bucket arrow
+   * marks easy as 'low'. Keeping the verdict at a looser band (e.g. 0.70)
+   * would produce a contradictory card in the 70–80% window — bucket
+   * arrow says "Easy 75% ↓" amber and verdict says "On target" emerald
+   * at the same time. One threshold, one message.
+   */
+  easyVerdictMin: 0.8,
   /** Grey share that triggers a verdict callout (vs. the strict greyMax). */
   greyVerdictMax: 0.15,
 };
