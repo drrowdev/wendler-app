@@ -69,23 +69,52 @@ export async function runCoach(
   const startedAt = Date.now();
   let raw = '';
   let sdkUsage: { input_tokens?: number; output_tokens?: number } | undefined;
+
+  // Race the Anthropic call against a hard timeout slightly below the
+  // Azure Static Web Apps proxy ceiling (~30-45s). Returning a clean
+  // structured error here is far better than the proxy timing out and
+  // surfacing the generic "Backend call failure" 500. The cutoff is
+  // configurable via ANTHROPIC_COACH_TIMEOUT_MS for shifty deployments.
+  const timeoutMs = Number(process.env.ANTHROPIC_COACH_TIMEOUT_MS ?? '25000');
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const msg = await client.messages.create({
-      model,
-      max_tokens: maxTokens,
-      temperature,
-      system: COACH_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: input.userPrompt }],
-    });
-    raw = msg.content
+    const stream = await client.messages.stream(
+      {
+        model,
+        max_tokens: maxTokens,
+        temperature,
+        system: COACH_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: input.userPrompt }],
+      },
+      { signal: ac.signal },
+    );
+    // Drain to completion. We do NOT forward chunks anywhere — Coach
+    // returns a single JSON object — but streaming keeps the HTTP
+    // connection alive with frequent chunks, which tends to keep the
+    // SWA proxy from short-circuiting on long generations.
+    for await (const _ of stream) {
+      // no-op: just iterate to drive the stream.
+      void _;
+    }
+    const final = await stream.finalMessage();
+    raw = final.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
       .join('\n');
-    sdkUsage = msg.usage;
+    sdkUsage = final.usage;
   } catch (err) {
+    clearTimeout(timer);
     const message = (err as Error).message ?? 'unknown LLM error';
+    if (ac.signal.aborted) {
+      return agentError('llm-timeout', [
+        `Coach call exceeded the ${Math.round(timeoutMs / 1000)}s timeout. ` +
+          `Try again — if it persists, the prompt may be too large; consider reducing the library payload or lowering ANTHROPIC_MAX_TOKENS.`,
+      ]);
+    }
     return agentError('llm-unreachable', [`Coach LLM call failed: ${message}`]);
   }
+  clearTimeout(timer);
 
   const elapsedMs = Date.now() - startedAt;
   const usage: AgentUsage = {
