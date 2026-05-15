@@ -76,7 +76,7 @@ Fields:
 - "rationale": optional one-line "why"
 - "area": short body-area string — required. Prefer the exact spelling of one of the dropdown options when applicable (lower back / shoulder / elbow / wrist / hip / adductor / knee / ankle / neck / chest). When the issue is side-qualified ("right adductor", "left knee"), emit the side-qualified string — the form routes it to a free-text input automatically.
 - "severity": 1-5 if you have it; omit when unsure. 1 = twinge, 3 = limits performance, 5 = couldn't continue. For months-old ongoing tendinopathies that the user is still training around, severity is typically 2-3, not 5.
-- "description": one short sentence (≤ 200 chars) capturing the user's words
+- "description": one short sentence (≤ 200 chars) capturing the user's words. **If the area is side-qualified ("right adductor", "left knee"), the description MUST mention the side too** — e.g. "Right adductor strain; pain on loaded BSS + right-leg deadbug extension". The description is the durable user-visible record; the side qualifier is medically important and must not be dropped.
 - "movementIds": library movementIds (with prefix) the issue affects, when known
 
 ### set_training_max

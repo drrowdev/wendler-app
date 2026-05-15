@@ -63,6 +63,20 @@ export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
     .find((a) => initialAreaLower.includes(a.toLowerCase()));
   const [area, setArea] = useState(matchedArea ?? 'other');
   const [customArea, setCustomArea] = useState(matchedArea ? '' : initialAreaRaw);
+  // When the supplied area string is MORE SPECIFIC than the matched
+  // dropdown option (e.g. supplied "right adductor", dropdown matched
+  // "adductor"), preserve the original specific string for storage so the
+  // side qualifier survives. The dropdown still shows the body region
+  // visually — `specificArea` just overrides `finalArea` until the user
+  // explicitly picks a different dropdown option.
+  const [specificArea, setSpecificArea] = useState<string | undefined>(() => {
+    if (!matchedArea) return undefined;
+    return initialAreaLower === matchedArea.toLowerCase() ? undefined : initialAreaRaw;
+  });
+  const onAreaChange = (next: string) => {
+    setArea(next);
+    setSpecificArea(undefined); // user took manual control of the body region
+  };
   const [severity, setSeverity] = useState<InjurySeverity>(
     injury?.severity ?? origin?.severity ?? 3,
   );
@@ -79,7 +93,9 @@ export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
   const [error, setError] = useState<string | undefined>();
   const [proposal, setProposal] = useState<InjuryAnalysisResult | undefined>();
 
-  const finalArea = area === 'other' ? customArea.trim() || 'other' : area;
+  const finalArea =
+    specificArea ??
+    (area === 'other' ? customArea.trim() || 'other' : area);
 
   const onAnalyze = async () => {
     setError(undefined);
@@ -167,9 +183,10 @@ export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
         ) : !proposal ? (
           <CaptureForm
             area={area}
-            setArea={setArea}
+            setArea={onAreaChange}
             customArea={customArea}
             setCustomArea={setCustomArea}
+            specificArea={specificArea}
             severity={severity}
             setSeverity={setSeverity}
             description={description}
@@ -202,6 +219,14 @@ interface CaptureFormProps {
   setArea: (s: string) => void;
   customArea: string;
   setCustomArea: (s: string) => void;
+  /**
+   * When the source area (from chat AI / pain-flag origin) was more
+   * specific than the matched dropdown option (e.g. "right adductor" →
+   * dropdown "adductor"), this is the original string. Surfaced as a
+   * hint below the dropdown so the user sees the more specific value
+   * that will actually be stored.
+   */
+  specificArea?: string;
   severity: InjurySeverity;
   setSeverity: (s: InjurySeverity) => void;
   description: string;
@@ -222,6 +247,7 @@ function CaptureForm({
   setArea,
   customArea,
   setCustomArea,
+  specificArea,
   severity,
   setSeverity,
   description,
@@ -277,6 +303,12 @@ function CaptureForm({
             placeholder="e.g. right adductor"
             className="mt-2 w-full rounded-lg border border-border bg-bg px-2 py-2"
           />
+        )}
+        {specificArea && area !== 'other' && (
+          <p className="mt-1 text-[11px] text-muted">
+            Saved as: <span className="font-mono text-fg/80">{specificArea}</span>
+            <span className="ml-1">(picking a different option above overrides this)</span>
+          </p>
         )}
       </label>
 
