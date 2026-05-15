@@ -8,6 +8,11 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Scientific calculation audit, round 2
+
+- **M3 — /movements/history shares date-bucketing logic with the rest of the dashboard (SW v346).** The page had its own `ymd()` (local-time YYYY-MM-DD) and `isoWeekBucket()` (local-time ISO week) helpers, while the domain analytics that drive `/stats` use UTC-bucketed `isoDate()` and `isoWeekKey()`. A Sunday-evening set near midnight could land in different weeks on the two pages. Now both pages use the same domain helpers — the two screens can no longer disagree. Cursor walking in the zero-fill loops is also pinned to UTC noon, so a TZ shift on either side of midnight can't push the cursor across a week boundary and misalign with `isoWeekKey`.
+- **M4 — warmups stay included in /movements/history tonnage (consistency with /stats, SW v346).** The page had a `kind !== 'warmup'` filter; everything else in the app does not. After deliberation: warmups are real lifted weight and counting them matches the user's mental model of "total tonnage". They never win "top-set e1RM per day" naturally (lower weight → lower Epley) so including them is honest. The dashboard "Total tonnage" headline is unchanged; the per-movement page now matches it.
+
 ### Fixed — Scientific calculation audit, round 1
 
 This round addresses the two HIGH-severity findings from the audit plus one of the same-shape RPE bugs from the v344 family.

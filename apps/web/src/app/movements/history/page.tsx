@@ -14,31 +14,13 @@ import { Suspense, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { effectiveLoadKg, epley1RM } from '@wendler/domain';
+import { effectiveLoadKg, epley1RM, isoDate, isoWeekKey } from '@wendler/domain';
 import type { SetRecord } from '@wendler/db-schema';
 import { fmtDate, fmtKg } from '@/lib/format';
 import { getDb } from '@/lib/db';
 import { useAllRecovery, useSetsForMovement } from '@/lib/hooks';
 import { LineChart, type LineChartPoint } from '@/components/charts/LineChart';
 import { BarChart } from '@/components/charts/BarChart';
-
-function ymd(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-// ISO week bucket "YYYY-Www" — Monday-anchored.
-function isoWeekBucket(iso: string): string {
-  const d = new Date(iso);
-  d.setHours(0, 0, 0, 0);
-  // Shift to Thursday in the same week to lock the ISO year.
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const firstThu = new Date(d.getFullYear(), 0, 4);
-  firstThu.setDate(firstThu.getDate() + 3 - ((firstThu.getDay() + 6) % 7));
-  const week =
-    1 + Math.round((d.getTime() - firstThu.getTime()) / (7 * 24 * 60 * 60 * 1000));
-  return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
-}
 
 function fmtWeekTick(bucket: string): string {
   // "2026-W19" → "W19". Keep ticks compact.
@@ -92,7 +74,7 @@ function MovementHistoryPage() {
   const bodyweightOn = useCallback(
     (iso: string): number | undefined => {
       if (bodyweightTimeline.length === 0) return undefined;
-      const d = ymd(iso);
+      const d = isoDate(iso);
       // Linear scan from newest is fine — bodyweight log is small.
       for (let i = bodyweightTimeline.length - 1; i >= 0; i -= 1) {
         if (bodyweightTimeline[i]!.date <= d) return bodyweightTimeline[i]!.kg;
@@ -122,11 +104,15 @@ function MovementHistoryPage() {
     [isBodyweight, isExternallyLoadable, bodyweightOn],
   );
 
-  // Filter out warm-up sets (they distort tonnage and the top-set chart) and
-  // anything skipped or tombstoned. Sort oldest → newest for chart math.
+  // Drop only the things that aren't real working data: tombstoned,
+  // skipped, or non-positive (-w/-r). Warmups ARE included — they're
+  // lifted weight and belong in tonnage and the per-set log. They never
+  // win "top-set e1RM per day" naturally (lower weight → lower Epley)
+  // so including them is honest without skewing the top-set chart.
+  // Matches the dashboard `weeklyVolume` / `dailyVolume` policy on /stats.
   const sets: SetRecord[] = useMemo(() => {
     return ((allSets ?? []) as SetRecord[])
-      .filter((s) => !s.deletedAt && !s.skipped && s.kind !== 'warmup')
+      .filter((s) => !s.deletedAt && !s.skipped)
       .filter((s) => s.weightKg >= 0 && s.reps > 0)
       .sort((a, b) => (a.performedAt < b.performedAt ? -1 : 1));
   }, [allSets]);
@@ -148,7 +134,7 @@ function MovementHistoryPage() {
       const load = effectiveKg(s);
       if (load == null || load <= 0) continue;
       const e1 = epley1RM(load, s.reps);
-      const key = ymd(s.performedAt);
+      const key = isoDate(s.performedAt);
       const existing = map.get(key);
       if (!existing || e1 > existing.e1rm) {
         map.set(key, { set: s, e1rm: e1, loadKg: load });
@@ -201,7 +187,7 @@ function MovementHistoryPage() {
     for (const s of sets) {
       const load = effectiveKg(s);
       if (load == null || load <= 0) continue;
-      const key = ymd(s.performedAt);
+      const key = isoDate(s.performedAt);
       const v = load * s.reps;
       const cur = byDay.get(key);
       if (cur) {
@@ -221,7 +207,7 @@ function MovementHistoryPage() {
   const bestRepDay = useMemo(() => {
     const byDay = new Map<string, { reps: number; dateIso: string; setCount: number }>();
     for (const s of sets) {
-      const key = ymd(s.performedAt);
+      const key = isoDate(s.performedAt);
       const cur = byDay.get(key);
       if (cur) {
         cur.reps += s.reps;
@@ -237,32 +223,33 @@ function MovementHistoryPage() {
     return best;
   }, [sets]);
 
-  // Weekly tonnage; last 26 ISO weeks for legibility.
+  // Weekly tonnage; last 26 ISO weeks for legibility. Cursor walks UTC
+  // days at noon so a TZ shift on either side of midnight can't push the
+  // cursor across a week boundary and misalign with isoWeekKey (which is
+  // UTC-bucketed — same as the rest of the dashboard analytics).
   const weeklyTonnage = useMemo(() => {
     if (sets.length === 0) return [] as { label: string; value: number }[];
     const map = new Map<string, number>();
     for (const s of sets) {
       const load = effectiveKg(s);
       if (load == null || load <= 0) continue;
-      const key = isoWeekBucket(s.performedAt);
+      const key = isoWeekKey(s.performedAt);
       map.set(key, (map.get(key) ?? 0) + load * s.reps);
     }
     if (map.size === 0) return [];
-    // Fill zero-weeks between first and last for continuity.
     const firstSet = sets[0]!;
     const lastSet = sets[sets.length - 1]!;
-    const start = new Date(firstSet.performedAt);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(lastSet.performedAt);
-    end.setHours(0, 0, 0, 0);
+    const startKey = isoDate(firstSet.performedAt);
+    const endKey = isoDate(lastSet.performedAt);
+    const cursor = new Date(`${startKey}T12:00:00Z`);
+    const endUtc = new Date(`${endKey}T12:00:00Z`);
     const ordered: { label: string; value: number }[] = [];
-    const cursor = new Date(start);
-    while (cursor <= end) {
-      const key = isoWeekBucket(cursor.toISOString());
+    while (cursor <= endUtc) {
+      const key = isoWeekKey(cursor.toISOString());
       if (ordered.length === 0 || ordered[ordered.length - 1]!.label !== fmtWeekTick(key)) {
         ordered.push({ label: fmtWeekTick(key), value: map.get(key) ?? 0 });
       }
-      cursor.setDate(cursor.getDate() + 1);
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
     return ordered.slice(-26);
   }, [sets, effectiveKg]);
@@ -273,23 +260,22 @@ function MovementHistoryPage() {
     if (sets.length === 0) return [] as { label: string; value: number }[];
     const map = new Map<string, number>();
     for (const s of sets) {
-      const key = isoWeekBucket(s.performedAt);
+      const key = isoWeekKey(s.performedAt);
       map.set(key, (map.get(key) ?? 0) + s.reps);
     }
     const firstSet = sets[0]!;
     const lastSet = sets[sets.length - 1]!;
-    const start = new Date(firstSet.performedAt);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(lastSet.performedAt);
-    end.setHours(0, 0, 0, 0);
+    const startKey = isoDate(firstSet.performedAt);
+    const endKey = isoDate(lastSet.performedAt);
+    const cursor = new Date(`${startKey}T12:00:00Z`);
+    const endUtc = new Date(`${endKey}T12:00:00Z`);
     const ordered: { label: string; value: number }[] = [];
-    const cursor = new Date(start);
-    while (cursor <= end) {
-      const key = isoWeekBucket(cursor.toISOString());
+    while (cursor <= endUtc) {
+      const key = isoWeekKey(cursor.toISOString());
       if (ordered.length === 0 || ordered[ordered.length - 1]!.label !== fmtWeekTick(key)) {
         ordered.push({ label: fmtWeekTick(key), value: map.get(key) ?? 0 });
       }
-      cursor.setDate(cursor.getDate() + 1);
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
     return ordered.slice(-26);
   }, [sets]);
@@ -298,7 +284,7 @@ function MovementHistoryPage() {
   const setsByDayDesc = useMemo(() => {
     const map = new Map<string, SetRecord[]>();
     for (const s of sets) {
-      const key = ymd(s.performedAt);
+      const key = isoDate(s.performedAt);
       const arr = map.get(key) ?? [];
       arr.push(s);
       map.set(key, arr);
