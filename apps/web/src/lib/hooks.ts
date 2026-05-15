@@ -27,6 +27,32 @@ export function useUserProfile() {
   return useLiveQuery(() => getDb().userProfile.get('singleton'));
 }
 
+/**
+ * Live-query all injuries (active + resolved). Sorted by `startedAt` desc
+ * so active ones surface first naturally.
+ */
+export function useAllInjuries() {
+  return useLiveQuery(async () => {
+    const all = await getDb().injuries.toArray();
+    return all
+      .filter((i) => !i.deletedAt)
+      .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+  });
+}
+
+/**
+ * Live-query just the active (unresolved) injuries. Used by the
+ * ActiveLimitationsBanner and the suggester's prompt builder.
+ */
+export function useActiveInjuries() {
+  return useLiveQuery(async () => {
+    const all = await getDb().injuries.toArray();
+    return all
+      .filter((i) => !i.deletedAt && !i.resolvedAt)
+      .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+  });
+}
+
 export function useMovements() {
   return useLiveQuery(() => getDb().movements.orderBy('name').toArray(), []);
 }

@@ -43,7 +43,8 @@ export type SyncKind =
   | 'notification'
   | 'aiGeneration'
   | 'chat'
-  | 'userProfile';
+  | 'userProfile'
+  | 'injury';
 
 export interface OutboundDoc {
   kind: SyncKind;
@@ -437,6 +438,15 @@ async function collectOutbound(sinceIso: string): Promise<OutboundDoc[]> {
     }
   }
 
+  // Injuries (v18) — active + resolved limitation episodes. LWW on updatedAt.
+  const injuries = await db.injuries.toArray();
+  for (const inj of injuries) {
+    const ts = latestTimestamp(inj.updatedAt, inj.createdAt)!;
+    if (ts > since) {
+      out.push({ kind: 'injury', recordId: inj.id, updatedAt: ts, payload: inj });
+    }
+  }
+
   // Tombstones — propagate deletes. Push every tombstone touched since lastPushedAt.
   const tombstones = await db.tombstones.toArray();
   for (const t of tombstones) {
@@ -480,7 +490,8 @@ async function applyIncoming(doc: IncomingDoc) {
       case 'notification': await db.notifications.delete(doc.recordId); break;
       case 'aiGeneration': await db.aiGenerations.delete(doc.recordId); break;
       case 'chat': await db.chats.delete(doc.recordId); break;
-      // settings/schedule are singletons — never deleted.
+      case 'injury': await db.injuries.delete(doc.recordId); break;
+      // settings/schedule/userProfile are singletons — never deleted.
     }
     if (
       doc.kind !== 'settings' &&
@@ -509,7 +520,7 @@ async function applyIncoming(doc: IncomingDoc) {
     doc.kind === 'goal' || doc.kind === 'cardio' || doc.kind === 'recovery' ||
     doc.kind === 'race' || doc.kind === 'strengthHr' || doc.kind === 'wellness' ||
     doc.kind === 'notification' || doc.kind === 'aiGeneration' ||
-    doc.kind === 'chat'
+    doc.kind === 'chat' || doc.kind === 'injury'
   ) {
     const tomb = await db.tombstones.get(`${doc.kind}:${doc.recordId}`);
     if (tomb && tomb.deletedAt >= doc.updatedAt) {
@@ -660,6 +671,11 @@ async function applyIncoming(doc: IncomingDoc) {
       // Singleton (id === 'singleton'). LWW by updatedAt.
       const incoming = doc.payload as { id: 'singleton'; updatedAt: string };
       await lwwPut(db.userProfile, incoming, 'singleton');
+      break;
+    }
+    case 'injury': {
+      const incoming = doc.payload as { id: string; updatedAt: string };
+      await lwwPut(db.injuries, incoming, incoming.id);
       break;
     }
   }

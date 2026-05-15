@@ -29,6 +29,15 @@ export const REGISTERED_AGENTS: AgentRegistration[] = [
     version: '1.0.0',
     httpAvailable: true,
   },
+  {
+    name: 'coach',
+    description:
+      'Movement-modification coach with sports-physio training. Identifies the underlying ' +
+      'anatomical issue from a pain description, maps its biomechanical demand across the ' +
+      'user\'s library, proposes per-movement adjustments, recommends a PT consult when warranted.',
+    version: '1.0.0',
+    httpAvailable: true,
+  },
 ];
 
 export function getAgent(name: string): AgentRegistration | undefined {

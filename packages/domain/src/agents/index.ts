@@ -9,3 +9,4 @@ export * from './types';
 // validator, AGENT_NAME constant, and AGENT_DESCRIPTION. Phases 3+ will add
 // `tools.ts` exports for chat tool-use orchestration.
 export * as ProgrammerAgent from './programmer';
+export * as CoachAgent from './coach';

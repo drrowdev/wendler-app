@@ -715,6 +715,112 @@ export interface UserProfile {
   deletedAt?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Injury / active limitation
+// ---------------------------------------------------------------------------
+// Tracks a current pain or movement-limitation episode. Multiple movements can
+// be linked to a single Injury (per-injury adjustments). Each adjustment is
+// proposed by the Coach agent, then user-reviewed (accept / decline / edit)
+// before becoming active.
+//
+// Active injuries (resolvedAt undefined) are surfaced via:
+//   - ActiveLimitationsBanner on every training surface
+//   - The Programmer agent's prompt (so suggestions route around them)
+//   - The /day view (per-entry limitation chip)
+// Resolved injuries stay in history for pattern-spotting on /recovery/injuries.
+
+export type InjuryAction =
+  /** Never suggest this movement until the injury resolves. */
+  | 'skip'
+  /** Prefer a lighter / bodyweight variant of the same family. */
+  | 'reduce-load'
+  /** Reduce ROM (e.g. partial squat above pain point). */
+  | 'reduce-range'
+  /** Specific execution cue (e.g. "avoid right-leg extension"). */
+  | 'modify-execution'
+  /** Include but flag in rationale; user is monitoring the area. */
+  | 'monitor';
+
+export type InjuryAdjustmentStatus =
+  /** AI proposed; awaiting user decision. */
+  | 'proposed'
+  /** User accepted; the suggester treats it as a hard constraint. */
+  | 'accepted'
+  /** User explicitly declined; suggester ignores. */
+  | 'declined'
+  /** Replaced by a newer proposal during a re-analysis. Kept for history. */
+  | 'superseded';
+
+export interface InjuryAdjustment {
+  id: string;
+  /** Movement this adjustment applies to. */
+  movementId: string;
+  action: InjuryAction;
+  /**
+   * User-facing instruction. AI-generated; the user can edit before
+   * accepting (in which case `userEdited: true`).
+   */
+  modification: string;
+  /**
+   * Why the AI thinks this movement is affected. AI-generated; usually a
+   * one- or two-sentence explanation grounding the recommendation in
+   * anatomy and the user's described pain pattern.
+   */
+  reasoning: string;
+  status: InjuryAdjustmentStatus;
+  proposedAt: string;
+  acceptedAt?: string;
+  declinedAt?: string;
+  /** True when the user manually edited the action / modification text. */
+  userEdited?: boolean;
+}
+
+export type InjurySeverity = 1 | 2 | 3 | 4 | 5;
+
+export interface Injury {
+  id: string;
+  /** Body area in user's words (e.g. "right adductor", "left shoulder"). */
+  area: string;
+  severity: InjurySeverity;
+  /**
+   * User's free-text description — fed verbatim to the Coach agent. The
+   * specificity here directly drives proposal quality (e.g. "pain only
+   * with load; bodyweight is fine; left side fine").
+   */
+  description: string;
+  /**
+   * Coach agent's anatomical interpretation of the issue. Set by the
+   * analyze workflow; refreshed on re-analysis after user-edited
+   * description.
+   */
+  summary?: string;
+  /** Per-movement adjustments. Mix of proposed / accepted / declined. */
+  adjustments: InjuryAdjustment[];
+  /**
+   * Coach's "when to retest / safety notes" guidance.
+   * E.g. "Retest loaded BSS at 5–10 kg after 1–2 pain-free weeks."
+   */
+  monitoringAdvice?: string;
+  /**
+   * True when the Coach agent recommended a PT consult (severe pain,
+   * recurring pattern, unusual mechanism). Surfaced as a banner CTA.
+   */
+  consultRecommended?: boolean;
+  consultReason?: string;
+  /** ISO. When the user marked the injury active. */
+  startedAt: string;
+  /** ISO. Set when the user marks the injury resolved. Undefined = active. */
+  resolvedAt?: string;
+  /**
+   * Pointer to the SetRecord that triggered the per-set pain flag escalation,
+   * if the injury was created via that path. Useful for back-linking.
+   */
+  originSetId?: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+}
+
 /**
  * Four-axis training profile types are owned by `@wendler/domain`. Re-exported
  * here so consumers that only depend on db-schema still see them.

@@ -22,6 +22,7 @@ import {
   type StrengthHrEnrichment,
   type Tombstone,
   type TrainingMaxRecord,
+  type Injury,
   type UserProfile,
   type UserSettings,
   type WellnessFlag,
@@ -62,6 +63,7 @@ class WendlerDb extends Dexie {
   aiGenerations!: Table<AiGeneration, string>;
   chats!: Table<Chat, string>;
   userProfile!: Table<UserProfile, 'singleton'>;
+  injuries!: Table<Injury, string>;
 
   constructor() {
     super('wendler-app');
@@ -386,6 +388,35 @@ class WendlerDb extends Dexie {
     // (dateOfBirth, sex, heightCm) + training background. Feeds Coach +
     // Programmer + Periodizer + Summarizer agent prompts as dynamic context.
     // All fields optional. Synced via LWW.
+    this.version(17).stores({
+      movements: 'id, name, equipment, pattern, isMainLift, isCustom',
+      trainingMaxes: 'id, lift, createdAt',
+      settings: 'id',
+      sets: 'id, movementId, sessionId, performedAt, kind',
+      sessions: 'id, performedAt, mainLift, week, blockId',
+      blocks: 'id, kind, startedAt, completedAt, createdAt, programId',
+      programs: 'id, createdAt, completedAt',
+      schedule: 'id',
+      syncMeta: 'id',
+      goals: 'id, kind, deadline, createdAt, completedAt',
+      cardio: 'id, performedAt, modality, externalId',
+      recovery: 'id',
+      pushSub: 'id',
+      tombstones: 'id, kind, recordId, deletedAt',
+      runPlan: 'id',
+      strengthHr: 'id, performedAt, externalId',
+      races: 'id, date, priority, completedAt, createdAt',
+      wellness: 'id, kind, startedAt, recoveredAt, updatedAt',
+      notifications: 'id, createdAt, channel, severity, readAt, updatedAt',
+      aiGenerations: 'id, createdAt, blockId, weekScope, outcome, source, updatedAt',
+      chats: 'id, createdAt, updatedAt',
+      userProfile: 'id',
+    });
+    // v18 schema: add `injuries` table. Tracks active + resolved
+    // movement-limitation episodes; each row carries proposed/accepted/
+    // declined per-movement adjustments produced by the Coach agent.
+    // Indexed on resolvedAt so the active-limitations banner query is
+    // O(active) rather than O(all). Synced via LWW.
     this.version(SCHEMA_VERSION).stores({
       movements: 'id, name, equipment, pattern, isMainLift, isCustom',
       trainingMaxes: 'id, lift, createdAt',
@@ -409,6 +440,7 @@ class WendlerDb extends Dexie {
       aiGenerations: 'id, createdAt, blockId, weekScope, outcome, source, updatedAt',
       chats: 'id, createdAt, updatedAt',
       userProfile: 'id',
+      injuries: 'id, area, startedAt, resolvedAt, updatedAt',
     });
   }
 }
