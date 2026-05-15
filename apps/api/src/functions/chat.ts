@@ -108,6 +108,8 @@ Fields:
 
 ### substitute_movement
 Use ONLY when you can name BOTH the specific current movementId and the specific replacement movementId from the user's library. The user prompt includes an "Active block plan" section listing every assistance entry with its movementId; pick from THAT list for the current movement. The replacement movementId must exist in the user's library (the snapshot shows movementIds from recent training and the active block — these are valid; library entries you haven't seen are also valid). Skip this chip if you don't know which specific entry to swap or which exact library entry to swap to.
+
+**CRITICAL — copy the movementId VERBATIM from the snapshot.** Do NOT normalise it, simplify it, or guess. The snapshot's id is the only valid form. If the snapshot shows seed:dead-bug, write seed:dead-bug — not seed:deadbug, seed:dead_bug, or seed:deadBug. The hyphenation/casing matters; the handler matches exactly.
 Fields:
 - "kind": "substitute_movement"
 - "label": ≤ 35 chars (e.g. "Swap BSS → Goblet squat (Day 1)")

@@ -399,19 +399,76 @@ export async function applySubstituteMovement(
     targetDayIdxs = block.plan.days.map((_, i) => i);
   }
 
-  let swapped = false;
-  let swappedDayId = '';
-  let swappedEntryId = '';
+  // Resolve the target entry. Strategy:
+  //   1. First try EXACT movementId match on the targeted day(s). This is
+  //      the happy path — the chat AI is supposed to copy ids verbatim
+  //      from the snapshot.
+  //   2. If that misses, fall back to a case-insensitive movementName
+  //      match — the AI sometimes guesses the id but gets the name right
+  //      ("dead bug" vs "seed:deadbug" missing the hyphen). Pick the entry
+  //      only when EXACTLY ONE candidate matches the name to avoid
+  //      ambiguity.
+  //   3. If both miss on the named day, broaden to ALL days of the block
+  //      (the AI may have picked the wrong day too). Same rules apply.
+  //
+  // If nothing matches anywhere, return a diagnostic error listing what
+  // IS on the targeted day(s) so the user knows what to retry against.
+  const wantId = action.currentMovementId;
+  const wantNameLower = action.currentMovementName.toLowerCase().trim();
+  const matchByName = (e: { movementName: string }): boolean => {
+    const n = (e.movementName ?? '').toLowerCase().trim();
+    if (!n || !wantNameLower) return false;
+    return n === wantNameLower || n.includes(wantNameLower) || wantNameLower.includes(n);
+  };
+
+  type Hit = { di: number; ei: number };
+  const findInDays = (idxs: number[]): Hit | undefined => {
+    // Pass 1: exact id match
+    for (const di of idxs) {
+      const day = block!.plan!.days[di]!;
+      const ei = day.assistance.findIndex((e) => e.movementId === wantId);
+      if (ei >= 0) return { di, ei };
+    }
+    // Pass 2: name match — only when exactly one candidate matches
+    // across the searched days.
+    const nameHits: Hit[] = [];
+    for (const di of idxs) {
+      const day = block!.plan!.days[di]!;
+      day.assistance.forEach((e, ei) => {
+        if (matchByName(e)) nameHits.push({ di, ei });
+      });
+    }
+    return nameHits.length === 1 ? nameHits[0] : undefined;
+  };
+
+  const allDayIdxs = block.plan.days.map((_, i) => i);
+  const hit = findInDays(targetDayIdxs) ?? findInDays(allDayIdxs);
+  if (!hit) {
+    const onDays = targetDayIdxs
+      .map((di) => {
+        const day = block!.plan!.days[di]!;
+        const label = day.label ?? `Day ${di + 1}`;
+        const list = day.assistance
+          .map((e) => `${e.movementName}${e.movementId ? ` (\`${e.movementId}\`)` : ''}`)
+          .join(', ');
+        return `${label}: ${list || 'empty'}`;
+      })
+      .join(' · ');
+    return {
+      ok: false,
+      error:
+        `No assistance entry matching "${action.currentMovementName}" ` +
+        `(id \`${action.currentMovementId}\`) was found on the target day(s). ` +
+        (onDays ? `What's actually on those day(s): ${onDays}` : ''),
+    };
+  }
+
+  // Apply the swap at the resolved {di, ei}.
   let prevName = action.currentMovementName;
   const newDays = block.plan.days.map((d, di) => {
-    if (!targetDayIdxs.includes(di)) return d;
-    if (swapped) return d; // only swap on the first matching day
-    const newAssistance = d.assistance.map((e) => {
-      if (swapped) return e;
-      if (e.movementId !== action.currentMovementId) return e;
-      swapped = true;
-      swappedDayId = d.id;
-      swappedEntryId = e.id;
+    if (di !== hit.di) return d;
+    const newAssistance = d.assistance.map((e, ei) => {
+      if (ei !== hit.ei) return e;
       prevName = e.movementName;
       return {
         ...e,
@@ -424,12 +481,8 @@ export async function applySubstituteMovement(
     });
     return { ...d, assistance: newAssistance };
   });
-  if (!swapped) {
-    return {
-      ok: false,
-      error: `No assistance entry with movementId \`${action.currentMovementId}\` found on the target day(s).`,
-    };
-  }
+  const swappedDayId = block.plan.days[hit.di]!.id;
+  const swappedEntryId = block.plan.days[hit.di]!.assistance[hit.ei]!.id;
 
   const updated: ProgramBlock = {
     ...block,
