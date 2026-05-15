@@ -4,9 +4,14 @@
 // surfaces on the FIRST /day open of the day when today's RecoveryEntry
 // has neither fatigue nor soreness set yet.
 //
-// Design (v300):
-//   - Two questions only: "How recovered?" and "Any soreness?". Both 1-5
-//     scale. Mapped to (1, 3, 5, 7, 9) on the 1-10 RecoveryEntry schema.
+// Design (v361):
+//   - Two questions only: "How recovered?" and "Any soreness?". Both
+//     stored on a 0-10 Borg-style scale (matches the Coach / Programmer /
+//     chat agents, which talk about fatigue and soreness in /10 terms).
+//   - The picker is 5 quick-tap buckets mapped to (1, 3, 5, 7, 9) on the
+//     1-10 schema — same speed as the old 1-5 pad but the button labels
+//     are the actual stored values so what you see ("Fatigue 7/10") is
+//     what the AI agents read.
 //   - Skippable. Skipping sets a localStorage flag so it doesn't nag twice
 //     the same day.
 //   - Bodyweight is NOT asked here (one extra tap = won't get filled long-term).
@@ -87,16 +92,13 @@ export function PreWorkoutCheckIn() {
         <div className="space-y-4">
           <ScaleQuestion
             label="How recovered?"
-            hint="1 wrecked · 5 fresh"
+            hint="1 fresh · 9 wrecked"
             value={fatigue}
             onChange={(val) => setFatigue(val)}
-            // High = fresh (low fatigue). Map button 5 → fatigue 1, 1 → fatigue 9.
-            // Buttons displayed left=worst, right=best; we invert to schema.
-            invert
           />
           <ScaleQuestion
             label="Any soreness affecting today?"
-            hint="1 none · 5 severe"
+            hint="1 none · 9 severe"
             value={soreness}
             onChange={(val) => setSoreness(val)}
           />
@@ -129,18 +131,16 @@ function ScaleQuestion({
   hint,
   value,
   onChange,
-  invert = false,
 }: {
   label: string;
   hint: string;
   value: number | null;
   onChange: (val: number) => void;
-  invert?: boolean;
 }) {
-  // 5 buttons mapped to (1, 3, 5, 7, 9) on the 1-10 scale.
-  // For inverted scales (fatigue: high button = fresh = low fatigue), reverse.
-  const baseValues = [1, 3, 5, 7, 9];
-  const values = invert ? [...baseValues].reverse() : baseValues;
+  // 5 buttons mapped to (1, 3, 5, 7, 9) on the 0-10 schema. Labels match
+  // the stored value so what the user sees here lines up with what the AI
+  // agents and the Readiness card read.
+  const values = [1, 3, 5, 7, 9];
   return (
     <div>
       <div className="flex items-baseline justify-between">
@@ -148,7 +148,7 @@ function ScaleQuestion({
         <span className="text-[10px] uppercase tracking-wide text-muted">{hint}</span>
       </div>
       <div className="mt-2 grid grid-cols-5 gap-1.5">
-        {values.map((v, i) => {
+        {values.map((v) => {
           const active = value === v;
           return (
             <button
@@ -160,9 +160,9 @@ function ScaleQuestion({
                   ? 'bg-accent text-bg ring-accent'
                   : 'bg-bg text-muted ring-border hover:text-fg'
               }`}
-              aria-label={`${label} ${i + 1} of 5`}
+              aria-label={`${label} ${v} of 10`}
             >
-              {i + 1}
+              {v}
             </button>
           );
         })}

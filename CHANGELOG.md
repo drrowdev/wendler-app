@@ -8,6 +8,16 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Fatigue/soreness UI now shows the actual 0-10 Borg scale (SW v361)
+
+The underlying schema has always stored fatigue and soreness on a 0-10 Borg-style scale (5 buckets at 1, 3, 5, 7, 9). The input pickers labelled the buttons 1-5 and the Readiness card displayed "/5", so when a chat answer cited "fatigue 7/10" it looked like the AI was making up a different scale. This ship aligns the UI with the actual data.
+
+- `PreWorkoutCheckIn` buttons now show the stored values directly (1, 3, 5, 7, 9) with hint text "1 fresh · 9 wrecked" / "1 none · 9 severe". Dropped the inverted-axis mapping on the "How recovered?" picker — the buttons now read left-to-right from fresh→wrecked, matching the soreness picker.
+- `Readiness` card on Today + Profile + Recovery: same change — buckets labelled 1/3/5/7/9 with `/10` displayed in the collapsed summary ("Fatigue 7/10").
+- `chat-context.ts` recovery section now carries an explicit "0-10 Borg-style scale" note in the snapshot and renders each value with the `/10` suffix, so Coach / Programmer / chat agents all use the same units the user sees in the UI.
+
+No schema migration needed — stored values were already 1-9 on the 0-10 scale. Existing recovery entries continue to display correctly.
+
 ### Fixed — Chat tool-use UX: thread continuation + progress feedback (SW v360)
 
 Two Phase-3 follow-ups from real-use feedback:

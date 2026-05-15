@@ -466,10 +466,13 @@ export function renderChatContextAsText(ctx: ChatContextSummary): string {
   if (ctx.recent.recovery.length > 0) {
     lines.push('');
     lines.push(`## Recent recovery entries (last ${FULL_DETAIL_DAYS}d)`);
+    lines.push(
+      "Scale note: fatigue and soreness are stored on a 0-10 Borg-style scale (1 = fresh / no soreness, 9 = wrecked / severe). The UI takes a 5-bucket pick (1, 3, 5, 7, 9). Sleep is in hours, bodyweight in kg.",
+    );
     for (const r of ctx.recent.recovery) {
       const parts = [r.date];
-      if (r.fatigue != null) parts.push(`fatigue ${r.fatigue}`);
-      if (r.soreness != null) parts.push(`soreness ${r.soreness}`);
+      if (r.fatigue != null) parts.push(`fatigue ${r.fatigue}/10`);
+      if (r.soreness != null) parts.push(`soreness ${r.soreness}/10`);
       if (r.sleepH != null) parts.push(`sleep ${r.sleepH}h`);
       if (r.bodyweightKg != null) parts.push(`bw ${r.bodyweightKg}kg`);
       lines.push('- ' + parts.join(' · '));
@@ -485,7 +488,7 @@ export function renderChatContextAsText(ctx: ChatContextSummary): string {
       if (w.bikeKm > 0) parts.push(`bike ${w.bikeKm}km`);
       if (w.cardioMin > 0) parts.push(`cardio ${w.cardioMin}min`);
       if (w.strengthSets > 0) parts.push(`${w.strengthSets} sets / ${w.strengthTonnageKg}kg`);
-      if (w.avgFatigue != null) parts.push(`avg fatigue ${w.avgFatigue}`);
+      if (w.avgFatigue != null) parts.push(`avg fatigue ${w.avgFatigue}/10`);
       lines.push('- ' + parts.join(' · '));
     }
   }

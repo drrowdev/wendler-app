@@ -20,14 +20,16 @@ export function ReadinessScale({
   value?: number;
   onChange: (val: number) => void;
 }) {
-  // Render 5 buttons mapped to (1, 3, 5, 7, 9) on the 1-10 scale so the
-  // UI stays simple while the schema keeps its existing 1-10 precision.
+  // Render 5 buttons mapped to (1, 3, 5, 7, 9) on the 0-10 Borg-style
+  // scale. Button labels show the actual stored values so what the user
+  // sees in this card matches what the AI agents (chat, suggester) read
+  // when they cite "fatigue 7/10".
   const buckets: { label: string; val: number }[] = [
     { label: '1', val: 1 },
-    { label: '2', val: 3 },
-    { label: '3', val: 5 },
-    { label: '4', val: 7 },
-    { label: '5', val: 9 },
+    { label: '3', val: 3 },
+    { label: '5', val: 5 },
+    { label: '7', val: 7 },
+    { label: '9', val: 9 },
   ];
   return (
     <div>
@@ -50,7 +52,7 @@ export function ReadinessScale({
                   ? 'bg-accent text-bg ring-accent'
                   : 'bg-bg text-muted ring-border hover:text-fg'
               }`}
-              aria-label={`${label} ${b.label} of 5`}
+              aria-label={`${label} ${b.label} of 10`}
             >
               {b.label}
             </button>
@@ -75,16 +77,6 @@ export function FatigueSorenessCard() {
     setEditing(false);
   };
   const bothAnswered = entry?.fatigue != null && entry?.soreness != null;
-  // Map the internal 1/3/5/7/9 schema values back to the 1-5 display so the
-  // collapsed summary matches what the buttons show.
-  const displayBucket = (v: number | undefined): number | undefined => {
-    if (v == null) return undefined;
-    if (v <= 1) return 1;
-    if (v <= 3) return 2;
-    if (v <= 5) return 3;
-    if (v <= 7) return 4;
-    return 5;
-  };
 
   if (bothAnswered && !editing) {
     return (
@@ -92,10 +84,10 @@ export function FatigueSorenessCard() {
         <div className="flex items-center gap-4 text-muted">
           <span className="text-xs font-semibold uppercase tracking-wide">Logged</span>
           <span>
-            Fatigue <span className="font-mono text-fg">{displayBucket(entry?.fatigue)}</span>/5
+            Fatigue <span className="font-mono text-fg">{entry?.fatigue}</span>/10
           </span>
           <span>
-            Soreness <span className="font-mono text-fg">{displayBucket(entry?.soreness)}</span>/5
+            Soreness <span className="font-mono text-fg">{entry?.soreness}</span>/10
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -145,7 +137,7 @@ export function FatigueSorenessCard() {
         <div className="rounded-md border border-border/60 bg-bg/40 p-3">
           <ReadinessScale
             label="Fatigue"
-            hint="1 fresh · 5 wrecked"
+            hint="1 fresh · 9 wrecked"
             value={entry?.fatigue}
             onChange={(v) => void setFatigue(v)}
           />
@@ -153,7 +145,7 @@ export function FatigueSorenessCard() {
         <div className="rounded-md border border-border/60 bg-bg/40 p-3">
           <ReadinessScale
             label="Soreness"
-            hint="1 none · 5 severe"
+            hint="1 none · 9 severe"
             value={entry?.soreness}
             onChange={(v) => void setSoreness(v)}
           />
