@@ -92,7 +92,10 @@ async function buildContextBlob(): Promise<string> {
   if (days.length > 0) {
     lines.push('- Days:');
     days.forEach((day, i) => {
-      const dayHeader = `  - Day ${i}${day.label ? ` "${day.label}"` : ''} (id=\`${day.id}\`)${
+      // User-facing label is 1-based ("Day 1", "Day 2", ...). The
+      // 0-based index is exposed only via the `id` field below for tools
+      // that need stable references (e.g. substitute_movement chips).
+      const dayHeader = `  - Day ${i + 1}${day.label ? ` "${day.label}"` : ''} (id=\`${day.id}\`)${
         day.mainLifts.length > 0 ? ` · main lifts: ${day.mainLifts.join(', ')}` : ' · accessory day'
       }`;
       lines.push(dayHeader);

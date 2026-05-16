@@ -149,7 +149,7 @@ Use ONLY when you can name BOTH the specific current movementId and the specific
 Fields (in addition to shared):
 - "blockId": optional — defaults to active block. Use the block id from the "Active block plan" section if you want to be explicit.
 - "dayId": optional but PREFERRED — copy the day id from the "Active block plan" section (e.g. "day-abc123").
-- "dayIndex": optional fallback when you only know the 0-based day index.
+- "dayIndex": optional fallback when you only know the 0-based day index. **dayIndex is INTERNAL — never use the bare number in prose to the user. Always refer to days as "Day 1", "Day 2", etc. (dayIndex + 1).**
 - "currentMovementId": REQUIRED — movementId of the entry to replace. Must appear verbatim in the active block plan.
 - "currentMovementName": REQUIRED — display name (echo).
 - "newMovementId": REQUIRED — movementId of the replacement.
