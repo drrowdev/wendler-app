@@ -51,9 +51,10 @@ SemVer with Conventional Commits. The full per-release history lives in
 | v0.6.0 | Goals, cardio, recovery, weekly load + deload coach |
 | v1.0.0 | GA — race-taper detection, a11y pass, methodology docs |
 | v1.1.0 | Strava integration — HR-zone stress, pace PRs |
-| v1.2.0 | Weekly run-plan template, day-of-week run matching, in-gym UX polish (assistance auto-collapse, keep-screen-on, trap-bar weight, icon-only sync badge) |
-| **v1.3.0 (Unreleased)** | **Four-axis Training Profile (primary goal × secondary toggles × phase × race calendar), AI assistance suggester with per-week phase awareness, prehab concentration rules, race-proximity phase auto-derivation, phase-aware assistance volume auto-shift** |
-| v1.3.0+ | Future: GPX/FIT upload, Apple Health bridge, LLM weekly look-ahead summary |
+| v1.2.0 | Weekly run-plan template, day-of-week run matching, in-gym UX polish |
+| v1.3.0 | Four-axis Training Profile, AI assistance suggester with phase awareness, race-proximity phase auto-derivation, phase-aware assistance volume auto-shift |
+| v1.4.0 | Public-repo migration + movement library expansion (~180 movements with pattern/muscle/equipment tagging) |
+| **v1.5.0 (Unreleased)** | **Agentic architecture — Coach (injury triage), Programmer (plan diffs), Periodizer (block sequencing), Summarizer (weekly review), and a chat orchestrator with tool-use. Action chips let chat propose writes (log injury, set training max, set block volume preset, schedule deload, substitute movement) with preview-before-write guardrails on every AI write path.** |
 
 ## Documentation
 
