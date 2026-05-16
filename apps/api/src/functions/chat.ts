@@ -4,7 +4,7 @@ import {
   type HttpResponseInit,
   type InvocationContext,
 } from '@azure/functions';
-import { Readable } from 'node:stream';
+import { PassThrough } from 'node:stream';
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyRequest } from '../auth';
 import { CHAT_TOOL_SPECS } from '../llm/chat-tool-specs';
@@ -206,6 +206,19 @@ ${context}
   const client = new Anthropic({ apiKey: apiKeyStr });
   const turnStartedAt = Date.now();
 
+  // Per-Anthropic-call timeout. Each iteration of the tool-use loop is one
+  // Anthropic call; if any single call stalls past this, abort it with a
+  // user-friendly message. Default 25 s — under SWA managed-Functions'
+  // synchronous-call ceiling (~30 s) but tight enough that retrying with a
+  // shorter prompt is the obvious next step.
+  const callTimeoutMs = Number(process.env.ANTHROPIC_CHAT_CALL_TIMEOUT_MS ?? '25000');
+  // Overall budget across the entire tool-use loop. A turn that consults
+  // two specialists + a final composition can legitimately need ~60 s; this
+  // bounds the worst case before SWA's connection-level timer kicks in
+  // anyway. Heartbeats below keep the SSE connection warm independent of
+  // this.
+  const overallBudgetMs = Number(process.env.ANTHROPIC_CHAT_OVERALL_BUDGET_MS ?? '90000');
+
   async function* sseGenerator(): AsyncGenerator<string, void, unknown> {
     // Running message list — starts as the user's history, grows with
     // assistant tool_use blocks + tool_result blocks each loop iteration.
@@ -229,6 +242,17 @@ ${context}
           return;
         }
 
+        // Bail before starting a new iteration if the overall budget is
+        // spent. Better a graceful error than a silent SWA proxy 502.
+        const elapsedMs = Date.now() - turnStartedAt;
+        if (elapsedMs > overallBudgetMs) {
+          yield sse({
+            type: 'error',
+            detail: `Chat turn exceeded the ${Math.round(overallBudgetMs / 1000)}s overall budget after ${Math.round(elapsedMs / 1000)}s. Try a shorter prompt, or split the question into smaller follow-ups.`,
+          });
+          return;
+        }
+
         // Stream this iteration. Text deltas are forwarded live so the
         // user sees Claude's thinking-out-loud (e.g. "Let me check with the
         // coach on that knee...") as it happens; tool_use blocks arrive as
@@ -248,55 +272,84 @@ ${context}
         // Because the tag can split across delta boundaries, we hold a
         // small lookahead in `textBuffer` and only emit chars that we're
         // certain don't begin the `<actions>` tag.
-        const upstream = client.messages.stream({
-          model,
-          max_tokens: maxTokens,
-          temperature,
-          system: systemPrompt,
-          tools: CHAT_TOOL_SPECS,
-          messages: loopMessages,
-        });
+        // Per-call abort: bound any single Anthropic stream against the
+        // SWA proxy ceiling. The SDK accepts a `signal` in the second arg
+        // of stream() and surfaces an AbortError when triggered.
+        const callController = new AbortController();
+        const callTimer = setTimeout(() => callController.abort(), callTimeoutMs);
+        let upstream;
+        try {
+          upstream = client.messages.stream(
+            {
+              model,
+              max_tokens: maxTokens,
+              temperature,
+              system: systemPrompt,
+              tools: CHAT_TOOL_SPECS,
+              messages: loopMessages,
+            },
+            { signal: callController.signal },
+          );
+        } catch (err) {
+          clearTimeout(callTimer);
+          throw err;
+        }
 
         const ACTIONS_OPEN = '<actions>';
         let textBuffer = '';
         let emittedLen = 0;
         let muted = false;
 
-        for await (const ev of upstream) {
-          if (ev.type !== 'content_block_delta' || ev.delta.type !== 'text_delta') continue;
-          if (muted) continue;
-          textBuffer += ev.delta.text;
-          const tagIdx = textBuffer.indexOf(ACTIONS_OPEN);
-          if (tagIdx >= 0) {
-            if (tagIdx > emittedLen) {
-              yield sse({
-                type: 'delta',
-                text: textBuffer.slice(emittedLen, tagIdx),
-              });
+        let response: Anthropic.Message;
+        try {
+          for await (const ev of upstream) {
+            if (ev.type !== 'content_block_delta' || ev.delta.type !== 'text_delta') continue;
+            if (muted) continue;
+            textBuffer += ev.delta.text;
+            const tagIdx = textBuffer.indexOf(ACTIONS_OPEN);
+            if (tagIdx >= 0) {
+              if (tagIdx > emittedLen) {
+                yield sse({
+                  type: 'delta',
+                  text: textBuffer.slice(emittedLen, tagIdx),
+                });
+              }
+              emittedLen = textBuffer.length;
+              muted = true;
+              continue;
             }
-            emittedLen = textBuffer.length;
-            muted = true;
-            continue;
+            // Withhold the last (ACTIONS_OPEN.length - 1) chars in case the
+            // tag is being split across deltas.
+            const safeEnd = Math.max(
+              emittedLen,
+              textBuffer.length - (ACTIONS_OPEN.length - 1),
+            );
+            if (safeEnd > emittedLen) {
+              yield sse({ type: 'delta', text: textBuffer.slice(emittedLen, safeEnd) });
+              emittedLen = safeEnd;
+            }
           }
-          // Withhold the last (ACTIONS_OPEN.length - 1) chars in case the
-          // tag is being split across deltas.
-          const safeEnd = Math.max(
-            emittedLen,
-            textBuffer.length - (ACTIONS_OPEN.length - 1),
-          );
-          if (safeEnd > emittedLen) {
-            yield sse({ type: 'delta', text: textBuffer.slice(emittedLen, safeEnd) });
-            emittedLen = safeEnd;
+
+          // Flush any tail prose that was withheld for lookahead — only when
+          // we never saw the opener.
+          if (!muted && textBuffer.length > emittedLen) {
+            yield sse({ type: 'delta', text: textBuffer.slice(emittedLen) });
           }
+
+          response = await upstream.finalMessage();
+        } catch (err) {
+          if (callController.signal.aborted) {
+            yield sse({
+              type: 'error',
+              detail: `Chat call exceeded the ${Math.round(callTimeoutMs / 1000)}s per-call timeout. The prompt may be too large; try a shorter conversation or fewer follow-ups, then retry.`,
+            });
+            return;
+          }
+          throw err;
+        } finally {
+          clearTimeout(callTimer);
         }
 
-        // Flush any tail prose that was withheld for lookahead — only when
-        // we never saw the opener.
-        if (!muted && textBuffer.length > emittedLen) {
-          yield sse({ type: 'delta', text: textBuffer.slice(emittedLen) });
-        }
-
-        const response = await upstream.finalMessage();
         llmCalls += 1;
         totalInputTokens += response.usage?.input_tokens ?? 0;
         totalOutputTokens += response.usage?.output_tokens ?? 0;
@@ -401,6 +454,39 @@ ${context}
     }
   }
 
+  // Build the response as a PassThrough we control directly so we can:
+  //   1. Flush an initial SSE comment IMMEDIATELY (locks in the connection
+  //      before SWA's proxy can decide the upstream is hung).
+  //   2. Drip a periodic heartbeat (`: hb\n\n`) during long Anthropic
+  //      thinking pauses, so the connection stays warm even when there are
+  //      no text deltas to forward for 20+ seconds.
+  //   3. End the stream cleanly when the generator finishes or errors.
+  // SSE comments (lines starting with `:`) are spec-defined as keepalives —
+  // the browser EventSource API ignores them, the client's manual fetch
+  // parser ignores them, and the SWA proxy treats them as live bytes.
+  const stream = new PassThrough();
+  stream.write(': connected\n\n');
+  const heartbeat = setInterval(() => {
+    if (!stream.destroyed && stream.writable) stream.write(': hb\n\n');
+  }, 10_000);
+
+  (async () => {
+    try {
+      for await (const chunk of sseGenerator()) {
+        if (!stream.writable) break;
+        stream.write(chunk);
+      }
+    } catch (err) {
+      ctx.log(`chat: stream writer failed: ${(err as Error).message}`);
+      if (stream.writable) {
+        stream.write(sse({ type: 'error', detail: (err as Error).message }));
+      }
+    } finally {
+      clearInterval(heartbeat);
+      if (!stream.destroyed) stream.end();
+    }
+  })();
+
   return {
     status: 200,
     headers: {
@@ -408,7 +494,7 @@ ${context}
       'cache-control': 'no-cache, no-transform',
       'x-accel-buffering': 'no',
     },
-    body: Readable.from(sseGenerator()),
+    body: stream,
   };
 }
 
