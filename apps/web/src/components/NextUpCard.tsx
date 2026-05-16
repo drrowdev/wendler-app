@@ -22,6 +22,7 @@ import {
   describeNextWorkout,
   effectivePlan,
   effectiveScheduleDays,
+  isDaySkipped,
   isoDayOfWeek,
   planEmoji,
   planLabel,
@@ -233,6 +234,40 @@ export function NextUpCard({ compact = false }: Props) {
     return set;
   }, [schedule?.cursor, recentSessions]);
 
+  // Set of dayIndices that are flagged SKIPPED for the cursor's current
+  // (block, week). Treated identically to "finished" by the candidate
+  // scan below — a skipped day is not next-up; the cursor should look
+  // past it. The skip primitive lives at plan.dayOverridesByWeek
+  // (BlockPlan field) and is set by the chat-AI `skip_day_in_week`
+  // EditOperation.
+  const skippedGiThisWeek = useMemo(() => {
+    const set = new Set<number>();
+    const planDays = block?.plan?.days;
+    const overrides = block?.plan?.dayOverridesByWeek;
+    const week = schedule?.cursor?.week;
+    if (!planDays || !overrides || week === undefined) return set;
+    for (let i = 0; i < planDays.length; i++) {
+      if (isDaySkipped(block?.plan, week, planDays[i]?.id)) set.add(i);
+    }
+    return set;
+  }, [block?.plan, schedule?.cursor?.week]);
+
+  // Auto-advance the cursor past a slot that's been flagged skipped
+  // AFTER the cursor was set. Mirrors the "self-heal" pattern used for
+  // out-of-order completed sessions above. Without this, marking the
+  // current day skipped (e.g. via chat AI proposal) would leave the
+  // cursor parked on that day and the hero card would surface it as
+  // next-up.
+  useEffect(() => {
+    if (!schedule?.cursor || !block) return;
+    const cursor = schedule.cursor;
+    if (cursor.blockId !== block.id) return;
+    if (!skippedGiThisWeek.has(cursor.groupIndex)) return;
+    void import('@/lib/completeDayWorkout').then(({ advanceScheduleAfterDay }) => {
+      void advanceScheduleAfterDay(cursor.blockId, cursor.week, cursor.groupIndex);
+    });
+  }, [schedule?.cursor, block, skippedGiThisWeek]);
+
   // Effective groupIndex for "what's next": prefer the cursor, but
   // auto-pick today's group when the cursor still points at an
   // already-past day this week. Example: cursor stuck at Day 0
@@ -252,21 +287,23 @@ export function NextUpCard({ compact = false }: Props) {
     const cursorDay = days[cursorGi];
     const cursorWd = cursorDay ? resolveDayWeekday(cursorDay) : null;
     const isFinished = (i: number) => completedGiThisWeek.has(i);
-    // Cursor is on today's weekday and not finished — that's exactly what we want.
-    if (cursorWd === todayWd && !isFinished(cursorGi)) return cursorGi;
+    const isUnavailable = (i: number) =>
+      completedGiThisWeek.has(i) || skippedGiThisWeek.has(i);
+    // Cursor is on today's weekday and not finished/skipped — that's exactly what we want.
+    if (cursorWd === todayWd && !isUnavailable(cursorGi)) return cursorGi;
     // Cursor at a future weekday this week (e.g. advanced from Thu to
     // Fri after completing Thursday). Trust it.
-    if (cursorWd !== null && cursorWd > todayWd && !isFinished(cursorGi)) return cursorGi;
+    if (cursorWd !== null && cursorWd > todayWd && !isUnavailable(cursorGi)) return cursorGi;
     // Cursor at a past weekday this week (mid-week activation) — OR
-    // cursor's day is already done. Scan for the soonest non-finished
-    // group at-or-past today's weekday, then fall back to the soonest
-    // non-finished group anywhere.
+    // cursor's day is already done/skipped. Scan for the soonest non-
+    // unavailable group at-or-past today's weekday, then fall back to
+    // the soonest non-unavailable group anywhere.
     let bestSameOrFuture: number | undefined;
     let bestSameOrFutureWd: number | undefined;
     let bestAny: number | undefined;
     let bestAnyWd: number | undefined;
     for (let i = 0; i < days.length; i++) {
-      if (isFinished(i)) continue;
+      if (isUnavailable(i)) continue;
       const wd = resolveDayWeekday(days[i]!);
       if (wd === null) {
         if (bestAny === undefined) bestAny = i;
@@ -284,7 +321,7 @@ export function NextUpCard({ compact = false }: Props) {
       }
     }
     return bestSameOrFuture ?? bestAny ?? cursorGi;
-  }, [schedule, today, completedGiThisWeek]);
+  }, [schedule, today, completedGiThisWeek, skippedGiThisWeek]);
   const currentGroup = effectiveGroupIndex !== undefined
     ? effectiveScheduleDays(schedule!)[effectiveGroupIndex]
     : undefined;

@@ -164,6 +164,27 @@ async function buildContextBlob(): Promise<string> {
         day.mainLifts.length > 0 ? ` · main lifts: ${day.mainLifts.join(', ')}` : ' · accessory day'
       }`;
       lines.push(dayHeader);
+      // Per-week skip status for this day. Only emitted when the day is
+      // skipped in at least one week, to keep the snapshot lean. The AI
+      // uses this to (a) avoid proposing trim/swap/skip ops on already-
+      // skipped weeks and (b) treat skipped weeks as zero strength load.
+      const overrides = activeBlock.plan?.dayOverridesByWeek ?? {};
+      const skippedIn: string[] = [];
+      for (const wk of weekScopes) {
+        if (overrides[`${wk}|${day.id}`]?.skipped === true) {
+          const skipNote = overrides[`${wk}|${day.id}`]?.skipNote;
+          const skipReason = overrides[`${wk}|${day.id}`]?.skipReason;
+          const label = wk === 'deload' ? 'Deload' : wk === '7w' ? '7w' : `Wk ${wk}`;
+          const tail =
+            skipReason || skipNote
+              ? ` (${[skipReason, skipNote].filter(Boolean).join(': ')})`
+              : '';
+          skippedIn.push(`${label}${tail}`);
+        }
+      }
+      if (skippedIn.length > 0) {
+        lines.push(`    - SKIPPED in: ${skippedIn.join(' · ')}`);
+      }
       if (day.assistance.length > 0) {
         for (const entry of day.assistance) {
           const mid = entry.movementId ?? '(no movement id)';

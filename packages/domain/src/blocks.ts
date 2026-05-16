@@ -840,6 +840,44 @@ export interface BlockPlan {
 }
 
 /**
+ * Is a specific (week, dayId) marked skipped in the plan's per-week
+ * overrides? Pure read of `plan.dayOverridesByWeek`. Tolerates a missing
+ * plan / missing overrides map / missing key — returns false in all those
+ * cases.
+ *
+ * Use this anywhere the app needs to decide whether to surface a day as
+ * "next up" (NextUpCard), render the day's prescribed sets
+ * (/program/block, /day), or include the day in a denominator
+ * (analytics).
+ */
+export function isDaySkipped(
+  plan: Pick<BlockPlan, 'dayOverridesByWeek'> | undefined,
+  week: WendlerWeek,
+  dayId: string | undefined,
+): boolean {
+  if (!plan?.dayOverridesByWeek || !dayId) return false;
+  const key = `${week}|${dayId}`;
+  return plan.dayOverridesByWeek[key]?.skipped === true;
+}
+
+/**
+ * Per-day skip details (`skipReason` + `skipNote`) when a day is marked
+ * skipped for a week, else `undefined`. Used by the UI to render the
+ * "Skipped — <note>" card on /program/block.
+ */
+export function getDaySkip(
+  plan: Pick<BlockPlan, 'dayOverridesByWeek'> | undefined,
+  week: WendlerWeek,
+  dayId: string | undefined,
+): { skipReason?: string; skipNote?: string } | undefined {
+  if (!plan?.dayOverridesByWeek || !dayId) return undefined;
+  const key = `${week}|${dayId}`;
+  const entry = plan.dayOverridesByWeek[key];
+  if (!entry?.skipped) return undefined;
+  return { skipReason: entry.skipReason, skipNote: entry.skipNote };
+}
+
+/**
  * Materialize a BlockPlan from a legacy block (no `plan` field).
  *
  * Two overloads:

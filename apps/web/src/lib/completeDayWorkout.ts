@@ -5,8 +5,10 @@ import {
   advanceCursor,
   effectivePlan,
   effectiveScheduleDays,
+  isDaySkipped,
   resolveDayAssistance,
   type AssistanceEntry,
+  type ProgramBlock,
   type WendlerWeek,
 } from '@wendler/domain';
 import { getDb } from './db';
@@ -138,7 +140,15 @@ export async function advanceScheduleAfterDay(
   const block = await db.blocks.get(blockId);
   if (!block) return;
 
-  const next = advanceCursor({ week, groupIndex: dayIdx }, block, groups.length);
+  // Skip-aware advance: after the basic cursor.groupIndex+1 / week+1 step,
+  // keep advancing while the new slot points at a day flagged
+  // `skipped: true` in plan.dayOverridesByWeek. Bounded by the same
+  // advanceCursor walk that handles week boundaries — once the cursor
+  // walks off the end of the block, we exit with null.
+  let next = advanceCursor({ week, groupIndex: dayIdx }, block, groups.length);
+  while (next && nextSlotIsSkipped(block, next.week, next.groupIndex)) {
+    next = advanceCursor(next, block, groups.length);
+  }
   const now = new Date().toISOString();
   if (next) {
     await db.schedule.put({
@@ -150,4 +160,21 @@ export async function advanceScheduleAfterDay(
     const { cursor: _drop, ...rest } = schedule;
     await db.schedule.put({ ...rest, updatedAt: now });
   }
+}
+
+/**
+ * True iff the (week, groupIndex) slot points at a day flagged
+ * `skipped: true` in the block plan's per-week overrides. The mapping
+ * from groupIndex → plan.dayId assumes block.plan.days is ordered the
+ * same as the schedule's day groups (which is how `derivePlan` builds
+ * it — see packages/domain/src/blocks.ts).
+ */
+function nextSlotIsSkipped(
+  block: ProgramBlock,
+  week: WendlerWeek,
+  groupIndex: number,
+): boolean {
+  const planDay = block.plan?.days?.[groupIndex];
+  if (!planDay) return false;
+  return isDaySkipped(block.plan, week, planDay.id);
 }

@@ -19,7 +19,9 @@ import {
   derivePlan,
   effectivePlan,
   effectiveScheduleDays,
+  getDaySkip,
   hasDayAssistanceOverride,
+  isDaySkipped,
   resolveDayAssistance,
   supplementalPercentages,
   type AssistanceEntry,
@@ -527,6 +529,8 @@ function DayCard({
   // which is `[]` for new blocks and the original default for migrated ones).
   const isOverride = hasDayAssistanceOverride(plan, weekScope, day.id);
   const entries = resolveDayAssistance(plan, weekScope, day.id);
+  const dayIsSkipped = isDaySkipped(plan, weekScope, day.id);
+  const skipDetail = getDaySkip(plan, weekScope, day.id);
   const writeAssistance = (next: AssistanceEntry[]) => {
     onSetOverride(weekScope, next);
   };
@@ -614,6 +618,14 @@ function DayCard({
                 Accessory
               </span>
             )}
+            {dayIsSkipped && (
+              <span
+                className="shrink-0 rounded-full bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-300 ring-1 ring-rose-500/30"
+                title={`Skipped for ${weekScope === 'deload' ? 'deload week' : `week ${weekScope}`}${skipDetail?.skipReason ? ` — ${skipDetail.skipReason.replace('-', ' ')}` : ''}`}
+              >
+                Skipped
+              </span>
+            )}
           </div>
         </div>
         <div className="flex shrink-0 gap-1">
@@ -628,6 +640,31 @@ function DayCard({
 
       {expanded && (
         <div className="space-y-0">
+          {dayIsSkipped && (
+            <div className="border-t border-rose-500/30 bg-rose-500/[0.07] px-4 py-3">
+              <div className="flex items-baseline gap-2">
+                <span className="text-rose-300" aria-hidden>
+                  ⌀
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-rose-200">
+                    Skipped this week
+                    {skipDetail?.skipReason
+                      ? ` · ${skipDetail.skipReason.replace('-', ' ')}`
+                      : ''}
+                  </p>
+                  {skipDetail?.skipNote && (
+                    <p className="mt-1 text-xs text-rose-100/80">{skipDetail.skipNote}</p>
+                  )}
+                  <p className="mt-1 text-[11px] text-rose-100/60">
+                    The day stays in your rotation; the strength session is just paused for{' '}
+                    {weekScope === 'deload' ? 'the deload week' : `week ${weekScope}`}. Cardio plan
+                    entries on this weekday still run.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Main lifts — editable pills with picker. Accent bar = orange (primary work). */}
           <Section accent="bg-accent" title="Main lifts">
             <MainLiftPicker
