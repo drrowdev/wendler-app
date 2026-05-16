@@ -166,14 +166,20 @@ async function buildContextBlob(): Promise<string> {
       lines.push(dayHeader);
       if (day.assistance.length > 0) {
         for (const entry of day.assistance) {
-          const mid = entry.movementId ?? '(no id)';
+          const mid = entry.movementId ?? '(no movement id)';
           const reps =
             entry.repsMax != null
               ? `${entry.reps}-${entry.repsMax}`
               : String(entry.reps);
           const amrap = entry.isAmrap ? '+' : '';
+          // IMPORTANT: emit entry.id (stable assistance-entry ID, used by
+          // trim_assistance_entry.entryId / remove_assistance_entry.entryId
+          // / swap_assistance_movement.entryId) AND entry.movementId (the
+          // library reference, used by suggest_assistance + add_assistance_entry).
+          // Labelling matters — the model previously confused movementId for
+          // entryId because we only emitted one ambiguous `id=` field.
           lines.push(
-            `    - ${entry.category}: ${entry.movementName} (id=\`${mid}\`) — ${entry.sets}×${reps}${amrap}${entry.unit === 'sec' ? ' sec' : ''}`,
+            `    - ${entry.category}: ${entry.movementName} (entryId=\`${entry.id}\`, movementId=\`${mid}\`) — ${entry.sets}×${reps}${amrap}${entry.unit === 'sec' ? ' sec' : ''}`,
           );
         }
       }
