@@ -15,13 +15,13 @@ Jim writes, that's flagged explicitly).
 | Rounding weights to nearest 2.5 kg / 5 lb | Plate math chapter | `rounding.ts` — both kg and lb supported. |
 | Wave structure 5/3/1 + optional 5s PRO | Chapters 3–4 | `waves.ts` produces sets per week per lift. |
 | AMRAP "+" sets on top set of weeks 1–3 | Original 5/3/1 | Toggleable per program (5s PRO disables). |
-| Deload week (every 4th) | 5/3/1 deload | Generated automatically when scheduling a block. |
+| Deload week (7th-week protocol) | 5/3/1 deload & *Forever* leader/anchor cadence | After **2 consecutive normal-volume blocks (~6 weeks)** a deload becomes the default 7th-week pick. The app never auto-schedules it — the user picks `deload` / `tm-test` / `pr-test` when starting the 7th-week block. The Coach agent can also propose a `schedule_deload` action chip from chat. |
 | Joker sets (optional after a strong AMRAP) | *Forever* ch. 6 | Not implemented. |
 | First Set Last (FSL) | Supplemental — *Forever* ch. 7 | `supplemental.ts` |
 | Boring But Big (BBB) 5×10 @ 50–70% TM | Supplemental — *Forever* ch. 7 | `supplemental.ts` |
 | Pyramid sets | *Forever* | `supplemental.ts` |
 | Periodization Bible (PB) assistance buckets | *Forever* assistance chapter | Push / Pull / Single-leg + core, 25–50 reps each. |
-| AI-assisted assistance picker | **Extrapolation** — not in 5/3/1 | Optional "Suggest assistance" on the block editor calls Claude to fill every training day at once, constrained by a deterministic validator. Goal flags (marathon / hypertrophy / aesthetics / longevity / pain) and pre-long-run-day awareness shape the picks. Rationales (≤120 chars per entry) are surfaced inline. |
+| AI-assisted assistance picker | **Extrapolation** — not in 5/3/1 | The Programmer agent (Claude Sonnet) fills every training day in a block at once, constrained by a deterministic validator. Training-profile axes (primary goal × secondary toggles × phase × race calendar) and pre-long-run-day awareness shape the picks. Per-entry rationales (≤120 chars) are surfaced inline. The deterministic `suggestAssistance()` engine acts as a guaranteed fallback. |
 | Block templates: Leviathan, Krypteia, Building the Monolith | *Forever* full programs | `blocks.ts` – pick a template when starting a block. |
 
 ## Tracking & analytics
@@ -32,7 +32,7 @@ Jim writes, that's flagged explicitly).
 | PR detection per lift / rep range | Encouraged by Jim ("PR sets") | `pr-detection.ts`. |
 | Training Max progression | Wendler's TM bump rules | +2.5 kg upper, +5 kg lower per cycle. User-overridable. |
 | Volume & intensity charts | Beyond 5/3/1 — extrapolation | Useful diagnostic. Don't override the program based on charts. |
-| Pain flag on movements | Not in 5/3/1 directly, but Jim writes "if it hurts, swap it" | App suggests alternatives if a movement is flagged. |
+| Injury / movement-limitation tracking | Not in 5/3/1, but "if it hurts, swap it" | The Coach agent (Claude Haiku 4.5) analyses a logged injury against the user's library + active block and proposes per-movement adjustments (`skip` / `reduce-load` / `reduce-range` / `modify-execution` / `monitor`). The user accepts or declines each one individually with a preview of what changes before any write. Active limitations show on every training surface via a persistent banner. PainFlag was the v0.x predecessor — superseded by the Injury record. |
 
 ## Cross-domain (v0.6.0)
 
@@ -59,10 +59,67 @@ peaking and "easy weeks" are consistent with what the app suggests:
 These are heuristics, not prescriptions. The app never adjusts your
 program automatically — it just shows the recommendation.
 
-## What this app deliberately does NOT do
+## Training Profile + phase auto-derivation (v1.3.0)
+
+The four-axis training profile lives in
+`packages/domain/src/training-profile.ts`:
+
+- **Primary goal** — strength / hypertrophy / longevity / endurance / aesthetics.
+- **Secondary toggles** — additive flavors (e.g. always-include core, hip-stability prehab).
+- **Phase** — `normal` / `peak` / `taper` / `deload`. Derived in this order: manual override > race proximity > block kind > normal.
+- **Race calendar** — A/B/C priority races drive both taper logic and phase auto-shift.
+
+Race-proximity windows: A or B priority ≤14d → `taper`; A 15–28d →
+`peak`; B 15–21d → `peak`. Block-derived: when the active block is
+`kind: 'seventh-week'` with `seventhWeekKind === 'deload'`, phase
+auto-derives to `deload`. The visible-week Assistance volume chip is
+auto-shifted by `effectiveAssistanceVolumeForPhase()` (deload →
+`minimal`, taper → `minimal`, peak → demote one tier).
+
+**No-silent-automation UX**: a `PhaseAutoBadge` is shown on the block
+editor header, `/goals`, and the AI suggester header whenever the phase
+is auto-derived (not manual); a one-time toast fires the first time
+each (source, phase) bucket becomes active. The user can always
+dismiss or override.
+
+## Agentic architecture (v1.5.0)
+
+The app's AI surface is split into four specialist agents plus a chat
+orchestrator. Each agent has a single responsibility, a typed input/
+output contract, and a deterministic fallback or no-op path. All
+agent calls go through the user's own Anthropic API key (server-side)
+— nothing leaves the device if the key isn't configured.
+
+| Agent | Model | Job |
+|---|---|---|
+| **Programmer** | Claude Sonnet | Fill an entire block's assistance slots with rationale chips. Validator-checked, deterministic fallback per-day. |
+| **Coach** | Claude Haiku 4.5 | Analyse a logged injury against the user's library + active block; propose per-movement adjustments (skip / reduce-load / reduce-range / modify-execution / monitor). Plan-aware: knows what's actually scheduled. |
+| **Periodizer** | Claude Sonnet | Sequence blocks within a program — leader/anchor cadence, 7th-week kind, race-driven taper insertion. |
+| **Summarizer** | Claude Sonnet | Weekly review: what happened, what's trending, what to watch. Rendered on `/stats`. |
+| **Chat orchestrator** | Claude Sonnet (tool-use) | The `/chat` page. Grounded in a training-data snapshot. Can emit "action chips" proposing writes the user explicitly approves. |
+
+**Action chips** (chat → user-approved writes):
+
+| Kind | Effect |
+|---|---|
+| `log_injury` | Opens the InjurySheet pre-filled, then runs the Coach analysis. |
+| `set_training_max` | Writes a new TrainingMaxRecord (history preserved). |
+| `set_block_volume_preset` | Switches the active block's assistance preset (minimal / standard / high). |
+| `schedule_deload` | Inserts a 7th-week deload block right after the active block. |
+| `substitute_movement` | Swaps one assistance entry on a specific day, preserving sets × reps. |
+
+Every chip shows a **before/after preview** in the user's UI before
+applying — kg deltas for TMs, rep-budget deltas for volume presets,
+the exact day + entry for movement swaps, the sequence position for
+deload inserts. Nothing writes silently. The injury analysis flow has
+its own two-button (Accept / Decline) decision UI per adjustment with
+Save disabled until every adjustment is decided.
+
+
 
 - It does not pick supplemental work for you. You choose.
 - It does not assume your goals from your data. You set them.
 - It does not "auto-deload" — that's still your call after seeing the coach.
 - It does not gamify training (no streaks-as-pressure, no badges).
 - It does not require an account. Cloud sync is opt-in via personal Microsoft account.
+- **The AI never writes anything silently.** Every Programmer / Coach / chat-orchestrator write proposes a change with a before/after preview; the user accepts, declines, or modifies. There is no "agent runs in the background and edits your plan" mode.

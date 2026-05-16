@@ -110,7 +110,7 @@ more than throughput.
 - **Cardio domain helpers** live in
   `packages/domain/src/cardio-analytics.ts` — pure, vitest-covered, no
   Dexie / `db-schema` value imports.
-- **Training Profile + AI assistance suggester (v1.3.0 work).** The
+- **Training Profile + AI assistance suggester (Programmer agent, v1.3.0 work).** The
   four-axis profile (primary goal × secondary toggles × phase × race
   calendar) lives in `packages/domain/src/training-profile.ts` —
   `effectiveTrainingPhase`, `effectiveTrainingPhaseInfo` (returns
@@ -139,3 +139,41 @@ more than throughput.
   (`apps/web/src/components/SuggestAssistanceForBlock.tsx`) uses the
   same effective preset, so what the chip shows is what the LLM sees.
   See `HANDOFF.md` at the repo root for a full cross-tool brief.
+- **Agentic architecture (v1.5.0 — current).** Four specialist agents
+  plus a chat orchestrator. Runners live at
+  `apps/api/src/agents/<name>/runner.ts` (Coach, Programmer,
+  Periodizer, Summarizer); prompts in
+  `packages/domain/src/agents/<name>/prompt.ts` are **mirrored** into
+  `apps/api/src/agents/<name>/prompt.ts` because the SWA Functions
+  packager can't follow `@wendler/domain` extensionless ESM imports.
+  Keep the two in lockstep manually on every prompt change. Coach
+  default model is `claude-haiku-4-5` (Sonnet causes SWA proxy
+  timeouts on the ~30 KB user prompt); everyone else uses
+  `claude-sonnet-4-6`. See `docs/architecture.md` for the full agent
+  table and env-var matrix.
+- **Chat action chips + preview-before-write.** Chat orchestrator
+  emits a `<actions>` JSON sidecar; parser at
+  `apps/api/src/llm/chat-actions-parse.ts` (mirrored from
+  `packages/domain/src/agents/chat/chat-actions-parse.ts`). Five
+  chip kinds: `log_injury`, `set_training_max`,
+  `set_block_volume_preset`, `schedule_deload`,
+  `substitute_movement`. Adding a new chip requires changes in three
+  places: the discriminated union in
+  `packages/db-schema/src/types.ts`, the parser validator, and the
+  client handler in `apps/web/src/lib/chat-actions.ts`. **Hard rule**:
+  every AI-driven write goes through a before/after preview in the UI
+  before persisting. Live diff components for each chip kind are in
+  `apps/web/src/components/ChatActionChips.tsx`; the injury-driven
+  swap preview lives in `apps/web/src/components/injury/InjurySheet.tsx`
+  (`SwapPreviewPanel`); the `/recovery/injuries` "Preview & apply
+  skips" button is on `apps/web/src/app/recovery/injuries/page.tsx`.
+  When wiring up a new write path, look at these for the pattern.
+- **Injury system (Coach agent).** Replaces the older `painFlags`
+  table for active limitations. Injury records live in the `injuries`
+  Dexie table (v18 schema) — each carries `area`, `severity`,
+  `summary`, `consultRecommended`, `adjustments[]` with per-adjustment
+  `status: 'pending' | 'accepted' | 'declined'`. Surfaced everywhere
+  via the persistent `ActiveLimitationsBanner` (mounted on every
+  training surface). The detailed list page is
+  `apps/web/src/app/recovery/injuries/page.tsx`. The Coach analysis
+  workflow is `apps/api/src/functions/workflows/analyzeInjury.ts`.

@@ -25,7 +25,7 @@ ships an installable manifest + service worker. Sync is opt-in:
 ## Schema versions
 
 Dexie migrations live in `apps/web/src/lib/db.ts`. The schema version is
-shared via `packages/db-schema/src/index.ts`. Current: **v10**.
+shared via `packages/db-schema/src/index.ts`. Current: **v19**.
 
 | Version | Added |
 |---|---|
@@ -39,6 +39,15 @@ shared via `packages/db-schema/src/index.ts`. Current: **v10**.
 | 8 | block-level assistance + warm-ups |
 | 9 | sync push-watermark reset (re-push on app upgrade) |
 | 10 | runPlan singleton (recurring weekly cardio template) |
+| 11 | strengthHr (HR series from Strava-imported strength sessions) |
+| 12 | races (race calendar — A/B/C priority, drives taper logic) |
+| 13 | wellness (illness episodes; powers "welcome back" recommender) |
+| 14 | notifications (unified inbox: phase shifts, AI events, sync conflicts) |
+| 15 | aiGenerations (prompt + response audit log for AI suggester runs) |
+| 16 | chats (user-AI chat conversations grounded in a training snapshot) |
+| 17 | userProfile (demographics + training background; feeds agent prompts) |
+| 18 | injuries (active + resolved movement-limitation episodes + Coach-proposed adjustments) |
+| 19 | weeklyReviews (Summarizer agent output — one per ISO week) |
 
 ## Service-worker / PWA cache
 
@@ -162,7 +171,7 @@ Cold-start (Banister): TSB/ACWR are suppressed. The 4-week rolling
 baseline (mean ± SD of weekly stress) is computed and shown for context
 but no longer feeds urgency.
 
-## AI assistance suggester
+## AI assistance suggester (Programmer agent)
 
 Optional layer on top of the deterministic assistance engine
 (`packages/domain/src/assistance-suggest.ts`). Lets the user fill an
@@ -259,8 +268,75 @@ LLM-picked days are kept.
 
 | Setting | Where | Notes |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Azure SWA → Configuration | Without it the API returns `503 llm-not-configured` and the client silently uses the deterministic engine. |
-| `ANTHROPIC_MODEL` / `ANTHROPIC_MAX_TOKENS` / `ANTHROPIC_TEMPERATURE` | Azure SWA → Configuration (optional) | Defaults: `claude-sonnet-4-6`, 8000 tokens, temperature 0.3. |
+| `ANTHROPIC_API_KEY` | Azure SWA → Configuration | Without it any AI endpoint returns `503 llm-not-configured` and the client silently uses deterministic fallbacks where they exist. |
+| `ANTHROPIC_MODEL` | Azure SWA → Configuration (optional) | Default model used by Programmer / Periodizer / Summarizer / chat orchestrator. Defaults to `claude-sonnet-4-6`. |
+| `ANTHROPIC_MAX_TOKENS` / `ANTHROPIC_TEMPERATURE` | Azure SWA → Configuration (optional) | Defaults: 8000 tokens (6000 for Periodizer/Summarizer), temperature 0.3 (0.2 for Periodizer/Coach). |
+| `ANTHROPIC_COACH_MODEL` | Azure SWA → Configuration (optional) | Override Coach model. Defaults to `claude-haiku-4-5` (chosen for 3-5× faster injury analyses; falls back gracefully if the alias is removed). |
+| `ANTHROPIC_COACH_MAX_TOKENS` / `ANTHROPIC_COACH_TEMPERATURE` / `ANTHROPIC_COACH_TIMEOUT_MS` | Azure SWA → Configuration (optional) | Defaults: 4000 tokens, temperature 0.2, 25 s timeout (under the SWA proxy ceiling). |
+| `ANTHROPIC_CHAT_MAX_TOKENS` / `ANTHROPIC_CHAT_TEMPERATURE` | Azure SWA → Configuration (optional) | Chat-orchestrator overrides. Defaults: 8000 tokens, temperature 0.3. |
+| `ANTHROPIC_TOOL_MAX_TOKENS` | Azure SWA → Configuration (optional) | Max tokens for chat tool dispatch. Default 1500. |
+
+## Agentic architecture
+
+Beyond the Programmer (suggester) above, the app runs three more
+specialist agents plus a chat orchestrator. Each has its own runner in
+`apps/api/src/agents/<name>/runner.ts` and shares prompt code with
+`packages/domain/src/agents/<name>/prompt.ts` (mirror pattern — see
+AGENTS.md).
+
+| Agent | Endpoint | Model default | Purpose |
+|---|---|---|---|
+| Programmer | `/api/suggestAssistance` | `claude-sonnet-4-6` | Fill an entire block's assistance with rationale chips (see section above). |
+| Coach | `/api/workflows/analyzeInjury` | `claude-haiku-4-5` | Analyse a logged injury → propose per-movement adjustments (skip / reduce-load / reduce-range / modify-execution / monitor). |
+| Periodizer | `/api/agents/periodize` | `claude-sonnet-4-6` | Sequence blocks within a program (leader / anchor cadence, 7th-week kind, race-driven taper insertion). |
+| Summarizer | `/api/agents/summarize` | `claude-sonnet-4-6` | Weekly review rendered on `/stats`; stored in `weeklyReviews` table. |
+| Chat orchestrator | `/api/chat` | `claude-sonnet-4-6` | The `/chat` page. Grounded in a training-data snapshot, can emit "action chips" (tool-use). |
+
+### Action-chip protocol
+
+The chat orchestrator can emit a sidecar `<actions>` JSON block in its
+SSE stream that the server intercepts before the visible prose is
+flushed. Parser lives at
+`apps/api/src/llm/chat-actions-parse.ts` (mirror of
+`packages/domain/src/agents/chat/chat-actions-parse.ts`). Five kinds:
+
+| Kind | Effect |
+|---|---|
+| `log_injury` | Opens the InjurySheet pre-filled, then triggers the Coach analysis. |
+| `set_training_max` | Writes a new TrainingMaxRecord. |
+| `set_block_volume_preset` | Switches the active block's assistance preset. |
+| `schedule_deload` | Inserts a 7th-week deload block right after the active block. |
+| `substitute_movement` | Swaps one assistance entry on a specific day, preserving sets × reps. |
+
+Every chip renders a **before/after preview** before applying (live
+Dexie lookups for current TM, current preset, affected entries, etc.).
+Adding a new chip kind requires changes in three places: the
+`ChatAction` discriminated union (`packages/db-schema/src/types.ts`),
+the parser validator, and the client handler in
+`apps/web/src/lib/chat-actions.ts`.
+
+### Coach prompt + SWA proxy timeout
+
+The Coach prompt is large (~30 KB user prompt with the full movement
+library). On Azure Static Web Apps the proxy enforces a ~30 s
+synchronous-response ceiling. To keep the call inside that budget the
+Coach runner uses `client.messages.stream()` (SSE keep-alive) with a
+25 s `AbortController` race and a focused movement library (single-
+joint isolation, pure prehab, and plyometrics stripped from the
+payload). Default model is Haiku 4.5 for the 3-5× latency win;
+`ANTHROPIC_COACH_MODEL` lets you fall back to Sonnet or Opus.
+
+### Privacy + audit
+
+- Every AI-applied write emits a `Notification` on the `ai-action`
+  channel with a dedupe-key of `chat-action:<actionId>`, so the user
+  has a paper trail.
+- `ChatAction.appliedDetails` (per-kind discriminated union) captures
+  the before/after pair at apply time.
+- Failures stash an `applyError` inline; chip status stays `pending`
+  so the user can retry.
+- The repo is public on GitHub; system prompts use "the user" /
+  "their" — no real names ever go upstream to the LLM.
 
 ## Conventions
 
