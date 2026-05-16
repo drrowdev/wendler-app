@@ -7,6 +7,22 @@ import { getDb } from '@/lib/db';
 import { kickSync } from '@/lib/sync';
 import { deleteWithTombstones } from '@/lib/delete';
 import { InjurySheet } from '@/components/injury/InjurySheet';
+import type { Injury, ProgramBlock } from '@wendler/db-schema';
+
+const ACTION_LABEL: Record<string, string> = {
+  skip: 'Skip',
+  'reduce-load': 'Reduce load',
+  'reduce-range': 'Reduce range',
+  'modify-execution': 'Modify execution',
+  monitor: 'Monitor',
+};
+const ACTION_TONE: Record<string, string> = {
+  skip: 'border-rose-500/50 bg-rose-500/15 text-rose-200',
+  'reduce-load': 'border-amber-500/50 bg-amber-500/15 text-amber-200',
+  'reduce-range': 'border-amber-500/40 bg-amber-500/10 text-amber-200',
+  'modify-execution': 'border-sky-500/50 bg-sky-500/15 text-sky-200',
+  monitor: 'border-violet-500/40 bg-violet-500/10 text-violet-200',
+};
 
 export default function InjuriesPage() {
   const all = useAllInjuries();
@@ -31,39 +47,36 @@ export default function InjuriesPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <header className="flex items-end justify-between gap-2">
-        <div>
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="space-y-1">
           <h1 className="text-3xl font-bold tracking-tight">Injuries</h1>
-          <p className="text-xs text-muted">
-            Active limitations and history. The Coach agent reads accepted adjustments and the
-            Programmer agent routes around them when generating assistance.
+          <p className="max-w-2xl text-sm text-muted">
+            Active limitations and history. The Coach agent reads accepted adjustments
+            and the Programmer agent routes around them when generating assistance.
           </p>
         </div>
         <button
           type="button"
           onClick={() => setShowNew(true)}
-          className="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-bg"
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg shadow-sm"
         >
           + Log limitation
         </button>
       </header>
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-amber-200">
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-amber-200">
           Active ({active.length})
         </h2>
         {active.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border bg-bg p-3 text-sm text-muted">
+          <p className="rounded-xl border border-dashed border-border bg-bg/40 p-4 text-sm text-muted">
             No active limitations. 🎉
           </p>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {active.map((inj) => (
-              <li
-                key={inj.id}
-                className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3"
-              >
+              <li key={inj.id}>
                 <InjuryRow injury={inj} onDelete={onDelete} />
               </li>
             ))}
@@ -71,18 +84,18 @@ export default function InjuriesPage() {
         )}
       </section>
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">
           Resolved ({resolved.length})
         </h2>
         {resolved.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border bg-bg p-3 text-sm text-muted">
+          <p className="rounded-xl border border-dashed border-border bg-bg/40 p-4 text-sm text-muted">
             No history yet.
           </p>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-3">
             {resolved.map((inj) => (
-              <li key={inj.id} className="rounded-xl border border-border bg-card p-3 opacity-90">
+              <li key={inj.id}>
                 <InjuryRow injury={inj} onDelete={onDelete} onReopen={onReopen} />
               </li>
             ))}
@@ -101,15 +114,16 @@ export default function InjuriesPage() {
 }
 
 interface InjuryRowProps {
-  injury: import('@wendler/db-schema').Injury;
+  injury: Injury;
   onDelete: (id: string) => void;
   onReopen?: (id: string) => void;
 }
 
 function InjuryRow({ injury, onDelete, onReopen }: InjuryRowProps) {
   const [editing, setEditing] = useState(false);
-  const accepted = injury.adjustments.filter((a) => a.status === 'accepted');
-  const declined = injury.adjustments.filter((a) => a.status === 'declined');
+  const [applying, setApplying] = useState(false);
+  const [applyMsg, setApplyMsg] = useState<string | undefined>();
+  const isActive = !injury.resolvedAt;
 
   const toggleAdjustment = async (adjId: string) => {
     const db = getDb();
@@ -131,35 +145,129 @@ function InjuryRow({ injury, onDelete, onReopen }: InjuryRowProps) {
     kickSync();
   };
 
+  // Apply skip-action substitutions to the active block. Only `skip`
+  // triggers a swap — `reduce-load` means "do this movement lighter",
+  // not "swap to a different movement". `monitor` / `reduce-range` /
+  // `modify-execution` don't change the movement either; they're surfaced
+  // via the AssistanceTrack chip + suggester prompt.
+  //
+  // Used as the "retry" path when the user has edited the
+  // accepted/declined set after the original save. Falls back to a
+  // family-match heuristic for alternatives (the original Coach
+  // alternatives aren't stored on the Injury record — they were
+  // ephemeral on the InjuryAnalysisResult).
+  const applyToBlock = async () => {
+    setApplying(true);
+    setApplyMsg(undefined);
+    try {
+      const db = getDb();
+      const blocks = await db.blocks.toArray();
+      const active = blocks.find((b) => !b.completedAt);
+      if (!active || !active.plan) {
+        setApplyMsg('No active block with a plan found.');
+        return;
+      }
+      const skipAdjustments = injury.adjustments.filter(
+        (a) => a.status === 'accepted' && a.action === 'skip',
+      );
+      if (skipAdjustments.length === 0) {
+        setApplyMsg(
+          'No accepted skip adjustments to apply. Reduce-load / monitor / modify-execution don\'t swap the movement.',
+        );
+        return;
+      }
+      const movements = await db.movements.toArray();
+      const byId = new Map(movements.map((m) => [m.id, m] as const));
+      let touched = false;
+      let block: ProgramBlock = active;
+      let swapsCount = 0;
+      for (const adj of skipAdjustments) {
+        const source = byId.get(adj.movementId);
+        if (!source) continue;
+        // Same-pattern, primary-muscle-disjoint preference for bodyweight.
+        const candidates = movements.filter(
+          (m) =>
+            m.id !== source.id &&
+            m.pattern === source.pattern &&
+            !m.primaryMuscles.some((pm) => source.primaryMuscles.includes(pm)),
+        );
+        const pick =
+          candidates.find((m) => m.equipment === 'bodyweight') ?? candidates[0];
+        if (!pick) continue;
+        const plan = block.plan!;
+        const days = plan.days.map((d) => {
+          const next = d.assistance.map((e) => {
+            if (e.movementId !== source.id) return e;
+            touched = true;
+            swapsCount += 1;
+            return { ...e, movementId: pick.id, movementName: pick.name };
+          });
+          return { ...d, assistance: next };
+        });
+        block = { ...block, plan: { ...plan, days } };
+      }
+      if (!touched) {
+        setApplyMsg(
+          'The accepted skip-adjustments don\'t match anything in your active block plan.',
+        );
+        return;
+      }
+      await db.blocks.put({ ...block, updatedAt: new Date().toISOString() });
+      kickSync();
+      setApplyMsg(
+        `Applied ${swapsCount} swap${swapsCount === 1 ? '' : 's'} to block "${active.name}".`,
+      );
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const acceptedCount = injury.adjustments.filter((a) => a.status === 'accepted').length;
+  const hasSkipAccepted = injury.adjustments.some(
+    (a) => a.status === 'accepted' && a.action === 'skip',
+  );
+
   return (
-    <div>
-      <div className="flex items-baseline justify-between gap-2">
-        <div>
-          <div className="font-semibold capitalize">{injury.area}</div>
-          <div className="text-[11px] text-muted">
-            Severity {injury.severity}/5 · {fmtDate(injury.startedAt)}
-            {injury.resolvedAt && <> → resolved {fmtDate(injury.resolvedAt)}</>}
+    <article
+      className={`rounded-2xl border p-4 sm:p-5 ${
+        isActive
+          ? 'border-amber-500/40 bg-amber-500/[0.04]'
+          : 'border-border bg-card opacity-90'
+      }`}
+    >
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h3 className="text-xl font-bold capitalize">{injury.area}</h3>
+            <span className="rounded bg-bg/60 px-2 py-0.5 text-xs font-semibold text-fg/80 ring-1 ring-border">
+              Severity {injury.severity}/5
+            </span>
+            <span className="text-xs text-muted">
+              Started {fmtDate(injury.startedAt)}
+              {injury.resolvedAt && <> · Resolved {fmtDate(injury.resolvedAt)}</>}
+            </span>
           </div>
+          <p className="mt-2 text-base leading-relaxed text-fg">{injury.description}</p>
         </div>
-        <div className="flex shrink-0 gap-1">
-          {!injury.resolvedAt && (
+        <div className="flex shrink-0 flex-wrap gap-1.5">
+          {isActive && (
             <button
               type="button"
               onClick={() => setEditing((v) => !v)}
-              className={`rounded border px-2 py-0.5 text-[11px] ${
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
                 editing
                   ? 'border-accent bg-accent/10 text-accent'
-                  : 'border-border text-muted hover:text-fg'
+                  : 'border-border bg-bg/40 text-muted hover:text-fg'
               }`}
             >
-              {editing ? 'Done' : 'Edit adjustments'}
+              {editing ? 'Done editing' : 'Edit'}
             </button>
           )}
           {onReopen && (
             <button
               type="button"
               onClick={() => onReopen(injury.id)}
-              className="rounded border border-border px-2 py-0.5 text-[11px] text-muted hover:text-fg"
+              className="rounded-lg border border-border bg-bg/40 px-3 py-1.5 text-xs font-medium text-muted hover:text-fg"
             >
               Reopen
             </button>
@@ -167,86 +275,116 @@ function InjuryRow({ injury, onDelete, onReopen }: InjuryRowProps) {
           <button
             type="button"
             onClick={() => onDelete(injury.id)}
-            className="rounded border border-border px-2 py-0.5 text-[11px] text-red-400 hover:bg-red-500/10"
+            className="rounded-lg border border-border bg-bg/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10"
           >
             Delete
           </button>
         </div>
-      </div>
-      <p className="mt-2 text-sm">{injury.description}</p>
+      </header>
+
       {injury.summary && (
-        <p className="mt-1 text-[11px] italic text-muted">{injury.summary}</p>
+        <details className="mt-3 text-sm text-muted">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide">
+            Coach analysis
+          </summary>
+          <p className="mt-2 leading-relaxed">{injury.summary}</p>
+        </details>
       )}
-      {editing ? (
-        <ul className="mt-2 space-y-1 text-xs">
+
+      <div className="mt-4 space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">
+            Adjustments ({acceptedCount} of {injury.adjustments.length} active)
+          </h4>
+          {isActive && hasSkipAccepted && (
+            <button
+              type="button"
+              onClick={() => void applyToBlock()}
+              disabled={applying}
+              className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-200 hover:bg-sky-500/15 disabled:opacity-50"
+            >
+              {applying ? 'Applying…' : 'Apply skips to block plan'}
+            </button>
+          )}
+        </div>
+        {applyMsg && (
+          <p className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-200">
+            {applyMsg}
+          </p>
+        )}
+        <ul className="space-y-2">
           {injury.adjustments.map((adj) => {
             const isAccepted = adj.status === 'accepted';
+            const actionLabel = ACTION_LABEL[adj.action] ?? adj.action;
+            const actionTone = ACTION_TONE[adj.action] ?? 'border-border bg-bg/40 text-muted';
             return (
               <li
                 key={adj.id}
-                className={`flex items-start gap-2 rounded px-2 py-1.5 ${
+                className={`flex items-start gap-3 rounded-xl border p-3 ${
                   isAccepted
-                    ? 'bg-emerald-500/10 ring-1 ring-emerald-500/30'
-                    : 'bg-bg/40 ring-1 ring-border/60'
+                    ? 'border-emerald-500/40 bg-emerald-500/5'
+                    : 'border-border/60 bg-bg/30 opacity-70'
                 }`}
               >
-                <button
-                  type="button"
-                  onClick={() => void toggleAdjustment(adj.id)}
-                  aria-pressed={isAccepted}
-                  title={isAccepted ? 'Tap to decline' : 'Tap to accept'}
-                  className={`shrink-0 rounded border px-2 py-0.5 text-[11px] font-semibold ${
-                    isAccepted
-                      ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100'
-                      : 'border-rose-500/40 bg-rose-500/10 text-rose-200'
-                  }`}
-                >
-                  {isAccepted ? '✓ Accepted' : '✕ Declined'}
-                </button>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[11px] uppercase tracking-wide text-muted">
-                    {adj.action.replace('-', ' ')}
-                  </div>
-                  <div className="mt-0.5">{adj.modification}</div>
+                {editing ? (
+                  <button
+                    type="button"
+                    onClick={() => void toggleAdjustment(adj.id)}
+                    aria-pressed={isAccepted}
+                    title={isAccepted ? 'Tap to decline' : 'Tap to accept'}
+                    className={`mt-0.5 shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                      isAccepted
+                        ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100'
+                        : 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+                    }`}
+                  >
+                    {isAccepted ? '✓ Accepted' : '✕ Declined'}
+                  </button>
+                ) : (
+                  <span
+                    className={`mt-0.5 shrink-0 rounded-lg border px-2 py-1 text-[11px] font-semibold ${
+                      isAccepted
+                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+                        : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                    }`}
+                  >
+                    {isAccepted ? '✓ Accepted' : '✕ Declined'}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1 space-y-1">
+                  <span
+                    className={`inline-block rounded-md border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${actionTone}`}
+                  >
+                    {actionLabel}
+                  </span>
+                  <p className="text-sm leading-relaxed">{adj.modification}</p>
+                  {adj.reasoning && (
+                    <p className="text-xs italic text-muted">{adj.reasoning}</p>
+                  )}
                 </div>
               </li>
             );
           })}
         </ul>
-      ) : (
-        <>
-          {accepted.length > 0 && (
-            <ul className="mt-2 space-y-0.5 text-xs">
-              {accepted.map((adj) => (
-                <li key={adj.id} className="rounded bg-bg/40 px-2 py-1 ring-1 ring-border/60">
-                  <span className="font-semibold text-amber-200">
-                    {adj.action.replace('-', ' ')}
-                  </span>
-                  <span className="ml-1">{adj.modification}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {declined.length > 0 && (
-            <details className="mt-2 text-[11px] text-muted">
-              <summary className="cursor-pointer">{declined.length} declined</summary>
-              <ul className="mt-1 space-y-0.5">
-                {declined.map((adj) => (
-                  <li key={adj.id} className="opacity-60">
-                    {adj.action.replace('-', ' ')}: {adj.modification}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </>
-      )}
+      </div>
+
       {injury.monitoringAdvice && (
-        <details className="mt-2 text-[11px] text-muted">
-          <summary className="cursor-pointer">Monitoring</summary>
-          <p className="mt-1">{injury.monitoringAdvice}</p>
+        <details className="mt-4 rounded-lg border border-border bg-bg/30 p-3 text-sm">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-muted">
+            Monitoring advice
+          </summary>
+          <p className="mt-2 leading-relaxed text-muted">{injury.monitoringAdvice}</p>
         </details>
       )}
-    </div>
+
+      {injury.consultRecommended && (
+        <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <div className="font-semibold text-amber-200">⚠ PT consult recommended</div>
+          {injury.consultReason && (
+            <p className="mt-1 text-xs text-amber-100/90">{injury.consultReason}</p>
+          )}
+        </div>
+      )}
+    </article>
   );
 }

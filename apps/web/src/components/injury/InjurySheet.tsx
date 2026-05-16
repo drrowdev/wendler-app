@@ -211,7 +211,12 @@ export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
         const adj = proposal.proposedAdjustments[i]!;
         const edit = edited.get(i);
         const action = edit?.action ?? adj.action;
-        if (action !== 'skip' && action !== 'reduce-load') continue;
+        // Only `skip` triggers a movement swap. `reduce-load` /
+        // `reduce-range` / `modify-execution` / `monitor` mean "keep the
+        // same movement but train it differently" — they're flagged via
+        // the AssistanceTrack chip + suggester prompt section, not via
+        // an automatic substitution.
+        if (action !== 'skip') continue;
         const top = adj.alternatives[0];
         if (!top) continue;
         if (top.movementId === adj.movementId) continue;
@@ -670,7 +675,7 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
                       Pending — pick Accept or Decline.
                     </p>
                   )}
-                  {adj.alternatives.length > 0 && isAccepted && (adj.action === 'skip' || adj.action === 'reduce-load') && (
+                  {adj.alternatives.length > 0 && isAccepted && adj.action === 'skip' && (
                     <div className="mt-2 rounded border border-sky-500/30 bg-sky-500/5 px-2 py-1 text-[11px] text-sky-200">
                       <span aria-hidden className="mr-1">⤳</span>
                       <span className="font-semibold">Auto-swap on accept:</span>{' '}
