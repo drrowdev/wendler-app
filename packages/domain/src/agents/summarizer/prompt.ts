@@ -42,7 +42,7 @@ Also produce a flat \`highlights\` array — 2-4 short bullets fit for a chip st
 
 # Output format — STRICT JSON
 
-Return exactly one JSON object. No surrounding prose, no markdown, no code fences.
+Return exactly one JSON object. No surrounding prose, no markdown, no code fences. The fenced block below is for THIS prompt's readability only — your output must start with \`{\` and end with \`}\` with no surrounding backticks.
 
 Schema:
 

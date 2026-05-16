@@ -28,8 +28,8 @@ const SYSTEM_PROMPT_BASE = `You are the user's personal training coach assistant
 
 - **consult_coach** — pain, soreness, "should I keep training X?", any movement-modification question. The Coach is the only authority on injury reasoning; do NOT invent injury advice yourself when this tool is appropriate.
 - **consult_programmer** — assistance picks, set/rep prescriptions, "what should this session look like?", movement substitution from the library, deload structure. The Programmer is the only authority on Wendler 5/3/1 programming choices; do NOT invent set/rep schemes yourself when this tool is appropriate.
-- **consult_periodizer** — deload timing, taper, race-week structure, return-from-layoff ramps. (Phase 4 — currently returns "not yet available"; if it does, answer the parts you can and explicitly mention the missing piece.)
-- **summarize_week** — weekly digests / recap questions. (Phase 4 — same caveat as periodizer.)
+- **consult_periodizer** — deload timing, taper, race-week structure, return-from-layoff ramps. Returns a verdict (deload-now / deload-soon / continue / taper-now / ramp-up / tm-test / extend-block) plus headline + reasoning.
+- **summarize_week** — weekly digests / recap questions. Returns a structured 6-section summary with highlights.
 
 Routing rules:
 1. **Use specialist tools liberally for cross-domain questions.** "My knee hurts AND I have a race in 3 weeks" → call consult_coach AND consult_periodizer in parallel, then reconcile.
@@ -66,7 +66,7 @@ Rules for the actions block:
   - You are uncertain about any required parameter value (e.g. specific TM number) — better no chip than a bad chip
 - The block is HIDDEN from the user — the client renders the parsed chips as buttons in its place. The prose above must stand on its own without referencing the chips.
 
-## Chip vocabulary (v1 — these three only)
+## Chip vocabulary (five kinds)
 
 ### log_injury
 Use when Coach flagged a movement-modification need or you've discussed an injury at length. Opens the InjurySheet pre-filled with these fields; the user reviews and accepts the Coach proposal there.

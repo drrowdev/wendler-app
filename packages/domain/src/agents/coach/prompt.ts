@@ -114,7 +114,7 @@ situation calls for it.
 
 # Output schema
 
-Return ONE JSON object. No prose outside the JSON. No code fence.
+Return ONE JSON object. No prose outside the JSON. No code fence. The fenced block below is for THIS prompt's readability only — your output must start with \`{\` and end with \`}\` with no surrounding backticks.
 
 \`\`\`
 {
@@ -126,7 +126,12 @@ Return ONE JSON object. No prose outside the JSON. No code fence.
       "modification": "Switch to bodyweight Bulgarian Split Squat. Re-introduce load only after 1-2 pain-free weeks.",
       "reasoning": "User reports bodyweight is pain-free; load is the trigger. Bodyweight removes the adductor demand that's currently sensitive."
     },
-    { ... }
+    {
+      "movementId": "seed:sumo-deadlift",
+      "action": "skip",
+      "modification": "Skip Sumo Deadlift until pain resolves. Use Conventional Deadlift instead if a hinge slot is scheduled.",
+      "reasoning": "Sumo's wide stance places direct adduction-eccentric load on the irritated structure; conventional removes that demand."
+    }
   ],
   "monitoringAdvice": "string — when/how to retest, what improvement looks like. 1 paragraph max.",
   "consultRecommended": false,
