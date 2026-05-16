@@ -1036,11 +1036,21 @@ export function resolveDayWeekday(day: {
  */
 export function computeLongRunDays(
   days: ReadonlyArray<{ weekday?: number | null; label?: string | null }>,
-  slots: ReadonlyArray<{ dayOfWeek: number; kind: string }> | undefined,
+  slots:
+    | ReadonlyArray<{ dayOfWeek: number; kind: string; modality?: string }>
+    | undefined,
 ): number[] | undefined {
   if (!slots || slots.length === 0) return undefined;
+  // Only run-modality long slots trigger the "day before a long run"
+  // pre-long-run guidance. Bike-long / row-long / swim-long don't
+  // produce the same running-chain muscle-fatigue pattern that motivates
+  // the heavy-lower-body veto. Slots without `modality` set are treated
+  // as runs (back-compat with pre-v20 RunPlan rows that didn't carry the
+  // field — every pre-v20 user had only run slots).
   const longDows = new Set(
-    slots.filter((s) => s.kind === 'long').map((s) => s.dayOfWeek),
+    slots
+      .filter((s) => s.kind === 'long' && (s.modality === undefined || s.modality === 'run'))
+      .map((s) => s.dayOfWeek),
   );
   if (longDows.size === 0) return undefined;
   const out: number[] = [];

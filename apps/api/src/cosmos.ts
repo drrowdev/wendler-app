@@ -61,6 +61,7 @@ export interface SyncDoc {
     | 'cardio'
     | 'recovery'
     | 'runPlan'
+    | 'cardioPlan'
     | 'stravaAuth'
     | 'race';
   recordId: string;      // domain entity id ("singleton" for settings/schedule)

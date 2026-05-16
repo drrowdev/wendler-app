@@ -37,6 +37,7 @@ export type SyncKind =
   | 'cardio'
   | 'recovery'
   | 'runPlan'
+  | 'cardioPlan'
   | 'race'
   | 'strengthHr'
   | 'wellness'
@@ -353,13 +354,16 @@ async function collectOutbound(sinceIso: string): Promise<OutboundDoc[]> {
   // RunPlan singleton: only one row, plain LWW on updatedAt — no bare-shape
   // hardening needed because the seedless lazy-create means there's no risk
   // of a "factory defaults" overwrite scenario like settings/schedule had.
-  const runPlan = await db.cardioPlan.get('singleton');
-  if (runPlan && runPlan.updatedAt > since) {
+  const cardioPlan = await db.cardioPlan.get('singleton');
+  if (cardioPlan && cardioPlan.updatedAt > since) {
     out.push({
-      kind: 'runPlan',
+      // Write the new canonical kind on push. The puller still accepts
+      // the legacy `runPlan` kind so docs already in Cosmos under that
+      // name land in the same local table.
+      kind: 'cardioPlan',
       recordId: 'singleton',
-      updatedAt: runPlan.updatedAt,
-      payload: runPlan,
+      updatedAt: cardioPlan.updatedAt,
+      payload: cardioPlan,
     });
   }
 
@@ -643,9 +647,26 @@ async function applyIncoming(doc: IncomingDoc) {
       await lwwPut(db.recovery, incoming, incoming.id);
       break;
     }
-    case 'runPlan': {
+    case 'runPlan':
+    case 'cardioPlan': {
+      // Both kinds map to the same local cardioPlan singleton. The
+      // legacy `runPlan` kind keeps working for any doc already in
+      // Cosmos under that name. The migration in db.ts also fills
+      // `modality: 'run'` per-slot when the incoming payload is
+      // pre-v20 shaped.
       const incoming = doc.payload as RunPlan;
-      await lwwPut(db.cardioPlan, incoming, 'singleton');
+      const slots = Array.isArray(incoming?.slots)
+        ? incoming.slots.map((s) => ({
+            dayOfWeek: s.dayOfWeek,
+            modality: s.modality ?? 'run',
+            kind: s.kind,
+          }))
+        : [];
+      await lwwPut(
+        db.cardioPlan,
+        { ...incoming, slots } as RunPlan,
+        'singleton',
+      );
       break;
     }
     case 'race': {

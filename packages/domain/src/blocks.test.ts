@@ -403,5 +403,41 @@ describe('effectivePlan label inheritance from schedule', () => {
         ]),
       ).toBeUndefined();
     });
+
+    it('ignores long slots whose modality is not run (bike/swim/row/etc)', () => {
+      const days = [{ weekday: 5 }];
+      // A long bike ride on Sat should NOT count as a long-run day —
+      // the pre-long-run veto on heavy lower-body is running-chain
+      // specific.
+      expect(
+        computeLongRunDays(days, [
+          { dayOfWeek: 5, kind: 'long', modality: 'bike' },
+        ]),
+      ).toBeUndefined();
+      expect(
+        computeLongRunDays(days, [
+          { dayOfWeek: 5, kind: 'long', modality: 'swim' },
+        ]),
+      ).toBeUndefined();
+    });
+
+    it('still counts long slots without an explicit modality field (back-compat with pre-v20 RunPlan rows)', () => {
+      const days = [{ weekday: 5 }];
+      expect(
+        computeLongRunDays(days, [
+          { dayOfWeek: 5, kind: 'long' }, // no modality field set
+        ]),
+      ).toEqual([0]);
+    });
+
+    it('counts the run-long slot and ignores the bike-long slot when both share a weekday', () => {
+      const days = [{ weekday: 5 }];
+      expect(
+        computeLongRunDays(days, [
+          { dayOfWeek: 5, kind: 'long', modality: 'run' },
+          { dayOfWeek: 5, kind: 'long', modality: 'bike' },
+        ]),
+      ).toEqual([0]);
+    });
   });
 });
