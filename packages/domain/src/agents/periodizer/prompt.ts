@@ -10,15 +10,18 @@
 // agent can fold into its reconciliation.
 //
 // Static-vs-dynamic convention:
-//   - System prompt: role, Wendler conventions, ACWR/TSB anchors, output
-//     schema. Constant.
+//   - System prompt: role, Wendler conventions, ACWR/TSB anchors, generic
+//     description of the `## Training anchors` user-prompt section, output
+//     schema. Constant — user-agnostic. No hardcoded user facts.
 //   - User prompt: built per-call from IndexedDB — current block + cursor,
 //     last-deload date, upcoming races, raw load signals, recent training
-//     summary, active limitations, user profile.
+//     summary, active limitations, user profile, and the user-specific
+//     `## Training anchors` block (TM%, goals, lift days/week, external
+//     cardio source, equipment exclusions, notes).
 
 export const PERIODIZER_SYSTEM_PROMPT = `# Role
 
-You are the periodization specialist for the user's Wendler 5/3/1 PWA. The user-prompt routes you one specific question about MACRO STRUCTURE — when to deload, how to taper for a race, how to ramp back from a layoff, whether to extend a block, whether form/fatigue signals warrant a change. You do NOT prescribe specific assistance picks; that is the Programmer's lane.
+You are the periodization specialist for a Wendler 5/3/1 PWA. The user-prompt routes you one specific question about MACRO STRUCTURE — when to deload, how to taper for a race, how to ramp back from a layoff, whether to extend a block, whether form/fatigue signals warrant a change. You do NOT prescribe specific assistance picks; that is the Programmer's lane.
 
 # Wendler periodization anchors
 
@@ -36,13 +39,17 @@ The user prompt includes pre-computed signals. Treat them as ground truth — do
 - **CTL (chronic load, 42d EWMA)** and **ATL (acute load, 7d EWMA)**. Trend, not threshold. Falling CTL during in-season = detraining.
 - **Weeks since last deload.** ≥ 6 weeks with no deload + a non-Anchor next block = strong deload signal. ≥ 8 weeks = mandatory unless the user is mid-taper.
 
-# How to handle the user's actual flavor
+# User-specific training anchors
 
-The user's locked anchors (the user prompt will repeat the relevant ones):
-- TM at 85% of true 1RM. Don't suggest changing this unless he asks.
-- Marathon-prep is a primary secondary goal. Cardio is programmed externally in Runna — read it as a load signal in your reasoning, but never prescribe runs.
-- 3 lift days/week (2 main + 1 accessory). 7th-week protocols use the same schedule.
-- No cables in the gym (irrelevant to your lane but listed so you don't suggest substitutions outside it).
+The user prompt MAY include a \`## Training anchors\` section listing the individual user's locked preferences — TM percentage of true 1RM, primary + secondary goals (e.g. strength, hypertrophy, marathon, longevity), lift days per week, external cardio source (e.g. "Runna" for run programming), equipment exclusions, and any user-authored free-text notes.
+
+When present, treat that section as constraints that bound your recommendations:
+- Do NOT suggest changing the user's TM% unless they explicitly ask.
+- Do NOT prescribe runs / cardio when an external cardio source is listed — read cardio as a load signal in your reasoning instead.
+- Do NOT suggest equipment substitutions outside the lane (those are the Programmer's call anyway, but stay clear of recommendations that would force one).
+- If the user's notes conflict with a generic recommendation, honor the notes and surface the conflict in \`explanation\`.
+
+When the section is absent, use neutral defaults: assume 85% TM%, mixed goals, 3-4 lift days/week, full equipment access. State your assumption in \`explanation\` so the user can correct it.
 
 # Verdict vocabulary (use ONE of these in output \`verdict\`)
 
@@ -147,6 +154,28 @@ export interface BuildPeriodizerPromptInput {
     yearsLifting?: number;
     yearsRunning?: number;
   };
+  /**
+   * The user's locked training anchors — TM percentage, goal mix, lift
+   * days per week, external cardio source, equipment exclusions, free-
+   * text notes. Rendered into the user prompt as a `## Training anchors`
+   * section so the system prompt can stay user-agnostic. All fields
+   * optional; the system prompt falls back to neutral defaults when
+   * absent.
+   */
+  trainingAnchors?: {
+    /** TM% of true 1RM, e.g. 0.85 */
+    tmPercent?: number;
+    /** Primary + secondary goals, e.g. ["strength", "marathon"] */
+    goals?: string[];
+    /** Lift days per week, e.g. 3 */
+    liftDaysPerWeek?: number;
+    /** External cardio source (e.g. "Runna") the user uses for run programming. */
+    externalCardioSource?: string;
+    /** Equipment NOT available (e.g. ["cables"]) */
+    unavailableEquipment?: string[];
+    /** Free-text user-authored notes about training preferences. */
+    notes?: string;
+  };
 }
 
 export interface BuiltPeriodizerPrompt {
@@ -184,6 +213,32 @@ function buildPeriodizerUserPrompt(input: BuildPeriodizerPromptInput): string {
       lines.push(`- Training experience: ${input.userProfile.trainingExperience}${yearsLift}${yearsRun}`);
     }
     if (lines.length > 0) sections.push(`## About the user\n${lines.join('\n')}`);
+  }
+
+  if (input.trainingAnchors) {
+    const a = input.trainingAnchors;
+    const lines: string[] = [];
+    if (typeof a.tmPercent === 'number') {
+      lines.push(`- Training Max set at ${Math.round(a.tmPercent * 100)}% of true 1RM (don't suggest changing unless asked).`);
+    }
+    if (a.goals && a.goals.length > 0) {
+      lines.push(`- Goals: ${a.goals.join(', ')}.`);
+    }
+    if (typeof a.liftDaysPerWeek === 'number') {
+      lines.push(`- Lift days per week: ${a.liftDaysPerWeek}.`);
+    }
+    if (a.externalCardioSource && a.externalCardioSource.trim()) {
+      lines.push(`- Cardio is programmed externally in ${a.externalCardioSource.trim()} — read it as a load signal, do NOT prescribe runs.`);
+    }
+    if (a.unavailableEquipment && a.unavailableEquipment.length > 0) {
+      lines.push(`- Unavailable equipment: ${a.unavailableEquipment.join(', ')} (do not suggest substitutions that would need them).`);
+    }
+    if (a.notes && a.notes.trim()) {
+      lines.push(`- User notes: ${a.notes.trim()}`);
+    }
+    if (lines.length > 0) {
+      sections.push(`## Training anchors\nUser-locked preferences — treat as constraints. If your recommendation conflicts with any of these, honor the anchor and surface the conflict in \`explanation\`.\n${lines.join('\n')}`);
+    }
   }
 
   sections.push(`## Question routed to you\n${input.question.trim()}`);
