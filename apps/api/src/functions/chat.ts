@@ -4,13 +4,25 @@ import {
   type HttpResponseInit,
   type InvocationContext,
 } from '@azure/functions';
-import { PassThrough } from 'node:stream';
 import Anthropic from '@anthropic-ai/sdk';
 import { verifyRequest } from '../auth';
 import { CHAT_TOOL_SPECS } from '../llm/chat-tool-specs';
 import { dispatchTool } from '../llm/chat-tools';
 import { parseChatActionsBlock } from '../llm/chat-actions-parse';
 import { randomUUID } from 'node:crypto';
+
+// Opt the Functions runtime into HTTP-stream mode. By default
+// @azure/functions v4 buffers the entire response body in memory before
+// flushing to the SWA/Functions proxy. For SSE that means none of our
+// keepalives or text deltas reach the client until the whole turn ends —
+// and on a multi-tool chat turn that easily exceeds the proxy's ~45 s
+// ceiling, giving the user a "Backend call failure" 500.
+// Reference: https://aka.ms/AzFuncNodeHttpStreams (requires
+// @azure/functions ≥ 4.5 + Functions host ≥ 4.34, both satisfied).
+//
+// app.setup() is idempotent and safe to call from a function-file module
+// scope — the runtime applies the merged options before any handler runs.
+app.setup({ enableHttpStream: true });
 
 interface IncomingMessage {
   role: 'user' | 'assistant';
@@ -476,38 +488,58 @@ ${context}
     }
   }
 
-  // Build the response as a PassThrough we control directly so we can:
-  //   1. Flush an initial SSE comment IMMEDIATELY (locks in the connection
-  //      before SWA's proxy can decide the upstream is hung).
-  //   2. Drip a periodic heartbeat (`: hb\n\n`) during long Anthropic
-  //      thinking pauses, so the connection stays warm even when there are
-  //      no text deltas to forward for 20+ seconds.
-  //   3. End the stream cleanly when the generator finishes or errors.
-  // SSE comments (lines starting with `:`) are spec-defined as keepalives —
-  // the browser EventSource API ignores them, the client's manual fetch
-  // parser ignores them, and the SWA proxy treats them as live bytes.
-  const stream = new PassThrough();
-  stream.write(': connected\n\n');
-  const heartbeat = setInterval(() => {
-    if (!stream.destroyed && stream.writable) stream.write(': hb\n\n');
-  }, 10_000);
+  // Build the response as a Web ReadableStream. Azure Functions v4 with
+  // enableHttpStream: true honors a Web ReadableStream body and pipes
+  // chunks straight through the worker → host → SWA proxy chain without
+  // buffering. Three layers in the stream:
+  //   1. Immediate `: connected` SSE comment — locks in the HTTP
+  //      connection before any Anthropic latency can starve it.
+  //   2. Periodic `: hb` heartbeat (every 10 s) — keeps the SWA proxy
+  //      from giving up during long composing pauses.
+  //   3. The actual sseGenerator chunks (text deltas, tool events, etc.).
+  // SSE comments (lines starting with `:`) are spec-defined as keepalives;
+  // the browser EventSource API + our manual fetch parser ignore them.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      controller.enqueue(encoder.encode(': connected\n\n'));
+      let closed = false;
+      const heartbeat = setInterval(() => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(': hb\n\n'));
+        } catch {
+          // Stream already closed — swallow.
+        }
+      }, 10_000);
 
-  (async () => {
-    try {
-      for await (const chunk of sseGenerator()) {
-        if (!stream.writable) break;
-        stream.write(chunk);
+      try {
+        for await (const chunk of sseGenerator()) {
+          if (closed) break;
+          controller.enqueue(encoder.encode(chunk));
+        }
+      } catch (err) {
+        ctx.log(`chat: stream writer failed: ${(err as Error).message}`);
+        if (!closed) {
+          try {
+            controller.enqueue(
+              encoder.encode(sse({ type: 'error', detail: (err as Error).message })),
+            );
+          } catch {
+            // ignore
+          }
+        }
+      } finally {
+        closed = true;
+        clearInterval(heartbeat);
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
       }
-    } catch (err) {
-      ctx.log(`chat: stream writer failed: ${(err as Error).message}`);
-      if (stream.writable) {
-        stream.write(sse({ type: 'error', detail: (err as Error).message }));
-      }
-    } finally {
-      clearInterval(heartbeat);
-      if (!stream.destroyed) stream.end();
-    }
-  })();
+    },
+  });
 
   return {
     status: 200,
@@ -516,7 +548,11 @@ ${context}
       'cache-control': 'no-cache, no-transform',
       'x-accel-buffering': 'no',
     },
-    body: stream,
+    // Cast: Azure Functions' HttpResponseBodyInit expects a ReadableStream
+    // shape that includes values()/[Symbol.asyncIterator], which the global
+    // Node ReadableStream type doesn't yet declare. The runtime accepts it
+    // fine — this is purely a types-mismatch papering.
+    body: stream as unknown as HttpResponseInit['body'],
   };
 }
 
