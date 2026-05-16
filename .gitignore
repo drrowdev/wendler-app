@@ -43,3 +43,6 @@ test-results/
 __pycache__/
 *.pyc
 
+
+# Locally-generated agent prompt dump (run tools/gen-agent-prompts.mjs)
+docs/agent-prompts.md
