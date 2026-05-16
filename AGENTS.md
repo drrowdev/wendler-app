@@ -89,6 +89,14 @@ user is asking for, ask before committing.
   Strava-imported cardio `externalId = 'strava:<id>'` — re-syncs dedupe.
 - **Manual user overrides are sticky** — see `planMatch === 'manual'` for
   the run-plan-matching pattern. Re-derivers must skip these rows.
+- **AI propose_edit op kinds chain via `tmp:<slug>` temp ids**.
+  `add_movement_to_library` runs first (APPLY_ORDER slot 4), populates a
+  per-tx `tempIdMap`. Any sibling `add_assistance_entry` whose
+  `movementId === 'tmp:<slug>'` resolves through the map at apply time.
+  When adding a new op kind that creates a referenceable entity, follow
+  the same pattern (issue + accept temp ids) so the user can approve
+  the chain in one accept/decline sheet rather than two sequential
+  proposals.
 
 ## Common pitfalls
 

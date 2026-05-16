@@ -8,6 +8,45 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — `add_movement_to_library` propose_edit op (SW v407–v409)
+
+Lets the chat AI propose adding a missing movement to the user's library inside a `propose_edit` proposal, with the same accept/decline/modify UX as every other op. Closes the loop on "I couldn't add Banded Clamshell because it's not in your library" — instead of telling the user to bounce to `/movements/new` and back, the AI proposes the library entry alongside the chained `add_assistance_entry` op and the user approves both in one sheet.
+
+**Architecture** — three layers:
+
+1. **L1 / data plumbing** (v407):
+   - New `AddMovementToLibraryEditOp` in `packages/db-schema`. Fields: `tempMovementId` (must match `^tmp:[a-z0-9-]+$`), `name`, `category`, `primaryMuscles` (required, `MuscleGroup` enum), `secondaryMuscles?`, `equipment?`, `pattern`, `isCompound?`, `externallyLoadable?`, `cues?`, `dedupHint?`.
+   - Parser (domain + apps/api mirror) validates against domain enums and rejects malformed temp ids. 4 new tests added — 16/16 green.
+   - Apply orchestrator threads a mutable `tempIdMap: Map<string, string>` through the per-op loop. `add_movement_to_library` runs at `APPLY_ORDER` slot 4 (BEFORE `add_assistance_entry` at slot 5), populates the map, and the chained add op resolves its `movementId === 'tmp:<slug>'` against the map at apply time.
+   - **Exact-name dedup is hard at apply time** — if a normalized-name match already exists, the library op soft-falls-back (no insert) and records `reusedExistingMovementId` in the audit detail. Handles the race where parallel sync added the same movement after the user accepted.
+
+2. **L2 / AI wiring** (v408):
+   - Chat snapshot in `useChat.ts` now emits a "Movement library" section: every entry compact-formatted as `- Name (id=…; pattern; muscles; equipment, +tags)`, sorted by pattern then name. The lead-in line instructs the AI to scan this section before proposing the op and skip when a match exists by name OR pattern + primary-muscle overlap.
+   - System-prompt op vocab documents the new kind with all field constraints + an explicit "ASK if unsure about primaryMuscles" rule.
+   - Tool spec (`chat-tool-specs.ts`) lists the kind in the enum and adds the JSON-schema for every new field with enum constraints matching `MuscleGroup` / `MovementPattern` / `EquipmentType`.
+
+3. **L3 / rich UI** (v409):
+   - `AddMovementToLibraryDiff` in `EditProposalSheet.tsx` shows the proposed movement with editable `primaryMuscles` chip widget (every `MuscleGroup` toggleable; last muscle locked since apply requires ≥ 1).
+   - Renderer-side fuzzy dedup scan: Levenshtein ≤ 2 on normalized names (catches typos + spacing) OR same `pattern` + ≥ 60% Jaccard overlap on primary muscles. Top 3 candidates surface in an amber warning banner.
+   - "Use this instead" link declines the library op AND rewrites every sibling `add_assistance_entry` whose `movementId === op.tempMovementId` to point at the chosen existing movement. New `onUseExistingLibraryMovement` callback threaded `EditProposalSheet → OpRow → OpDiff → AddMovementToLibraryDiff`.
+
+**User preferences captured during planning**:
+- `primaryMuscles` is editable in the accept-row (confirmed by user 2026-05-16).
+- Race-condition handling: soft fail-back into "used existing X" (confirmed).
+- No AI-created badge — library entries from the AI are indistinguishable from manually-created ones (`isCustom: true`, id shape `custom:<nanoid8>` — same as `/movements/new`).
+
+Tests: 16/16 propose_edit parser tests green. Build green. SW v406 → v409 (one bump per L1/L2/L3 commit).
+
+### Added — Skip-day-in-week awareness in NextUpCard + /program/block + chat snapshot (SW v406)
+
+Closes the loop on the `skip_day_in_week` `EditOperation` (shipped in v403): the skip flag now actually changes how the rest of the app renders and reasons.
+
+- New domain helpers `isDaySkipped(plan, week, dayId)` + `getDaySkip(plan, week, dayId)` in `packages/domain/src/blocks.ts` — pure reads of `plan.dayOverridesByWeek`.
+- `advanceScheduleAfterDay` (apps/web/src/lib/completeDayWorkout.ts) loops past slots flagged skipped. The cursor walks straight from Day 2 to next week's Day 1 when Day 3 is skipped — no manual intervention needed.
+- `NextUpCard` builds a `skippedGiThisWeek` set and treats skipped days identically to completed days in its candidate scan (`isUnavailable` predicate). A self-heal effect auto-advances the cursor when it lands on a skipped slot (e.g. after chat AI marks the current day skipped mid-week).
+- `BlockPlanEditor` `DayCard` shows a rose "Skipped" pill in the header + a rose-toned "Skipped this week" banner above the lift list when `isDaySkipped(plan, weekScope, day.id)`.
+- Chat snapshot emits a per-day `SKIPPED in: Wk 2 · Wk 3 (cardio-replacement: Z2 bike 60 min)` line so the AI doesn't propose trim/swap ops on already-skipped weeks.
+
 ### Changed — Preview-before-write guardrails on all chat actions + Apply skips (SW v379)
 
 Extends the v378 InjurySheet diff-preview pattern to every remaining surface where AI can write user data. Each AI action now shows a concrete before/after view *before* anything is persisted, so the user always has explicit accept/decline on the actual change — not just on the AI's recommendation.
