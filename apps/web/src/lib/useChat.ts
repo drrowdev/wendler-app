@@ -18,6 +18,8 @@ import {
   type MinimalChatRecovery,
   type MinimalChatSet,
   type MinimalChatTrainingMax,
+  effectiveAssistanceVolumeForPhase,
+  effectiveTrainingPhaseInfo,
 } from '@wendler/domain';
 import { getDb } from './db';
 import { kickSync } from './sync';
@@ -46,16 +48,18 @@ export function useChatList(): Chat[] | undefined {
 
 async function buildContextBlob(): Promise<string> {
   const db = getDb();
-  const [sets, cardio, recovery, races, tms, settings, movements, blocks] = await Promise.all([
-    db.sets.toArray(),
-    db.cardio.toArray(),
-    db.recovery.toArray(),
-    db.races.toArray(),
-    db.trainingMaxes.toArray(),
-    db.settings.get('singleton'),
-    db.movements.toArray(),
-    db.blocks.toArray(),
-  ]);
+  const [sets, cardio, recovery, races, tms, settings, movements, blocks, sessions] =
+    await Promise.all([
+      db.sets.toArray(),
+      db.cardio.toArray(),
+      db.recovery.toArray(),
+      db.races.toArray(),
+      db.trainingMaxes.toArray(),
+      db.settings.get('singleton'),
+      db.movements.toArray(),
+      db.blocks.toArray(),
+      db.sessions.toArray(),
+    ]);
   const movementName = new Map(movements.map((m) => [m.id, m.name]));
   const summary = buildChatContext({
     now: new Date(),
@@ -81,14 +85,75 @@ async function buildContextBlob(): Promise<string> {
   lines.push(
     `- Kind: ${activeBlock.kind}${activeBlock.seventhWeekKind ? ` · ${activeBlock.seventhWeekKind}` : ''}`,
   );
+
+  // Volume preset — stored AND effective (after phase auto-shift).
+  // Critical for AI reasoning about set_block_volume_preset chips: if the
+  // effective preset is ALREADY at the target, suggesting the chip is a
+  // no-op and the AI should skip it.
+  const phaseInfo = settings?.trainingProfile
+    ? effectiveTrainingPhaseInfo(
+        settings.trainingProfile,
+        races,
+        new Date(),
+        activeBlock,
+      )
+    : { phase: 'normal' as const, source: 'manual' as const };
   if (activeBlock.assistanceVolume) {
-    const preset =
+    const stored =
       typeof activeBlock.assistanceVolume === 'string'
         ? activeBlock.assistanceVolume
         : 'custom';
-    lines.push(`- Assistance volume preset: ${preset}`);
+    const effective =
+      typeof activeBlock.assistanceVolume === 'string'
+        ? effectiveAssistanceVolumeForPhase(activeBlock.assistanceVolume, phaseInfo.phase)
+        : 'custom';
+    if (stored === effective) {
+      lines.push(`- Assistance volume preset: ${stored}`);
+    } else {
+      lines.push(
+        `- Assistance volume preset: stored=${stored} → EFFECTIVE=${effective} (auto-shifted because phase=\`${phaseInfo.phase}\` from \`${phaseInfo.source}\`). Future assistance generations will use the effective preset; do NOT recommend set_block_volume_preset chips that match the effective value.`,
+      );
+    }
   }
+
+  // Per-week completion snapshot. Lets the AI reason about whether a
+  // proposed change (preset shift, volume tweak, substitution) would
+  // actually take effect this week or only future weeks. A week is
+  // "complete" when every day in the rotation has a session row with
+  // workoutCompletedAt set.
+  const blockSessions = sessions.filter((s) => s.blockId === activeBlock.id);
   const days = activeBlock.plan?.days ?? [];
+  const dayCount = Math.max(1, days.length);
+  const weekScopes: Array<'1' | '2' | '3' | 'deload' | '7w'> = (() => {
+    if (activeBlock.kind === 'seventh-week') return ['7w'];
+    return ['1', '2', '3', 'deload'];
+  })();
+  const weekStatus: string[] = [];
+  for (const wk of weekScopes) {
+    const target = wk === 'deload' ? 'deload' : wk === '7w' ? '7w' : Number(wk);
+    const inWeek = blockSessions.filter((s) => s.week === target);
+    const completedDays = new Set(
+      inWeek.filter((s) => s.workoutCompletedAt).map((s) => s.dayIndex),
+    ).size;
+    const label =
+      wk === 'deload' ? 'Deload week' : wk === '7w' ? '7th-week block' : `Week ${wk}`;
+    if (completedDays >= dayCount) {
+      weekStatus.push(`  - ${label}: COMPLETE (${completedDays}/${dayCount} days)`);
+    } else if (completedDays > 0) {
+      weekStatus.push(`  - ${label}: in progress (${completedDays}/${dayCount} days done)`);
+    } else if (inWeek.length > 0) {
+      weekStatus.push(`  - ${label}: started (no day fully complete yet)`);
+    } else {
+      weekStatus.push(`  - ${label}: not started`);
+    }
+  }
+  if (weekStatus.length > 0) {
+    lines.push('- Week completion:');
+    lines.push(...weekStatus);
+    lines.push(
+      `  (Suggest assistance only re-generates UPCOMING weeks. Preset / volume chips do nothing for weeks already marked COMPLETE — do not propose them when only complete weeks would be affected.)`,
+    );
+  }
   if (days.length > 0) {
     lines.push('- Days:');
     days.forEach((day, i) => {

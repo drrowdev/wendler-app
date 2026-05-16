@@ -382,10 +382,14 @@ function SetBlockVolumePresetPreview({
         )}
       </div>
       <p className="text-xs italic text-muted">{action.reason}</p>
-      <p className="text-[11px] text-muted">
-        Existing scheduled entries in this block are unchanged. The new budget kicks in
-        the next time you run Suggest assistance.
-      </p>
+      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-100">
+        <div className="font-semibold text-amber-50">⚠ This does NOT trim your existing entries</div>
+        <p className="mt-1 leading-relaxed">
+          Only the preset is changed. Already-scheduled assistance for this block stays at its
+          current sets × reps. To apply the lower budget to remaining weeks, open the block,
+          delete the affected week&apos;s assistance, and run <span className="font-semibold">Suggest assistance</span> again.
+        </p>
+      </div>
     </div>
   );
 }

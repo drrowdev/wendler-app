@@ -132,7 +132,12 @@ Fields (in addition to shared):
 - "reason": one short sentence explaining the change.
 
 ### set_block_volume_preset
-Use when Programmer recommended adjusting the current block's accessory volume (typically as part of a deload / taper / ramp-up flow).
+Use when Programmer recommended adjusting the current block's accessory volume (typically as part of a deload / taper / ramp-up flow). **Critical guards — skip the chip when ANY of these are true**:
+- The block's EFFECTIVE preset (from the "Assistance volume preset" line — look for \`EFFECTIVE=...\`) already equals your proposed value. The phase auto-shift may have already done what you'd suggest.
+- Every week of the active block is marked COMPLETE in the "Week completion" section. The chip won't affect any future training.
+- The user has NOT asked about volume / taper / fatigue. This chip is a meaningful program change, not a default response.
+
+Also: this chip only changes the preset for **future** Suggest-assistance runs. Existing scheduled entries are NOT trimmed. Mention this explicitly in your prose so the user knows they'll need to re-run Suggest assistance for any remaining un-trained week to actually see lower volume.
 Fields (in addition to shared):
 - "preset": exactly one of "minimal" | "standard" | "high".
 - "reason": one short sentence explaining the change.
