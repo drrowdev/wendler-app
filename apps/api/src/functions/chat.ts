@@ -246,16 +246,17 @@ ${context}
 
   // Per-Anthropic-call timeout. Each iteration of the tool-use loop is one
   // Anthropic call; if any single call stalls past this, abort it with a
-  // user-friendly message. Default 25 s — under SWA managed-Functions'
-  // synchronous-call ceiling (~30 s) but tight enough that retrying with a
-  // shorter prompt is the obvious next step.
-  const callTimeoutMs = Number(process.env.ANTHROPIC_CHAT_CALL_TIMEOUT_MS ?? '25000');
+  // user-friendly message. Default 60 s — the SWA proxy ceiling does NOT
+  // apply once HTTP streaming + heartbeats are in place (see ReadableStream
+  // setup below), so this is purely a soft guard against a wedged upstream.
+  // Sonnet on a context-rich second turn with multiple tools regularly
+  // needs 30-45 s; 25 s was too tight.
+  const callTimeoutMs = Number(process.env.ANTHROPIC_CHAT_CALL_TIMEOUT_MS ?? '60000');
   // Overall budget across the entire tool-use loop. A turn that consults
-  // two specialists + a final composition can legitimately need ~60 s; this
-  // bounds the worst case before SWA's connection-level timer kicks in
-  // anyway. Heartbeats below keep the SSE connection warm independent of
-  // this.
-  const overallBudgetMs = Number(process.env.ANTHROPIC_CHAT_OVERALL_BUDGET_MS ?? '90000');
+  // two specialists + a final composition can legitimately need ~90-120 s;
+  // this bounds the worst case before the user gives up. Heartbeats below
+  // keep the SSE connection warm independent of this.
+  const overallBudgetMs = Number(process.env.ANTHROPIC_CHAT_OVERALL_BUDGET_MS ?? '150000');
 
   async function* sseGenerator(): AsyncGenerator<string, void, unknown> {
     // Running message list — starts as the user's history, grows with
@@ -379,7 +380,7 @@ ${context}
           if (callController.signal.aborted) {
             yield sse({
               type: 'error',
-              detail: `Chat call exceeded the ${Math.round(callTimeoutMs / 1000)}s per-call timeout. The prompt may be too large; try a shorter conversation or fewer follow-ups, then retry.`,
+              detail: `Chat call hit the ${Math.round(callTimeoutMs / 1000)}s per-call timeout. This usually means upstream was unusually slow — try again, and if it repeats, shorten the conversation.`,
             });
             return;
           }
