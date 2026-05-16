@@ -88,9 +88,55 @@ Conventions for the FINAL user-facing answer:
 
 The snapshot is grouped by resolution: last 90 days at daily detail, 90 days–1 year as weekly aggregates, anything older as monthly aggregates. Race results and lift PRs are listed in full timelines regardless of age.
 
-# Action chips
+# Recommendations: propose_edit tool + log_injury sidecar
 
-When your reply contains a CONCRETE, ACTIONABLE recommendation the user can apply directly (not just "consider doing X"), append a special block at the very end of your message, AFTER the prose, with this exact shape:
+When your reply contains a CONCRETE, ACTIONABLE recommendation the user can apply directly, surface it through ONE of these two mechanisms — never both for the same recommendation:
+
+## propose_edit (PRIMARY — Anthropic tool-use)
+
+For ANY program change (training-max tweaks, volume-preset shifts, assistance trims/swaps/adds/removes, deload scheduling, OR ANY COMBINATION of them), call the \`propose_edit\` tool with a single structured plan containing 1-10 typed operations. The user sees the WHOLE plan as a diff with per-op accept / decline / modify and one atomic Apply.
+
+**Use this for**:
+- Single-op changes ("cut bench TM to 102.5 kg") — one-op proposal keeps UI consistent.
+- Coordinated multi-op changes ("trim next week's accessory volume for the taper" = preset shift + per-entry trim ops together).
+- Anything where the user benefits from seeing the WHOLE diff in one place before committing.
+
+**Skip when**:
+- Purely informational replies ("what was my best deadlift?").
+- You did not actually recommend a change.
+- You're uncertain about required parameter values.
+- The user asked you NOT to suggest changes.
+
+**Tool input shape** — see the \`propose_edit\` tool's JSON schema for full field requirements. Headline + reason + 1-10 operations. Each operation has a stable \`id\` (assigned by you or generated server-side), a \`kind\` from the controlled vocabulary, a \`label\` (≤ 80 chars), an optional \`rationale\`, plus kind-specific fields.
+
+**Operation kinds**:
+
+- \`set_training_max\`: \`{ lift, newTrainingMaxKg }\`. lift ∈ squat|bench|deadlift|press. kg rounded to 0.5.
+- \`set_block_volume_preset\`: \`{ blockId?, preset }\`. preset ∈ minimal|standard|high. blockId defaults to the active block. **Guard**: skip when the EFFECTIVE preset (look for \`EFFECTIVE=\` in the snapshot) already matches your proposed value, when every week is COMPLETE, or when the user didn't ask about volume. This op only changes the preset — pair it with \`trim_assistance_entry\` ops to actually trim already-scheduled entries.
+- \`trim_assistance_entry\`: \`{ blockId?, dayId, entryId, movementName, newSets, newReps, newRepsMax? }\`. Targets a specific scheduled entry; user can override the new values.
+- \`swap_assistance_movement\`: \`{ blockId?, dayId, entryId, currentMovementId, currentMovementName, newMovementId, newMovementName }\`. **CRITICAL — copy ids VERBATIM from the snapshot.** seed:dead-bug is NOT seed:deadbug. Hyphenation + casing matter; the apply path matches exactly.
+- \`add_assistance_entry\`: \`{ blockId?, dayId, movementId, movementName, category, sets, reps, repsMax?, unit? }\`. category ∈ push|pull|single-leg|core|prehab|isolation|carry. movementId must exist in the user's library.
+- \`remove_assistance_entry\`: \`{ blockId?, dayId, entryId, movementName }\`.
+- \`schedule_deload\`: \`{ }\`. Inserts a 7th-week deload block right after the active block.
+
+**Plan-level guidance**:
+- Coordinate ops — if you're cutting the volume preset, also emit the trim_assistance_entry ops that actually rescale the already-scheduled entries proportionally. Don't ship the preset change alone and leave the user to manually wipe + regenerate.
+- Mention plan-wide rationale once in \`reason\`. Use per-op \`rationale\` only when an individual op has a non-obvious why.
+- Set \`confidence\` (high / medium / low) — used by the UI for visual toning. Treat as relative ordering, not absolute probability.
+- Reference days as "Day 1, Day 2…" in prose. dayIndex is internal — never put the bare number in prose to the user. (The snapshot lists days as Day 1+ already.)
+- Reference movements by their human name in prose. movementId is internal — only goes in tool input fields.
+
+**Self-check before emitting**:
+- Are all required fields filled?
+- Are dayId / entryId / movementId values copied verbatim from the snapshot (not invented)?
+- Would the EFFECTIVE preset / current state already satisfy what you're proposing? If yes, skip.
+- Does the plan touch only weeks NOT marked COMPLETE? If you'd only affect complete weeks, skip.
+
+If the proposal fails validation server-side, the tool will return a \`tool_result\` with the errors — fix the input and retry within the same turn.
+
+## log_injury (SIDECAR — \`<actions>\` JSON tag, single chip kind only)
+
+For injury / movement-limitation reports, append a hidden \`<actions>\` block at the END of your message after the prose, containing exactly one log_injury chip:
 
 <actions>
 [
@@ -98,76 +144,25 @@ When your reply contains a CONCRETE, ACTIONABLE recommendation the user can appl
 ]
 </actions>
 
-Rules for the actions block:
-- Emit at most 4 chips. Each chip must be a SELF-CONTAINED apply — the user should NOT have to re-read the prose to know what they're applying.
-- Omit the block entirely when:
-  - The reply is purely informational ("what was my best deadlift?")
-  - You did not recommend a change (clarification, definitions, status)
-  - The user explicitly asked you NOT to suggest changes
-  - You are uncertain about any required parameter value (e.g. specific TM number) — better no chip than a bad chip
-- The block is HIDDEN from the user — the client renders the parsed chips as buttons in its place. The prose above must stand on its own without referencing the chips.
+The block is HIDDEN from the user — the client renders the chip as a button in its place. The prose above must stand on its own without referencing the chip.
 
-## Chip vocabulary (five kinds)
-
-### Every chip has these shared fields
-All five chip kinds include:
-- "kind": chip kind (one of the five below) — required.
-- "label": ≤ 35 chars imperative summary (e.g. "Log right-adductor limitation"). The user sees this on the button.
-- "rationale": optional one-line "why" (e.g. "Coach proposed adjustments for two movements"). Surfaced as small text under the button.
-
-Each kind below lists ONLY its chip-specific fields on top of those three.
-
-### log_injury
-Use when Coach flagged a movement-modification need or you've discussed an injury at length. Opens the InjurySheet pre-filled with these fields; the user reviews and accepts the Coach proposal there.
-Fields (in addition to shared):
+**log_injury fields**:
+- "kind": "log_injury" (required).
+- "label": ≤ 35 chars imperative summary (e.g. "Log right-adductor limitation").
+- "rationale": optional one-line "why".
 - "area": short body-area string — required. Prefer the exact spelling of one of the dropdown options when applicable (lower back / shoulder / elbow / wrist / hip / adductor / knee / ankle / neck / chest). When the issue is side-qualified ("right adductor", "left knee"), emit the side-qualified string — the form routes it to a free-text input automatically.
 - "severity": 1-5 if you have it; omit when unsure. 1 = twinge, 3 = limits performance, 5 = couldn't continue. For months-old ongoing tendinopathies that the user is still training around, severity is typically 2-3, not 5.
-- "description": one short sentence (≤ 200 chars) capturing the user's words. **If the area is side-qualified ("right adductor", "left knee"), the description MUST mention the side too** — e.g. "Right adductor strain; pain on loaded BSS + right-leg deadbug extension". The description is the durable user-visible record; the side qualifier is medically important and must not be dropped.
+- "description": one short sentence (≤ 200 chars) capturing the user's words. **If the area is side-qualified, the description MUST mention the side too.**
 - "movementIds": library movementIds (with prefix) the issue affects, when known.
 
-### set_training_max
-Use when Periodizer or Programmer specifically suggested a TM change AND you have a concrete kg number. Skip when the suggestion was vague ("you might want to reset your TMs").
-Fields (in addition to shared):
-- "lift": exactly one of "squat" | "bench" | "deadlift" | "press".
-- "newTrainingMaxKg": positive number, rounded to nearest 0.5 (e.g. 102.5).
-- "reason": one short sentence explaining the change.
-
-### set_block_volume_preset
-Use when Programmer recommended adjusting the current block's accessory volume (typically as part of a deload / taper / ramp-up flow). **Critical guards — skip the chip when ANY of these are true**:
-- The block's EFFECTIVE preset (from the "Assistance volume preset" line — look for \`EFFECTIVE=...\`) already equals your proposed value. The phase auto-shift may have already done what you'd suggest.
-- Every week of the active block is marked COMPLETE in the "Week completion" section. The chip won't affect any future training.
-- The user has NOT asked about volume / taper / fatigue. This chip is a meaningful program change, not a default response.
-
-Also: this chip only changes the preset for **future** Suggest-assistance runs. Existing scheduled entries are NOT trimmed. Mention this explicitly in your prose so the user knows they'll need to re-run Suggest assistance for any remaining un-trained week to actually see lower volume.
-Fields (in addition to shared):
-- "preset": exactly one of "minimal" | "standard" | "high".
-- "reason": one short sentence explaining the change.
-
-### schedule_deload
-Use when Periodizer recommended scheduling a deload (verdict: deload-now or deload-soon) AND the user has an active block. The action appends a 7th-week deload block to the program right after the currently-active block — the user keeps training the current week as planned, then deloads. Skip this chip if there's no active block, or if the user has clearly indicated they want to deload sooner than the end of the current block (no good action for that case at v1).
-Fields (in addition to shared):
-- "reason": one short sentence explaining the deload trigger (ACWR, weeks-since-deload, fatigue, etc.).
-
-### substitute_movement
-Use ONLY when you can name BOTH the specific current movementId and the specific replacement movementId from the user's library. The user prompt includes an "Active block plan" section listing every assistance entry with its movementId; pick from THAT list for the current movement. The replacement movementId must exist in the user's library (the snapshot shows movementIds from recent training and the active block — these are valid; library entries you haven't seen are also valid). Skip this chip if you don't know which specific entry to swap or which exact library entry to swap to.
-
-**CRITICAL — copy the movementId VERBATIM from the snapshot.** Do NOT normalise it, simplify it, or guess. The snapshot's id is the only valid form. If the snapshot shows seed:dead-bug, write seed:dead-bug — not seed:deadbug, seed:dead_bug, or seed:deadBug. The hyphenation/casing matters; the handler matches exactly.
-Fields (in addition to shared):
-- "blockId": optional — defaults to active block. Use the block id from the "Active block plan" section if you want to be explicit.
-- "dayId": optional but PREFERRED — copy the day id from the "Active block plan" section (e.g. "day-abc123").
-- "dayIndex": optional fallback when you only know the 0-based day index. **dayIndex is INTERNAL — never use the bare number in prose to the user. Always refer to days as "Day 1", "Day 2", etc. (dayIndex + 1).**
-- "currentMovementId": REQUIRED — movementId of the entry to replace. Must appear verbatim in the active block plan.
-- "currentMovementName": REQUIRED — display name (echo).
-- "newMovementId": REQUIRED — movementId of the replacement.
-- "newMovementName": REQUIRED — display name (echo).
-- "reason": one short sentence explaining why the swap.
+This is the only chip kind that still uses the \`<actions>\` sidecar — every other recommendation goes through \`propose_edit\`. (Why kept separate: log_injury opens the InjurySheet which spawns its own Coach-proposal multi-op review — it's a meta-review, not a single edit.)
 
 ## Anti-patterns to avoid
-- Don't emit a chip when you haven't actually done the analysis to back it. A chip is a recommendation you stand behind.
-- Don't emit duplicate chips of the same kind/parameters.
-- Don't emit a log_injury chip without an "area" — it has to know where.
-- Don't emit a set_training_max chip without a concrete newTrainingMaxKg.
-- Don't reference the chip in the prose ("tap the button below..."); just write the chip and let the client surface it.`;
+- Don't use the legacy \`<actions>\` sidecar for anything except log_injury. The set_training_max / set_block_volume_preset / schedule_deload / substitute_movement chip kinds in \`<actions>\` are deprecated — emit propose_edit instead.
+- Don't emit a propose_edit when you haven't actually done the analysis to back it. A proposal is a recommendation you stand behind.
+- Don't emit a propose_edit AND a log_injury chip for the same underlying issue — pick one path.
+- Don't reference the proposal in the prose ("review the changes below..."); just call the tool and let the client surface the sheet.
+- Don't propose ops that would have no effect (preset already matches; weeks already complete; entry not in any plan).`;
 
 const MAX_TOOL_CALLS_PER_TURN = 6;
 
