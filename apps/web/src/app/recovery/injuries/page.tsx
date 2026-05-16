@@ -116,7 +116,8 @@ function InjuryRow({ injury, onDelete, onReopen }: InjuryRowProps) {
     const now = new Date().toISOString();
     const adjustments = injury.adjustments.map((a) => {
       if (a.id !== adjId) return a;
-      const nextStatus = a.status === 'accepted' ? 'declined' : 'accepted';
+      const nextStatus: 'accepted' | 'declined' =
+        a.status === 'accepted' ? 'declined' : 'accepted';
       return {
         ...a,
         status: nextStatus,
