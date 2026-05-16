@@ -10,21 +10,30 @@
 // vertical accent line + label.
 //
 // Click a block segment → /program/block?id=<blockId>. Race pins are
-// non-interactive (tooltip only). T4 will layer in skip overlays, TM
-// evolution annotations, and an active-week chip.
+// non-interactive (tooltip only).
+//
+// T4 additions:
+//   - Skip-week hatch overlay derived from plan.dayOverridesByWeek
+//     (per timeline-week column inside each block).
+//   - Active-week chip "Wk N of M" on the active block.
+//   - Optional TM-evolution annotations at block boundaries — toggle
+//     in the legend, off by default to avoid clutter.
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   buildTimelineModel,
+  isDaySkipped,
   type TimelineBlockSegment,
   type TimelineRaceInput,
+  type WendlerWeek,
 } from '@wendler/domain';
-import type { ProgramBlock, Race } from '@wendler/db-schema';
+import type { ProgramBlock, Race, TrainingMaxRecord } from '@wendler/db-schema';
 
 interface Props {
   blocks: ProgramBlock[];
   races: Race[];
+  trainingMaxes?: TrainingMaxRecord[];
   today: Date;
 }
 
@@ -99,7 +108,8 @@ function blockKindLabel(seg: TimelineBlockSegment): string {
   return seg.kind.charAt(0).toUpperCase() + seg.kind.slice(1);
 }
 
-export function ProgramTimeline({ blocks, races, today }: Props) {
+export function ProgramTimeline({ blocks, races, trainingMaxes, today }: Props) {
+  const [showTmDeltas, setShowTmDeltas] = useState(false);
   const model = useMemo(() => {
     const raceInput: TimelineRaceInput[] = races.map((r) => ({
       id: r.id,
@@ -109,6 +119,82 @@ export function ProgramTimeline({ blocks, races, today }: Props) {
     }));
     return buildTimelineModel(blocks, raceInput, { today });
   }, [blocks, races, today]);
+
+  // Per-block skip data — for each segment, list the timeline-week
+  // indices where ANY plan day is flagged skipped, plus the count.
+  // Pure derivation from BlockPlan.dayOverridesByWeek + plan.days.
+  const skipInfoByBlock = useMemo(() => {
+    const out = new Map<string, Array<{ weekIndex: number; count: number }>>();
+    for (const seg of model.blockSegments) {
+      const plan = seg.source.plan;
+      if (!plan?.dayOverridesByWeek || plan.days.length === 0) continue;
+      // Map the block's WendlerWeek labels onto sequential offsets from
+      // the segment start. For seventh-week the only valid label is '7w';
+      // for normal blocks: weeks 1..weeksBeforeDeload then 'deload'.
+      const wendlerWeeks: WendlerWeek[] =
+        seg.kind === 'seventh-week'
+          ? ['7w']
+          : [
+              ...Array.from(
+                { length: seg.source.weeksBeforeDeload },
+                (_, i) => (i + 1) as 1 | 2 | 3,
+              ),
+              ...(seg.includesDeload ? (['deload'] as const) : []),
+            ];
+      const entries: Array<{ weekIndex: number; count: number }> = [];
+      wendlerWeeks.forEach((wk, offset) => {
+        let count = 0;
+        for (const day of plan.days) {
+          if (isDaySkipped(plan, wk, day.id)) count++;
+        }
+        if (count > 0) {
+          entries.push({ weekIndex: seg.startWeekIndex + offset, count });
+        }
+      });
+      if (entries.length > 0) out.set(seg.blockId, entries);
+    }
+    return out;
+  }, [model.blockSegments]);
+
+  // Per-block TM deltas: lift → (start kg, end kg, delta). Only computed
+  // when the toggle is on. "Start" = most recent TrainingMaxRecord at or
+  // BEFORE block.startedAt; "end" = most recent record at or before
+  // block.completedAt (or today if not completed). Tiny chip per lift
+  // with a +/- delta. No record for a lift = no chip.
+  const tmDeltasByBlock = useMemo(() => {
+    if (!showTmDeltas) return new Map<string, Array<{ lift: string; deltaKg: number }>>();
+    const out = new Map<string, Array<{ lift: string; deltaKg: number }>>();
+    if (!trainingMaxes || trainingMaxes.length === 0) return out;
+    const sorted = [...trainingMaxes].sort((a, b) =>
+      a.createdAt < b.createdAt ? -1 : 1,
+    );
+    for (const seg of model.blockSegments) {
+      if (!seg.isStarted) continue;
+      const startedAt = seg.source.startedAt!;
+      const endedAt = seg.source.completedAt ?? today.toISOString();
+      const byLift = new Map<string, { start?: number; end?: number }>();
+      for (const tm of sorted) {
+        if (tm.createdAt > endedAt) break;
+        const entry = byLift.get(tm.lift) ?? {};
+        if (tm.createdAt < startedAt) {
+          entry.start = tm.trainingMaxKg;
+        } else {
+          if (entry.start === undefined) entry.start = tm.trainingMaxKg;
+          entry.end = tm.trainingMaxKg;
+        }
+        byLift.set(tm.lift, entry);
+      }
+      const deltas: Array<{ lift: string; deltaKg: number }> = [];
+      for (const [lift, { start, end }] of byLift) {
+        if (start === undefined || end === undefined) continue;
+        const d = Math.round((end - start) * 2) / 2; // 0.5 kg precision
+        if (d === 0) continue;
+        deltas.push({ lift, deltaKg: d });
+      }
+      if (deltas.length > 0) out.set(seg.blockId, deltas);
+    }
+    return out;
+  }, [showTmDeltas, trainingMaxes, model.blockSegments, today]);
 
   if (model.blockSegments.length === 0 && model.raceMilestones.length === 0) {
     return (
@@ -174,27 +260,83 @@ export function ProgramTimeline({ blocks, races, today }: Props) {
               const tone = blockTone(seg);
               const span = seg.endWeekIndex - seg.startWeekIndex + 1;
               const projected = !seg.isStarted;
+              const skips = skipInfoByBlock.get(seg.blockId) ?? [];
+              const tmDeltas = tmDeltasByBlock.get(seg.blockId) ?? [];
+              const activeWeekN = seg.isActive
+                ? model.currentWeekIndex - seg.startWeekIndex + 1
+                : null;
               return (
                 <Link
                   key={seg.blockId}
                   href={`/program/block?id=${encodeURIComponent(seg.blockId)}`}
-                  className={`relative z-10 m-0.5 flex min-w-0 flex-col justify-center rounded-md border px-2 py-1 transition hover:brightness-125 ${tone.fill} ${tone.border} ${
+                  className={`relative z-10 m-0.5 flex min-w-0 flex-col justify-center overflow-hidden rounded-md border px-2 py-1 transition hover:brightness-125 ${tone.fill} ${tone.border} ${
                     projected ? 'border-dashed opacity-70' : ''
                   } ${seg.isActive && !seg.isCompleted ? 'ring-2 ring-accent ring-offset-1 ring-offset-card' : ''}`}
                   style={{
                     gridColumn: `${seg.startWeekIndex + 1} / span ${span}`,
                   }}
-                  title={`${seg.name} · ${blockKindLabel(seg)} · ${seg.weeks} wk${seg.weeks === 1 ? '' : 's'}${projected ? ' (projected)' : ''}`}
+                  title={`${seg.name} · ${blockKindLabel(seg)} · ${seg.weeks} wk${seg.weeks === 1 ? '' : 's'}${projected ? ' (projected)' : ''}${skips.length > 0 ? ` · ${skips.reduce((s, e) => s + e.count, 0)} day(s) skipped` : ''}`}
                 >
-                  <span className={`truncate text-xs font-semibold ${tone.text}`}>{seg.name}</span>
-                  <span className="flex flex-wrap items-baseline gap-1 text-[10px] text-fg/70">
+                  {/* Skip-week hatch overlays. Positioned absolutely
+                      inside the segment, scaled to the segment's own
+                      grid (one fraction per week the block occupies). */}
+                  {skips.map((s) => {
+                    const offset = s.weekIndex - seg.startWeekIndex;
+                    return (
+                      <span
+                        key={s.weekIndex}
+                        aria-hidden
+                        className="pointer-events-none absolute inset-y-0 z-0"
+                        style={{
+                          left: `${(offset / span) * 100}%`,
+                          width: `${(1 / span) * 100}%`,
+                          backgroundImage:
+                            'repeating-linear-gradient(45deg, rgba(244,63,94,0.18) 0, rgba(244,63,94,0.18) 4px, transparent 4px, transparent 8px)',
+                        }}
+                      />
+                    );
+                  })}
+                  <span className={`relative z-10 truncate text-xs font-semibold ${tone.text}`}>
+                    {seg.name}
+                  </span>
+                  <span className="relative z-10 flex flex-wrap items-baseline gap-1 text-[10px] text-fg/70">
                     <span>{blockKindLabel(seg)}</span>
+                    {activeWeekN !== null && activeWeekN >= 1 && activeWeekN <= seg.weeks && (
+                      <span className="rounded bg-accent/30 px-1 text-[9px] font-semibold uppercase tracking-wide text-accent-fg">
+                        Wk {activeWeekN} of {seg.weeks}
+                      </span>
+                    )}
                     {projected && (
                       <span className="rounded bg-bg/40 px-1 text-[9px] uppercase tracking-wide text-muted">
                         projected
                       </span>
                     )}
+                    {skips.length > 0 && (
+                      <span
+                        className="rounded bg-rose-500/30 px-1 text-[9px] font-semibold uppercase tracking-wide text-rose-100"
+                        title={`${skips.reduce((s, e) => s + e.count, 0)} skipped day(s) across ${skips.length} week(s)`}
+                      >
+                        {skips.reduce((s, e) => s + e.count, 0)} skipped
+                      </span>
+                    )}
                   </span>
+                  {tmDeltas.length > 0 && (
+                    <span className="relative z-10 mt-0.5 flex flex-wrap gap-1 text-[10px] text-fg/80">
+                      {tmDeltas.map((d) => (
+                        <span
+                          key={d.lift}
+                          className={`rounded px-1 font-mono ${
+                            d.deltaKg > 0
+                              ? 'bg-emerald-500/20 text-emerald-100'
+                              : 'bg-rose-500/20 text-rose-100'
+                          }`}
+                        >
+                          {d.lift.slice(0, 2).toUpperCase()} {d.deltaKg > 0 ? '+' : ''}
+                          {d.deltaKg}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -246,7 +388,18 @@ export function ProgramTimeline({ blocks, races, today }: Props) {
         <LegendChip className="bg-rose-500/20 ring-rose-500/50">7w PR</LegendChip>
         <LegendChip className="bg-slate-500/20 ring-slate-500/50">7w Deload</LegendChip>
         <LegendChip className="bg-violet-500/20 ring-violet-500/50">Custom</LegendChip>
-        <span className="ml-auto">Dotted = projected start (chained from preceding block)</span>
+        <label className="ml-auto flex items-center gap-1.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showTmDeltas}
+            onChange={(e) => setShowTmDeltas(e.target.checked)}
+            className="h-3 w-3 accent-accent"
+          />
+          <span>TM deltas</span>
+        </label>
+      </div>
+      <div className="border-t border-border/60 px-3 pb-2 text-[10px] text-muted/80">
+        Dotted = projected start (chained from preceding block) · Hatched = skipped days that week
       </div>
     </div>
   );

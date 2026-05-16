@@ -144,6 +144,14 @@ export function useAllTrainingMaxes() {
   });
 }
 
+/**
+ * Full TM history (every record, no per-lift collapse) — used by the
+ * /calendar timeline view to compute per-block TM deltas.
+ */
+export function useAllTrainingMaxRecords() {
+  return useLiveQuery(() => getDb().trainingMaxes.toArray());
+}
+
 export function useSetsForMovement(movementId: string) {
   return useLiveQuery(
     () => getDb().sets.where('movementId').equals(movementId).toArray(),
