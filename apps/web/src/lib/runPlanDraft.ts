@@ -1,28 +1,40 @@
-import type { RunPlannedKind, RunPlanSlot } from '@wendler/domain';
+import type { CardioModality, RunPlannedKind, RunPlanSlot } from '@wendler/domain';
 
-export const EMPTY_RUN_PLAN_DRAFT: RunPlannedKind[] = Array.from(
-  { length: 7 },
-  () => 'rest',
-);
+/**
+ * Per-weekday draft entry used by the cardio-plan editor. The legacy
+ * RunPlannedKind[] shape didn't carry modality; we now keep modality
+ * alongside kind so the user can pick "Wednesday = Z2 bike" or
+ * "Saturday = long run" cleanly.
+ *
+ * `rest` is its own kind; modality is meaningless for it (stored as
+ * 'run' by convention, never surfaced).
+ */
+export interface CardioDraftDay {
+  kind: RunPlannedKind;
+  modality: CardioModality;
+}
 
-export function slotsToDraft(slots: RunPlanSlot[]): RunPlannedKind[] {
-  const draft = [...EMPTY_RUN_PLAN_DRAFT];
+export const EMPTY_RUN_PLAN_DRAFT: CardioDraftDay[] = Array.from({ length: 7 }, () => ({
+  kind: 'rest',
+  modality: 'run' as const,
+}));
+
+export function slotsToDraft(slots: RunPlanSlot[]): CardioDraftDay[] {
+  const draft: CardioDraftDay[] = [...EMPTY_RUN_PLAN_DRAFT.map((d) => ({ ...d }))];
   for (const s of slots) {
     if (s.dayOfWeek < 0 || s.dayOfWeek > 6) continue;
-    draft[s.dayOfWeek] = s.kind;
+    draft[s.dayOfWeek] = { kind: s.kind, modality: s.modality ?? 'run' };
   }
   return draft;
 }
 
-export function draftToSlots(draft: RunPlannedKind[]): RunPlanSlot[] {
+export function draftToSlots(draft: CardioDraftDay[]): RunPlanSlot[] {
   // Persist only non-rest days — keeps the singleton compact.
   const out: RunPlanSlot[] = [];
   for (let i = 0; i < draft.length; i++) {
-    const k = draft[i]!;
-    if (k === 'rest') continue;
-    // Legacy draft is all-runs; new cardio plan editor will let the
-    // user pick modality per slot.
-    out.push({ dayOfWeek: i, modality: 'run', kind: k });
+    const d = draft[i]!;
+    if (d.kind === 'rest') continue;
+    out.push({ dayOfWeek: i, modality: d.modality, kind: d.kind });
   }
   return out;
 }

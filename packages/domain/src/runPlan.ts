@@ -28,10 +28,27 @@ export const RUN_PLANNED_KINDS: { id: RunPlannedKind; label: string; emoji: stri
   { id: 'rest', label: 'Rest', emoji: '⚪' },
   { id: 'easy', label: 'Easy', emoji: '🟢' },
   { id: 'long', label: 'Long', emoji: '🔵' },
-  { id: 'quality', label: 'Quality (tempo / intervals)', emoji: '🟠' },
+  { id: 'quality', label: 'Quality (tempo)', emoji: '🟠' },
+  { id: 'intervals', label: 'Intervals', emoji: '🔥' },
   { id: 'recovery', label: 'Recovery', emoji: '🩵' },
   { id: 'race-pace', label: 'Race pace', emoji: '🏁' },
+  { id: 'z2', label: 'Z2 / aerobic', emoji: '💧' },
   { id: 'cross', label: 'Cross-train', emoji: '🚴' },
+];
+
+/** Modalities surfaced in the cardio-plan editor's per-slot picker. */
+export const CARDIO_MODALITIES_FOR_PICKER: Array<{
+  id: 'run' | 'bike' | 'swim' | 'row' | 'walk' | 'padel' | 'other';
+  label: string;
+  emoji: string;
+}> = [
+  { id: 'run', label: 'Run', emoji: '🏃' },
+  { id: 'bike', label: 'Bike', emoji: '🚴' },
+  { id: 'swim', label: 'Swim', emoji: '🏊' },
+  { id: 'row', label: 'Row', emoji: '🚣' },
+  { id: 'walk', label: 'Walk', emoji: '🚶' },
+  { id: 'padel', label: 'Padel', emoji: '🎾' },
+  { id: 'other', label: 'Other', emoji: '🔁' },
 ];
 
 export const RUN_DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
