@@ -70,18 +70,18 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
   // in one shot. By watching `sender.id`, the parent route updates the URL
   // the moment the user submits and the conversation is visible immediately.
   //
-  // **Guard**: only fire when the parent is currently at `null` (= a brand-
-  // new chat just got an id). If the parent flipped chatId to null via the
-  // "+ New chat" button, sender.id still holds the previous conversation's
-  // id in THIS render (the sync setId(null) inside useChatSender is queued
-  // for the next render). Without this guard the bubble fires with the
-  // stale id and bounces the URL right back to the old chat. With it, the
-  // sync effect lands first on the next render and sender.id matches null.
+  // **Guard**: only fire while a send is in flight. After the user clicks
+  // "+ New chat", chatId flips to null and useChatSender's sync effect
+  // schedules setId(null) — but BOTH effects run in the same commit, so in
+  // this render sender.id is still the previous conversation's id. Firing
+  // here would bounce the URL right back. By requiring sender.sending the
+  // effect only matches the intended case: a brand-new chat just minted
+  // its id during the first turn's stream.
   useEffect(() => {
-    if (sender.id && chatId === null) {
+    if (sender.id && chatId === null && sender.sending) {
       onChatIdChangeRef.current?.(sender.id);
     }
-  }, [sender.id, chatId]);
+  }, [sender.id, chatId, sender.sending]);
 
   const submit = async (text: string) => {
     if (!text.trim() || sender.sending) return;
