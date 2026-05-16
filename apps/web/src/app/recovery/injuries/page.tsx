@@ -145,78 +145,152 @@ function InjuryRow({ injury, onDelete, onReopen }: InjuryRowProps) {
     kickSync();
   };
 
-  // Apply skip-action substitutions to the active block. Only `skip`
-  // triggers a swap — `reduce-load` means "do this movement lighter",
-  // not "swap to a different movement". `monitor` / `reduce-range` /
-  // `modify-execution` don't change the movement either; they're surfaced
-  // via the AssistanceTrack chip + suggester prompt.
-  //
-  // Used as the "retry" path when the user has edited the
-  // accepted/declined set after the original save. Falls back to a
-  // family-match heuristic for alternatives (the original Coach
-  // alternatives aren't stored on the Injury record — they were
-  // ephemeral on the InjuryAnalysisResult).
-  const applyToBlock = async () => {
-    setApplying(true);
+  // Compute planned skip-swaps without applying them. Returns the list of
+  // proposed (source → target × affected entries) tuples so a preview can
+  // render before any write. Returns null if nothing to do.
+  const buildSkipPlan = async (): Promise<
+    | null
+    | {
+        block: ProgramBlock;
+        plans: Array<{
+          sourceId: string;
+          sourceName: string;
+          targetId: string;
+          targetName: string;
+          affected: Array<{
+            dayId: string;
+            dayLabel: string;
+            entryId: string;
+            sets: number;
+            reps: number;
+            repsMax?: number;
+            unit?: string;
+          }>;
+        }>;
+        emptyReason?: string;
+      }
+  > => {
+    const db = getDb();
+    const blocks = await db.blocks.toArray();
+    const active = blocks.find((b) => !b.completedAt);
+    if (!active || !active.plan) return null;
+    const skipAdjustments = injury.adjustments.filter(
+      (a) => a.status === 'accepted' && a.action === 'skip',
+    );
+    if (skipAdjustments.length === 0) {
+      return { block: active, plans: [], emptyReason: 'No accepted skip adjustments.' };
+    }
+    const movements = await db.movements.toArray();
+    const byId = new Map(movements.map((m) => [m.id, m] as const));
+    const plans: Array<{
+      sourceId: string;
+      sourceName: string;
+      targetId: string;
+      targetName: string;
+      affected: Array<{
+        dayId: string;
+        dayLabel: string;
+        entryId: string;
+        sets: number;
+        reps: number;
+        repsMax?: number;
+        unit?: string;
+      }>;
+    }> = [];
+    for (const adj of skipAdjustments) {
+      const source = byId.get(adj.movementId);
+      if (!source) continue;
+      const candidates = movements.filter(
+        (m) =>
+          m.id !== source.id &&
+          m.pattern === source.pattern &&
+          !m.primaryMuscles.some((pm) => source.primaryMuscles.includes(pm)),
+      );
+      const pick =
+        candidates.find((m) => m.equipment === 'bodyweight') ?? candidates[0];
+      if (!pick) continue;
+      const affected: Array<{
+        dayId: string;
+        dayLabel: string;
+        entryId: string;
+        sets: number;
+        reps: number;
+        repsMax?: number;
+        unit?: string;
+      }> = [];
+      active.plan!.days.forEach((d, di) => {
+        d.assistance.forEach((e) => {
+          if (e.movementId === source.id) {
+            affected.push({
+              dayId: d.id,
+              dayLabel: d.label?.trim() || `Day ${di + 1}`,
+              entryId: e.id,
+              sets: e.sets,
+              reps: e.reps,
+              repsMax: e.repsMax,
+              unit: e.unit,
+            });
+          }
+        });
+      });
+      if (affected.length === 0) continue;
+      plans.push({
+        sourceId: source.id,
+        sourceName: source.name,
+        targetId: pick.id,
+        targetName: pick.name,
+        affected,
+      });
+    }
+    return { block: active, plans };
+  };
+
+  const [previewPlan, setPreviewPlan] = useState<
+    null | Awaited<ReturnType<typeof buildSkipPlan>>
+  >(null);
+
+  const openPreview = async () => {
     setApplyMsg(undefined);
+    const plan = await buildSkipPlan();
+    if (!plan) {
+      setApplyMsg('No active block with a plan found.');
+      return;
+    }
+    if (plan.plans.length === 0) {
+      setApplyMsg(
+        plan.emptyReason ??
+          'Accepted skip-adjustments don\'t match anything in your active block plan.',
+      );
+      return;
+    }
+    setPreviewPlan(plan);
+  };
+
+  const confirmApply = async () => {
+    if (!previewPlan) return;
+    setApplying(true);
     try {
       const db = getDb();
-      const blocks = await db.blocks.toArray();
-      const active = blocks.find((b) => !b.completedAt);
-      if (!active || !active.plan) {
-        setApplyMsg('No active block with a plan found.');
-        return;
-      }
-      const skipAdjustments = injury.adjustments.filter(
-        (a) => a.status === 'accepted' && a.action === 'skip',
-      );
-      if (skipAdjustments.length === 0) {
-        setApplyMsg(
-          'No accepted skip adjustments to apply. Reduce-load / monitor / modify-execution don\'t swap the movement.',
-        );
-        return;
-      }
-      const movements = await db.movements.toArray();
-      const byId = new Map(movements.map((m) => [m.id, m] as const));
-      let touched = false;
-      let block: ProgramBlock = active;
+      let block: ProgramBlock = previewPlan.block;
       let swapsCount = 0;
-      for (const adj of skipAdjustments) {
-        const source = byId.get(adj.movementId);
-        if (!source) continue;
-        // Same-pattern, primary-muscle-disjoint preference for bodyweight.
-        const candidates = movements.filter(
-          (m) =>
-            m.id !== source.id &&
-            m.pattern === source.pattern &&
-            !m.primaryMuscles.some((pm) => source.primaryMuscles.includes(pm)),
-        );
-        const pick =
-          candidates.find((m) => m.equipment === 'bodyweight') ?? candidates[0];
-        if (!pick) continue;
+      for (const p of previewPlan.plans) {
         const plan = block.plan!;
         const days = plan.days.map((d) => {
           const next = d.assistance.map((e) => {
-            if (e.movementId !== source.id) return e;
-            touched = true;
+            if (e.movementId !== p.sourceId) return e;
             swapsCount += 1;
-            return { ...e, movementId: pick.id, movementName: pick.name };
+            return { ...e, movementId: p.targetId, movementName: p.targetName };
           });
           return { ...d, assistance: next };
         });
         block = { ...block, plan: { ...plan, days } };
       }
-      if (!touched) {
-        setApplyMsg(
-          'The accepted skip-adjustments don\'t match anything in your active block plan.',
-        );
-        return;
-      }
       await db.blocks.put({ ...block, updatedAt: new Date().toISOString() });
       kickSync();
       setApplyMsg(
-        `Applied ${swapsCount} swap${swapsCount === 1 ? '' : 's'} to block "${active.name}".`,
+        `Applied ${swapsCount} swap${swapsCount === 1 ? '' : 's'} to block "${previewPlan.block.name}".`,
       );
+      setPreviewPlan(null);
     } finally {
       setApplying(false);
     }
@@ -299,11 +373,11 @@ function InjuryRow({ injury, onDelete, onReopen }: InjuryRowProps) {
           {isActive && hasSkipAccepted && (
             <button
               type="button"
-              onClick={() => void applyToBlock()}
+              onClick={() => void openPreview()}
               disabled={applying}
               className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-200 hover:bg-sky-500/15 disabled:opacity-50"
             >
-              {applying ? 'Applying…' : 'Apply skips to block plan'}
+              {applying ? 'Applying…' : 'Preview & apply skips'}
             </button>
           )}
         </div>
@@ -311,6 +385,68 @@ function InjuryRow({ injury, onDelete, onReopen }: InjuryRowProps) {
           <p className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-200">
             {applyMsg}
           </p>
+        )}
+        {previewPlan && previewPlan.plans.length > 0 && (
+          <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-4">
+            <div className="mb-3 flex items-baseline justify-between">
+              <h5 className="text-sm font-semibold text-emerald-200">
+                Preview — {previewPlan.plans.reduce((n, p) => n + p.affected.length, 0)} entry
+                {previewPlan.plans.reduce((n, p) => n + p.affected.length, 0) === 1 ? '' : 'ies'} will change
+              </h5>
+              <button
+                type="button"
+                onClick={() => setPreviewPlan(null)}
+                className="text-xs text-muted hover:text-fg"
+              >
+                Cancel
+              </button>
+            </div>
+            <p className="mb-3 text-[11px] text-muted">
+              Same-pattern, primary-muscle-disjoint substitutions in block &quot;
+              {previewPlan.block.name}&quot;. Sets × reps preserved.
+            </p>
+            <ul className="space-y-3">
+              {previewPlan.plans.map((p) => (
+                <li key={p.sourceId} className="rounded-lg border border-border bg-bg/40 p-3 text-xs">
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="font-semibold">{p.sourceName}</span>
+                    <span aria-hidden className="text-muted">→</span>
+                    <span className="font-semibold text-emerald-200">{p.targetName}</span>
+                  </div>
+                  <ul className="mt-2 space-y-1 text-[11px] text-muted">
+                    {p.affected.map((a, i) => (
+                      <li key={i} className="flex items-baseline gap-2">
+                        <span className="rounded bg-bg/60 px-1.5 py-0.5 ring-1 ring-border">
+                          {a.dayLabel}
+                        </span>
+                        <span className="tabular-nums">
+                          {a.sets}×{a.repsMax != null ? `${a.reps}-${a.repsMax}` : a.reps}
+                          {a.unit === 'sec' ? ' sec' : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPreviewPlan(null)}
+                className="rounded-lg border border-border bg-bg/40 px-3 py-1.5 text-xs hover:bg-bg/60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmApply()}
+                disabled={applying}
+                className="rounded-lg border border-emerald-500/40 bg-emerald-500/20 px-3 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-50"
+              >
+                {applying ? 'Applying…' : 'Apply these swaps'}
+              </button>
+            </div>
+          </div>
         )}
         <ul className="space-y-2">
           {injury.adjustments.map((adj) => {

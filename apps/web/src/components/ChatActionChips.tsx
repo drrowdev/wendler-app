@@ -111,66 +111,16 @@ function ChatActionChip({
   // entirely — its own InjurySheet IS the confirm step.
   const confirmBody = (() => {
     if (action.kind === 'set_training_max') {
-      return (
-        <>
-          <p className="text-sm">
-            Set the <span className="font-semibold capitalize">{action.lift}</span> training
-            max to{' '}
-            <span className="font-semibold tabular-nums">
-              {action.newTrainingMaxKg.toFixed(1)} kg
-            </span>
-            ?
-          </p>
-          <p className="mt-2 text-xs italic text-muted">{action.reason}</p>
-          <p className="mt-2 text-[11px] text-muted">
-            Previous TMs stay in the history; the new value takes effect from now.
-          </p>
-        </>
-      );
+      return <SetTrainingMaxPreview action={action} />;
     }
     if (action.kind === 'set_block_volume_preset') {
-      return (
-        <>
-          <p className="text-sm">
-            Switch the current block to{' '}
-            <span className="font-semibold capitalize">{action.preset}</span> assistance
-            volume?
-          </p>
-          <p className="mt-2 text-xs italic text-muted">{action.reason}</p>
-        </>
-      );
+      return <SetBlockVolumePresetPreview action={action} />;
     }
     if (action.kind === 'schedule_deload') {
-      return (
-        <>
-          <p className="text-sm">
-            Schedule a 7th-week deload block right after the currently-active block?
-          </p>
-          <p className="mt-2 text-xs italic text-muted">{action.reason}</p>
-          <p className="mt-2 text-[11px] text-muted">
-            The new block lands in /program. The active block isn&apos;t modified — finish your
-            current week as planned and the deload becomes active when you mark the block done.
-          </p>
-        </>
-      );
+      return <ScheduleDeloadPreview action={action} />;
     }
     if (action.kind === 'substitute_movement') {
-      return (
-        <>
-          <p className="text-sm">
-            Replace{' '}
-            <span className="font-semibold">{action.currentMovementName}</span> with{' '}
-            <span className="font-semibold">{action.newMovementName}</span>
-            {typeof action.dayIndex === 'number' ? ` on Day ${action.dayIndex + 1}` : ''}{' '}
-            in the active block?
-          </p>
-          <p className="mt-2 text-xs italic text-muted">{action.reason}</p>
-          <p className="mt-2 text-[11px] text-muted">
-            Existing sets × reps + category are preserved. The swap applies to the per-day
-            default — per-week overrides are untouched.
-          </p>
-        </>
-      );
+      return <SubstituteMovementPreview action={action} />;
     }
     return null;
   })();
@@ -290,4 +240,356 @@ function formatAppliedDetails(details: ChatActionApplyDetails): string {
     default:
       return '';
   }
+}
+
+// SetTrainingMaxPreview — shows the current TM, the proposed TM, the
+// delta + percent change, and the working-set kg implication so the user
+// understands what the change means at the bar before tapping Apply.
+import { useLiveQuery } from 'dexie-react-hooks';
+import { getDb } from '@/lib/db';
+
+function SetTrainingMaxPreview({
+  action,
+}: {
+  action: ChatAction & { kind: 'set_training_max' };
+}) {
+  const current = useLiveQuery(
+    async () => {
+      const all = await getDb().trainingMaxes.toArray();
+      const matching = all.filter((t) => t.lift === action.lift);
+      if (matching.length === 0) return null;
+      matching.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      return matching[0]!;
+    },
+    [action.lift],
+  );
+
+  const currentKg = current?.trainingMaxKg;
+  const tmPercent = current?.tmPercent ?? 0.85;
+  const delta = currentKg != null ? action.newTrainingMaxKg - currentKg : undefined;
+  const deltaPct = currentKg != null && currentKg > 0 ? (delta! / currentKg) * 100 : undefined;
+  const direction = delta != null && delta < 0 ? 'cut' : delta != null && delta > 0 ? 'bump' : null;
+
+  const newTopSet = action.newTrainingMaxKg * tmPercent;
+  const currentTopSet = currentKg != null ? currentKg * tmPercent : undefined;
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="rounded-lg border border-border bg-bg/40 p-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted">
+          {action.lift} training max
+        </div>
+        <div className="mt-1 flex items-baseline gap-3">
+          <div>
+            <div className="text-[11px] text-muted">Current</div>
+            <div className="text-lg font-semibold tabular-nums">
+              {currentKg != null ? `${currentKg.toFixed(1)} kg` : '— no record yet'}
+            </div>
+          </div>
+          <div aria-hidden className="text-muted">→</div>
+          <div>
+            <div className="text-[11px] text-muted">Proposed</div>
+            <div className="text-lg font-semibold tabular-nums text-accent">
+              {action.newTrainingMaxKg.toFixed(1)} kg
+            </div>
+          </div>
+          {direction && deltaPct != null && (
+            <div className={`ml-auto rounded px-2 py-1 text-xs font-semibold ${
+              direction === 'cut'
+                ? 'bg-rose-500/15 text-rose-200 ring-1 ring-rose-500/40'
+                : 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/40'
+            }`}>
+              {direction === 'cut' ? '−' : '+'}
+              {Math.abs(deltaPct).toFixed(1)}%
+            </div>
+          )}
+        </div>
+        {currentTopSet != null && (
+          <div className="mt-2 text-[11px] text-muted">
+            Top-set @ {Math.round(tmPercent * 100)}% TM:{' '}
+            <span className="tabular-nums text-fg/80">{currentTopSet.toFixed(1)} kg</span>{' '}
+            → <span className="tabular-nums font-semibold text-accent">{newTopSet.toFixed(1)} kg</span>
+          </div>
+        )}
+      </div>
+      <p className="text-xs italic text-muted">{action.reason}</p>
+      <p className="text-[11px] text-muted">
+        Previous TMs stay in your history. The new value applies from your next session.
+      </p>
+    </div>
+  );
+}
+
+// SetBlockVolumePresetPreview — shows current block name + assistance
+// volume preset, with the rep budget for each preset so the user sees
+// what the change means in concrete reps/day.
+const PRESET_LABELS: Record<string, { mainDay: number; accessoryDay: number }> = {
+  minimal: { mainDay: 200, accessoryDay: 120 },
+  standard: { mainDay: 300, accessoryDay: 200 },
+  high: { mainDay: 400, accessoryDay: 280 },
+};
+
+function SetBlockVolumePresetPreview({
+  action,
+}: {
+  action: ChatAction & { kind: 'set_block_volume_preset' };
+}) {
+  const block = useLiveQuery(async () => {
+    const all = await getDb().blocks.toArray();
+    if (action.blockId) return all.find((b) => b.id === action.blockId) ?? null;
+    return all.find((b) => !b.completedAt) ?? null;
+  }, [action.blockId]);
+
+  const currentPreset =
+    typeof block?.assistanceVolume === 'string' ? block.assistanceVolume : 'standard';
+  const cur = PRESET_LABELS[currentPreset] ?? PRESET_LABELS.standard!;
+  const nxt = PRESET_LABELS[action.preset] ?? PRESET_LABELS.standard!;
+  const mainDelta = nxt.mainDay - cur.mainDay;
+  const mainDeltaPct = cur.mainDay > 0 ? (mainDelta / cur.mainDay) * 100 : 0;
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="rounded-lg border border-border bg-bg/40 p-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted">
+          {block ? `Block "${block.name}"` : 'Active block'}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded bg-bg/60 p-2">
+            <div className="text-[10px] uppercase tracking-wide text-muted">Current</div>
+            <div className="font-semibold capitalize">{currentPreset}</div>
+            <div className="mt-1 text-[11px] text-muted">
+              Main day: <span className="tabular-nums text-fg/80">{cur.mainDay} reps</span>
+              <br />
+              Accessory: <span className="tabular-nums text-fg/80">{cur.accessoryDay} reps</span>
+            </div>
+          </div>
+          <div className="rounded bg-accent/10 p-2 ring-1 ring-accent/40">
+            <div className="text-[10px] uppercase tracking-wide text-accent">Proposed</div>
+            <div className="font-semibold capitalize">{action.preset}</div>
+            <div className="mt-1 text-[11px] text-muted">
+              Main day: <span className="tabular-nums text-fg/80">{nxt.mainDay} reps</span>
+              <br />
+              Accessory: <span className="tabular-nums text-fg/80">{nxt.accessoryDay} reps</span>
+            </div>
+          </div>
+        </div>
+        {mainDelta !== 0 && (
+          <div className={`mt-2 text-[11px] ${mainDelta < 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+            Main-day budget: {mainDelta > 0 ? '+' : ''}
+            {mainDelta} reps ({mainDelta > 0 ? '+' : ''}
+            {mainDeltaPct.toFixed(0)}%) — applies to next assistance generation.
+          </div>
+        )}
+      </div>
+      <p className="text-xs italic text-muted">{action.reason}</p>
+      <p className="text-[11px] text-muted">
+        Existing scheduled entries in this block are unchanged. The new budget kicks in
+        the next time you run Suggest assistance.
+      </p>
+    </div>
+  );
+}
+
+// ScheduleDeloadPreview — shows where the new deload block lands in
+// the program sequence + confirms that the active block isn't touched.
+function ScheduleDeloadPreview({
+  action,
+}: {
+  action: ChatAction & { kind: 'schedule_deload' };
+}) {
+  void action;
+  const blockInfo = useLiveQuery(async () => {
+    const all = await getDb().blocks.toArray();
+    const active = all.find((b) => !b.completedAt);
+    if (!active) return null;
+    const peers = active.programId
+      ? all.filter((b) => b.programId === active.programId)
+      : [active];
+    peers.sort((a, b) => (a.sequenceIndex ?? 0) - (b.sequenceIndex ?? 0));
+    const maxSeq = peers.reduce((acc, b) => Math.max(acc, b.sequenceIndex ?? 0), 0);
+    return { active, peers, nextSeq: maxSeq + 1 };
+  });
+
+  if (!blockInfo) {
+    return <p className="text-sm text-muted">Loading active block…</p>;
+  }
+  if (!blockInfo.active) {
+    return (
+      <p className="text-sm text-amber-200">
+        No active block found. The deload action will fail at apply time.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3 text-sm">
+      <p>Schedule a 7th-week deload block right after your active block:</p>
+      <ol className="space-y-1 rounded-lg border border-border bg-bg/40 p-3 text-xs">
+        {blockInfo.peers.map((b) => (
+          <li
+            key={b.id}
+            className={`flex items-baseline gap-2 ${
+              b.id === blockInfo.active!.id ? 'font-semibold text-fg' : 'text-muted'
+            }`}
+          >
+            <span className="w-6 tabular-nums">#{b.sequenceIndex ?? 0}</span>
+            <span>{b.name}</span>
+            <span className="text-[10px] text-muted">({b.kind})</span>
+            {b.id === blockInfo.active!.id && (
+              <span className="ml-auto rounded bg-accent/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-accent">
+                Active
+              </span>
+            )}
+          </li>
+        ))}
+        <li className="flex items-baseline gap-2 rounded bg-sky-500/10 px-1 py-0.5 font-semibold text-sky-200 ring-1 ring-sky-500/40">
+          <span className="w-6 tabular-nums">#{blockInfo.nextSeq}</span>
+          <span>Deload week</span>
+          <span className="text-[10px]">(seventh-week / deload)</span>
+          <span className="ml-auto rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+            New
+          </span>
+        </li>
+      </ol>
+      <p className="text-xs italic text-muted">{action.reason}</p>
+      <p className="text-[11px] text-muted">
+        Your active block isn&apos;t modified — finish the current week as planned. The deload
+        becomes active automatically when you mark the active block done.
+      </p>
+    </div>
+  );
+}
+
+// SubstituteMovementPreview — shows which day(s) in which block will be
+// touched, sets/reps preserved, with explicit confirmation that other
+// days/blocks aren't affected.
+function SubstituteMovementPreview({
+  action,
+}: {
+  action: ChatAction & { kind: 'substitute_movement' };
+}) {
+  const previewData = useLiveQuery(async () => {
+    const db = getDb();
+    const blocks = await db.blocks.toArray();
+    let block = action.blockId ? blocks.find((b) => b.id === action.blockId) : undefined;
+    if (!block) block = blocks.find((b) => !b.completedAt);
+    if (!block?.plan) return null;
+    const hits: { dayId: string; dayLabel: string; entry: { id: string; movementName: string; sets: number; reps: number; repsMax?: number; unit?: string } }[] = [];
+    block.plan.days.forEach((d, di) => {
+      const dayLabel = d.label?.trim() || `Day ${di + 1}`;
+      d.assistance.forEach((e) => {
+        const matchById = e.movementId === action.currentMovementId;
+        const matchByName =
+          !matchById &&
+          (e.movementName ?? '').toLowerCase().trim() ===
+            action.currentMovementName.toLowerCase().trim();
+        if (matchById || matchByName) {
+          hits.push({
+            dayId: d.id,
+            dayLabel,
+            entry: {
+              id: e.id,
+              movementName: e.movementName,
+              sets: e.sets,
+              reps: e.reps,
+              repsMax: e.repsMax,
+              unit: e.unit,
+            },
+          });
+        }
+      });
+    });
+    return { block, hits };
+  }, [action.blockId, action.currentMovementId, action.currentMovementName]);
+
+  if (!previewData) {
+    return <p className="text-sm text-muted">Loading block plan…</p>;
+  }
+  if (previewData.hits.length === 0) {
+    return (
+      <div className="space-y-3 text-sm">
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-amber-200">
+          <div className="font-semibold">Nothing scheduled to swap</div>
+          <p className="mt-1 text-xs text-amber-100/90">
+            &quot;{action.currentMovementName}&quot; (id <code>{action.currentMovementId}</code>) isn&apos;t scheduled in block
+            &quot;{previewData.block.name}&quot;. Tapping Apply will report an error and make no changes.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  // Filter targeted day from the day list when dayId is supplied.
+  const wantDayId = action.dayId;
+  const wantDayIdx = action.dayIndex;
+  const targetHit = (() => {
+    if (wantDayId) return previewData.hits.find((h) => h.dayId === wantDayId);
+    if (typeof wantDayIdx === 'number') {
+      const planDays = previewData.block.plan!.days;
+      const dayId = planDays[wantDayIdx]?.id;
+      return dayId ? previewData.hits.find((h) => h.dayId === dayId) : undefined;
+    }
+    return previewData.hits[0];
+  })();
+  const collateralHits = previewData.hits.filter((h) => h !== targetHit);
+
+  return (
+    <div className="space-y-3 text-sm">
+      {targetHit ? (
+        <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted">
+            Will change
+          </div>
+          <div className="mt-2 flex flex-wrap items-baseline gap-2">
+            <span className="rounded bg-bg/60 px-2 py-0.5 text-[11px] font-semibold ring-1 ring-border">
+              {targetHit.dayLabel}
+            </span>
+            <span className="font-semibold">{targetHit.entry.movementName}</span>
+            <span className="text-xs text-muted tabular-nums">
+              {targetHit.entry.sets}×{targetHit.entry.repsMax != null
+                ? `${targetHit.entry.reps}-${targetHit.entry.repsMax}`
+                : targetHit.entry.reps}
+              {targetHit.entry.unit === 'sec' ? ' sec' : ''}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-baseline gap-2">
+            <span aria-hidden className="text-muted">→</span>
+            <span className="font-semibold text-emerald-200">{action.newMovementName}</span>
+            <span className="text-xs text-muted tabular-nums">
+              {targetHit.entry.sets}×{targetHit.entry.repsMax != null
+                ? `${targetHit.entry.reps}-${targetHit.entry.repsMax}`
+                : targetHit.entry.reps}
+              {targetHit.entry.unit === 'sec' ? ' sec' : ''}{' '}
+              <span className="text-emerald-300/70">(sets × reps preserved)</span>
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-200">
+          Specified day not found. The handler will reject this apply.
+        </div>
+      )}
+      {collateralHits.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
+          <div className="font-semibold text-amber-200">
+            ⚠ &quot;{action.currentMovementName}&quot; also appears on {collateralHits.length} other day
+            {collateralHits.length === 1 ? '' : 's'} in this block
+          </div>
+          <ul className="mt-1 space-y-0.5 text-amber-100/90">
+            {collateralHits.map((h, i) => (
+              <li key={i}>
+                {h.dayLabel}: {h.entry.movementName} {h.entry.sets}×{h.entry.repsMax != null ? `${h.entry.reps}-${h.entry.repsMax}` : h.entry.reps}
+                {h.entry.unit === 'sec' ? ' sec' : ''}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-amber-200/80">
+            Those days are NOT changed by this action. If you want the swap applied
+            everywhere, dismiss this chip and ask the chat to re-run the substitution
+            without a specific day target.
+          </p>
+        </div>
+      )}
+      <p className="text-xs italic text-muted">{action.reason}</p>
+    </div>
+  );
 }

@@ -8,6 +8,26 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Changed — Preview-before-write guardrails on all chat actions + Apply skips (SW v379)
+
+Extends the v378 InjurySheet diff-preview pattern to every remaining surface where AI can write user data. Each AI action now shows a concrete before/after view *before* anything is persisted, so the user always has explicit accept/decline on the actual change — not just on the AI's recommendation.
+
+**Chat action chips** (`apps/web/src/components/ChatActionChips.tsx`) — replaced one-line confirm bodies with per-kind preview components that pull live data from Dexie:
+
+- `set_training_max`: shows current TM (latest `TrainingMaxRecord` for that lift), proposed TM, kg delta + %, and top-set kg at the user's tmPercent (default 85%) for both before/after.
+- `set_block_volume_preset`: looks up the active block (or `action.blockId`), renders current vs proposed preset side-by-side with main-day + accessory rep budgets and a delta callout. Notes that existing scheduled entries aren't modified — the new budget kicks in next assistance generation.
+- `schedule_deload`: renders the program's block sequence with the active block highlighted and a "new" row showing exactly where the deload lands (next sequenceIndex). Confirms the active block isn't touched.
+- `substitute_movement`: walks the targeted block's plan, lists the affected entry with sets × reps preserved, and surfaces collateral hits (the same movementId on other days in the same block) so the user knows the swap is single-day not block-wide. Handles "nothing to swap" with an explicit amber warning so the user doesn't tap Apply expecting a change that won't happen.
+
+**`/recovery/injuries` "Apply skips" retry button** (`apps/web/src/app/recovery/injuries/page.tsx`) — was running immediately with no preview. Split into:
+
+- `buildSkipPlan()`: pure computation that returns the proposed source→target swaps plus affected entries per day (same heuristic: same-pattern, primary-muscle-disjoint, bodyweight preferred).
+- "Preview & apply skips" button (renamed from "Apply skips to block plan"): opens an inline emerald-tinted preview card showing every planned swap with its affected day labels + sets × reps. Cancel / Apply these swaps buttons.
+- `confirmApply()`: only writes after the user confirms.
+
+Tests still 928/928. SW bumped 378 → 379.
+
+
 ### Changed — Public repo hygiene + chat action audit log (SW v366)
 
 Two follow-ups bundled together:
