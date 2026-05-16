@@ -564,7 +564,12 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
       ) : (
         <>
           <div className="flex items-baseline justify-between text-xs text-muted">
-            <span>{proposal.proposedAdjustments.length} adjustment(s) proposed</span>
+            <span>
+              <span className="font-semibold text-emerald-300">{accepted.size}</span>
+              <span className="mx-1">of</span>
+              <span>{proposal.proposedAdjustments.length}</span>{' '}
+              accepted · only accepted ones apply.
+            </span>
             <div className="flex gap-2">
               <button type="button" onClick={acceptAll} className="underline-offset-2 hover:underline">
                 Accept all
@@ -597,13 +602,15 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
                     <button
                       type="button"
                       onClick={() => toggle(i)}
-                      className={`shrink-0 rounded-lg border px-2 py-1 text-xs ${
+                      aria-pressed={isAccepted}
+                      title={isAccepted ? 'Tap to decline' : 'Tap to accept'}
+                      className={`shrink-0 rounded-lg border px-2.5 py-1 text-xs font-semibold ${
                         isAccepted
-                          ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-200'
-                          : 'border-border text-muted hover:text-fg'
+                          ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100'
+                          : 'border-rose-500/40 bg-rose-500/10 text-rose-200'
                       }`}
                     >
-                      {isAccepted ? '✓ Accept' : 'Decline'}
+                      {isAccepted ? '✓ Accepted' : '✕ Declined'}
                     </button>
                   </div>
                   <p className="mt-2 text-sm">{editState?.modification ?? adj.modification}</p>

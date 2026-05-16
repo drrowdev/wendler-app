@@ -139,6 +139,10 @@ export async function dismissAction(
  * happens inside the InjurySheet (Coach proposal flow) — this helper is
  * called from the chip UI after `onSaved` so the chip records which Injury
  * record was produced and writes the standard audit notification.
+ *
+ * Reads the final saved values from the Injury record (not the chip's
+ * original suggested values) so the audit reflects what the user actually
+ * saved after any in-form edits to severity / area / description.
  */
 export async function applyLogInjuryAudit(
   chatId: string,
@@ -146,12 +150,15 @@ export async function applyLogInjuryAudit(
   action: ChatAction & { kind: 'log_injury' },
   injuryId: string,
 ): Promise<void> {
+  const saved = await getDb().injuries.get(injuryId);
+  const area = saved?.area ?? action.area;
+  const severity = saved?.severity ?? action.severity;
   await markApplied(
     chatId,
     messageId,
     action,
     { kind: 'log_injury', injuryId },
-    `Logged limitation: ${action.area}${action.severity ? ` (severity ${action.severity}/5)` : ''}`,
+    `Logged limitation: ${area}${severity ? ` (severity ${severity}/5)` : ''}`,
   );
 }
 
