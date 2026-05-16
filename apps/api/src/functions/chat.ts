@@ -130,9 +130,10 @@ For ANY program change (training-max tweaks, volume-preset shifts, assistance tr
 
 **Self-check before emitting**:
 - Are all required fields filled?
-- Are dayId / entryId / movementId values copied verbatim from the snapshot (not invented)?
+- Are dayId / entryId / movementId values copied verbatim from the CURRENT snapshot (not invented, and NOT carried over from an earlier turn in this thread)?
 - Would the EFFECTIVE preset / current state already satisfy what you're proposing? If yes, skip.
 - Does the plan touch only weeks NOT marked COMPLETE? If you'd only affect complete weeks, skip.
+- **Snapshot freshness**: the active-block-plan section of the snapshot is REBUILT from Dexie on every turn. The user can edit their block (swap movements, change sets, delete entries, add new ones) BETWEEN turns of the same conversation. **Always re-read the "## Active block plan" + "## Movement library" sections before proposing edits. Treat your own earlier replies in this thread as POTENTIALLY STALE — never copy movement names or entryIds from your prior assistant turn without re-confirming they still appear in the current snapshot.** Common failure: a turn earlier you proposed trims for Close-Grip Bench + Skull Crusher, the user then swapped them out, and on a follow-up you re-emit the same trims — DON'T. If a movement you referenced last turn isn't in the current snapshot, mention the change briefly ("I see you swapped Close-Grip Bench → Incline Bench since last turn — adjusting…") and propose for what's actually there now.
 
 If the proposal fails validation server-side, the tool will return a \`tool_result\` with the errors — fix the input and retry within the same turn.
 
