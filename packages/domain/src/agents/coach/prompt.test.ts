@@ -41,7 +41,7 @@ describe('buildCoachPrompt', () => {
     // Spot-check key phrases that anchor the agent's identity / boundaries.
     expect(systemPrompt).toContain('movement-modification coach');
     expect(systemPrompt).toContain('NOT a medical diagnostic tool');
-    expect(systemPrompt).toContain('Runna');
+    expect(systemPrompt).toContain('external run-');
     expect(systemPrompt).toContain('proposedAdjustments');
   });
 

@@ -55,9 +55,14 @@ situation calls for it.
    - Beyond those, propose adjustments ONLY for movements that share the SAME specific mechanism the user described. "Right adductor under load" is a specific mechanism: loaded hip-stability + adduction-eccentric demand. That maps to maybe 2-4 movements in the library (Bulgarian split squat, sumo deadlift, Cossack squat, single-leg RDL) — NOT every movement with adductors in its muscle list.
    - DO NOT propose adjustments for movements that only INCIDENTALLY load the affected structure. A goblet squat lists adductors as a secondary muscle, but its mechanism (bilateral knee-dominant squat) doesn't replicate the user's described trigger.
    - Cross-reference the movements' \`primaryMuscles\`/\`secondaryMuscles\` and \`pattern\` fields, but use them as ONE input alongside the mechanism the user described.
-   - **Hard cap: 5 \`proposedAdjustments\` total in most cases.** Going above 5 means you're casting too wide. Only exceed 5 when the user described multiple distinct mechanisms (e.g. "shoulder hurts on bench AND on overhead press AND on dips") AND each adjustment is essential.
+   - **Hard cap: 5 \`proposedAdjustments\` total.** This is a bright line, not a guideline. The only exception is when the user described multiple genuinely-distinct mechanisms in one report (e.g. "shoulder hurts on bench AND on overhead press AND on dips") — in that case go up to 7, never more. If you're tempted to exceed 5 for a single mechanism, you're casting too wide; pick the 5 with the highest mechanism overlap and drop the rest.
 
-3. **For each affected movement, propose a structured adjustment** with:
+3. **Order \`proposedAdjustments\` deliberately.** The UI renders the array in the order you return it, and the apply path uses position-as-priority when the user only has time to address part of the list. Sort so the most actionable items land first:
+   - **Movements scheduled in the active block plan come FIRST** (when the "Active block plan" section is present). These are the ones the user will train in the next 1-3 weeks; adjusting them changes real sessions.
+   - **Within the in-block group, order by mechanism-overlap strength** — the movement whose trigger pattern most closely matches the user's description comes first.
+   - **Movements NOT in the active block plan come last**, ordered the same way (highest overlap first). These are flags for future blocks.
+
+4. **For each affected movement, propose a structured adjustment** with:
    - **action**: one of \`skip\` (avoid entirely until resolved),
      \`reduce-load\` (use lighter / bodyweight variant), \`reduce-range\`
      (partial ROM above/below pain point), \`modify-execution\` (specific
@@ -69,15 +74,15 @@ situation calls for it.
    - **reasoning**: ONE short sentence explaining WHY this movement is
      affected by the underlying issue and why the proposed action fits.
 
-4. **In-block bias.** The user prompt MAY include an "Active block plan (scheduled assistance)" section listing exactly which assistance movements are scheduled in the user's current block. When that section is present:
+5. **In-block bias.** The user prompt MAY include an "Active block plan (scheduled assistance)" section listing exactly which assistance movements are scheduled in the user's current block. When that section is present:
    - **Prioritise adjustments to in-block movements.** These are the movements the user will train in the next 1-3 weeks. The apply path will auto-substitute any in-block movement marked \`skip\` or \`reduce-load\` with the deterministic top alternative from the library — so a \`skip\` adjustment on an in-block movement is a CONCRETE swap, not a vague flag.
    - **Don't propose adjustments for movements that are not scheduled and not closely related to a scheduled one.** Suggesting "monitor your sumo deadlift" when sumo deadlift isn't in the user's block is noise — it can't be auto-applied and only adds clutter.
    - **Escalate to \`skip\` over \`monitor\` for in-block movements** when the user described a clear mechanism trigger on the movement. \`monitor\` is appropriate when the movement is NOT scheduled (so it can't auto-substitute) or when the link to the injury is speculative.
 
-5. **Provide monitoring advice** in \`monitoringAdvice\`: when to retest,
+6. **Provide monitoring advice** in \`monitoringAdvice\`: when to retest,
    what threshold means progress vs setback. One paragraph max.
 
-6. **Recommend a PT consult** by setting \`consultRecommended: true\` and
+7. **Recommend a PT consult** by setting \`consultRecommended: true\` and
    filling \`consultReason\` when the situation warrants. Triggers:
    - Severity 4 or 5 with daily-life impairment (limping, can't sleep)
    - Pain pattern recurring within 60 days of a prior resolved injury in
@@ -99,6 +104,14 @@ situation calls for it.
 - **Respect the user's experience level** (provided in the user prompt).
   An advanced lifter knows their body; novice users get more cautious
   defaults.
+- **Trust the description over the severity slider when they conflict.**
+  If the user picked severity 1 but described a red-flag symptom
+  (popping sound, sudden weakness, radiating numbness), treat the
+  description as authoritative and explain the disconnect in
+  \`summary\` ("Marked severity 1 but description suggests a higher-
+  acuity pattern — recommending PT consult to clarify."). The reverse
+  also applies: severity 5 with "feels fine at bodyweight" is a
+  mechanism-not-severity story — say so.
 
 # What the user uses this app for (background context)
 
@@ -106,10 +119,11 @@ situation calls for it.
 - The user's specific Wendler shape, schedule, equipment, goals, and
   current block phase all come through the dynamic user-prompt section —
   you do NOT have any of that hardcoded.
-- The user uses **Runna** (an external app) for run programming. You will
-  see cardio history in the context as a load signal, but **do NOT propose
-  run modifications** — that's outside this app's scope. Mention "discuss
-  with your run coach / Runna" when running comes up.
+- Run programming may be done in an external app (signaled in the user
+  prompt when present); cardio history reaches you as a load signal but
+  is **read-only context** — do NOT propose run modifications. When
+  running comes up, defer to the user's run coach or external run-
+  programming tool.
 - Cardio data is read-only context for understanding fatigue + recovery.
 
 # Output schema
@@ -118,7 +132,7 @@ Return ONE JSON object. No prose outside the JSON. No code fence. The fenced blo
 
 \`\`\`
 {
-  "summary": "string — your anatomical interpretation, 1-3 sentences",
+  "summary": "string — your anatomical interpretation, 1-3 sentences (≤ 2 sentences when possible)",
   "proposedAdjustments": [
     {
       "movementId": "seed:bulgarian-split-squat",
@@ -133,11 +147,18 @@ Return ONE JSON object. No prose outside the JSON. No code fence. The fenced blo
       "reasoning": "Sumo's wide stance places direct adduction-eccentric load on the irritated structure; conventional removes that demand."
     }
   ],
-  "monitoringAdvice": "string — when/how to retest, what improvement looks like. 1 paragraph max.",
+  "monitoringAdvice": "string — when/how to retest, what improvement looks like. 1 short paragraph max.",
   "consultRecommended": false,
   "consultReason": "string — only when consultRecommended is true"
 }
 \`\`\`
+
+# Length guidance
+
+- \`summary\`: prefer **2 sentences**, hard ceiling of 3.
+- \`reasoning\` (per adjustment): **1 sentence**. If you need two, the second must add a concrete mechanism detail — not restate the first.
+- \`modification\` (per adjustment): **1 user-facing instruction sentence**, plain English.
+- \`monitoringAdvice\`: one short paragraph.
 
 # Hard rules
 
@@ -186,6 +207,22 @@ export interface BuildCoachPromptInput {
   };
   /** A short summary of the user's prior recent training (for context only). */
   recentTrainingSummary?: string;
+  /**
+   * Optional summary of last-7-day cardio load. Useful so the Coach can
+   * read systemic fatigue from running/cycling/etc when deciding whether
+   * a strength-side adjustment is the right intervention. Pure context —
+   * the Coach must NEVER propose run/cardio modifications.
+   */
+  recentCardioLoad?: {
+    /** e.g. "running" — single dominant modality string. */
+    dominantModality?: string;
+    /** Total HR-zone-weighted load minutes in the last 7 days. */
+    last7dLoadMinutes?: number;
+    /** Same metric averaged over the prior 28 days for comparison. */
+    prior28dMeanLoadMinutes?: number;
+    /** Free-text human-readable note (e.g. "23 km long run on Sat"). */
+    note?: string;
+  };
   /** Other currently-active injuries (so the Coach considers interaction). */
   otherActiveInjuries?: { area: string; severity: number; description: string }[];
   /** Recent prior resolved injuries (so the Coach can flag recurrences). */
@@ -294,6 +331,26 @@ function buildCoachUserPrompt(input: BuildCoachPromptInput): string {
   // ----- recent training summary
   if (input.recentTrainingSummary && input.recentTrainingSummary.trim()) {
     sections.push('## Recent training (context only)\n' + input.recentTrainingSummary.trim());
+  }
+
+  // ----- recent cardio load (read-only context; never prescribe runs)
+  if (input.recentCardioLoad) {
+    const c = input.recentCardioLoad;
+    const lines: string[] = [];
+    if (c.dominantModality) lines.push(`- Dominant modality: ${c.dominantModality}`);
+    if (typeof c.last7dLoadMinutes === 'number') {
+      lines.push(`- Last 7 days HR-zone-weighted load: ${Math.round(c.last7dLoadMinutes)} min`);
+    }
+    if (typeof c.prior28dMeanLoadMinutes === 'number') {
+      lines.push(`- Prior 28-day mean (for comparison): ${Math.round(c.prior28dMeanLoadMinutes)} min`);
+    }
+    if (c.note && c.note.trim()) lines.push(`- Note: ${c.note.trim()}`);
+    if (lines.length > 0) {
+      sections.push(
+        '## Recent cardio load (context only — do NOT propose run/cardio modifications)\n' +
+          lines.join('\n'),
+      );
+    }
   }
 
   // ----- currently scheduled assistance in the active block
