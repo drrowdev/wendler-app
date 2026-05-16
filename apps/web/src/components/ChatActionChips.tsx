@@ -16,6 +16,7 @@ import {
   dismissAction,
 } from '@/lib/chat-actions';
 import { InjurySheet } from '@/components/injury/InjurySheet';
+import { EditProposalSheet } from '@/components/chat/EditProposalSheet';
 
 interface Props {
   chatId: string;
@@ -48,6 +49,7 @@ function ChatActionChip({
   const [error, setError] = useState<string | undefined>();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [injurySheetOpen, setInjurySheetOpen] = useState(false);
+  const [proposalSheetOpen, setProposalSheetOpen] = useState(false);
 
   if (action.status === 'applied') {
     return (
@@ -79,6 +81,10 @@ function ChatActionChip({
     setError(undefined);
     if (action.kind === 'log_injury') {
       setInjurySheetOpen(true);
+      return;
+    }
+    if (action.kind === 'propose_edit') {
+      setProposalSheetOpen(true);
       return;
     }
     setBusy(true);
@@ -137,6 +143,7 @@ function ChatActionChip({
               type="button"
               onClick={() => {
                 if (action.kind === 'log_injury') void onApply();
+                else if (action.kind === 'propose_edit') void onApply();
                 else setConfirmOpen(true);
               }}
               disabled={busy}
@@ -217,6 +224,15 @@ function ChatActionChip({
           }}
         />
       )}
+
+      {proposalSheetOpen && action.kind === 'propose_edit' && (
+        <EditProposalSheet
+          chatId={chatId}
+          messageId={messageId}
+          action={action}
+          onClose={() => setProposalSheetOpen(false)}
+        />
+      )}
     </>
   );
 }
@@ -237,6 +253,12 @@ function formatAppliedDetails(details: ChatActionApplyDetails): string {
       return `Deload block ${details.newBlockId.slice(0, 8)}…${details.programId ? ` (program ${details.programId.slice(0, 8)}…)` : ''} · seq ${details.sequenceIndex}`;
     case 'substitute_movement':
       return `${details.previousMovementName} → ${details.newMovementName}`;
+    case 'propose_edit': {
+      const applied = Object.keys(details.operationResults).length;
+      const declined = details.declinedOperationIds.length;
+      const total = applied + declined;
+      return `${applied}/${total} ops applied${declined > 0 ? ` (${declined} declined)` : ''}`;
+    }
     default:
       return '';
   }
