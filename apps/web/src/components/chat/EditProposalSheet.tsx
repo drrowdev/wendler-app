@@ -24,10 +24,12 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import type {
   EditOperation,
   EditOperationDecision,
+  Movement,
   ProposeEditChatAction,
   ProgramBlock,
 } from '@wendler/db-schema';
 import { getDb } from '@/lib/db';
+import { useMovements } from '@/lib/hooks';
 import { applyEditProposal } from '@/lib/edit-proposal-apply';
 
 interface Props {
@@ -109,6 +111,40 @@ export function EditProposalSheet({ chatId, messageId, action, onClose }: Props)
           modifiedInput: { ...(cur.modifiedInput ?? {}), ...patch },
         },
       };
+    });
+  };
+
+  /**
+   * "Use existing library entry" path for an add_movement_to_library op:
+   *   1. Mark the library op DECLINED (we're not adding a new entry).
+   *   2. Rewrite any sibling add_assistance_entry op whose movementId
+   *      matched the tempMovementId so it points at the chosen existing
+   *      Movement. The orchestrator's tempIdMap is bypassed entirely
+   *      since the real id is now baked into the op's modifiedInput.
+   *
+   * Driven from AddMovementToLibraryDiff's "Use existing X" link.
+   */
+  const useExistingForTemp = (tempMovementId: string, real: Movement) => {
+    setDecisions((d) => {
+      const next = { ...d };
+      for (const op of action.operations) {
+        if (op.kind === 'add_movement_to_library' && op.tempMovementId === tempMovementId) {
+          next[op.id] = { status: 'declined' };
+          continue;
+        }
+        if (op.kind === 'add_assistance_entry' && op.movementId === tempMovementId) {
+          const cur = next[op.id] ?? { status: 'pending' };
+          next[op.id] = {
+            status: cur.status,
+            modifiedInput: {
+              ...(cur.modifiedInput ?? {}),
+              movementId: real.id,
+              movementName: real.name,
+            },
+          };
+        }
+      }
+      return next;
     });
   };
 
@@ -201,6 +237,7 @@ export function EditProposalSheet({ chatId, messageId, action, onClose }: Props)
               onAccept={() => setDecision(op.id, { status: 'accepted' })}
               onDecline={() => setDecision(op.id, { status: 'declined' })}
               onModify={(patch) => setModified(op.id, patch)}
+              onUseExistingLibraryMovement={useExistingForTemp}
             />
           ))}
         </ol>
@@ -273,9 +310,26 @@ interface OpRowProps {
   onAccept: () => void;
   onDecline: () => void;
   onModify: (patch: Record<string, unknown>) => void;
+  /**
+   * "Use existing X" shortcut for add_movement_to_library: declines this
+   * op AND rewrites any sibling add_assistance_entry op whose movementId
+   * matches the op's tempMovementId to point at the chosen existing
+   * library entry. EditProposalSheet owns this because it spans multiple
+   * rows.
+   */
+  onUseExistingLibraryMovement: (tempMovementId: string, real: Movement) => void;
 }
 
-function OpRow({ index, op, decision, result, onAccept, onDecline, onModify }: OpRowProps) {
+function OpRow({
+  index,
+  op,
+  decision,
+  result,
+  onAccept,
+  onDecline,
+  onModify,
+  onUseExistingLibraryMovement,
+}: OpRowProps) {
   const isAccepted = decision.status === 'accepted';
   const isDeclined = decision.status === 'declined';
   const pending = decision.status === 'pending';
@@ -306,7 +360,12 @@ function OpRow({ index, op, decision, result, onAccept, onDecline, onModify }: O
       {op.rationale && <p className="mb-2 text-xs italic text-muted">{op.rationale}</p>}
 
       <div className="mb-3">
-        <OpDiff op={op} modified={decision.modifiedInput} onModify={onModify} />
+        <OpDiff
+          op={op}
+          modified={decision.modifiedInput}
+          onModify={onModify}
+          onUseExistingLibraryMovement={onUseExistingLibraryMovement}
+        />
       </div>
 
       {result ? (
@@ -366,9 +425,15 @@ interface DiffProps {
   op: EditOperation;
   modified?: Record<string, unknown>;
   onModify: (patch: Record<string, unknown>) => void;
+  onUseExistingLibraryMovement: (tempMovementId: string, real: Movement) => void;
 }
 
-function OpDiff({ op, modified, onModify }: DiffProps) {
+function OpDiff({
+  op,
+  modified,
+  onModify,
+  onUseExistingLibraryMovement,
+}: DiffProps) {
   switch (op.kind) {
     case 'set_training_max':
       return <SetTrainingMaxDiff op={op} modified={modified} onModify={onModify} />;
@@ -381,7 +446,14 @@ function OpDiff({ op, modified, onModify }: DiffProps) {
     case 'add_assistance_entry':
       return <AddAssistanceEntryDiff op={op} modified={modified} onModify={onModify} />;
     case 'add_movement_to_library':
-      return <AddMovementToLibraryDiff op={op} />;
+      return (
+        <AddMovementToLibraryDiff
+          op={op}
+          modified={modified}
+          onModify={onModify}
+          onUseExisting={onUseExistingLibraryMovement}
+        />
+      );
     case 'remove_assistance_entry':
       return <RemoveAssistanceEntryDiff op={op} />;
     case 'schedule_deload':
@@ -762,16 +834,46 @@ function SkipDayInWeekDiff({
 }
 
 /**
- * L1 placeholder renderer for add_movement_to_library. The richer
- * variant — editable primaryMuscles chip widget + dedup warnings with
- * "use existing X" rewrites of chained ops — lands in L3. For now,
- * just summarise the movement so the user knows what they're approving.
+ * Rich diff for add_movement_to_library: shows the proposed movement
+ * details, lets the user edit the primary muscles (multi-select chips),
+ * and surfaces fuzzy library matches with a one-click "Use existing X
+ * instead" path that declines this op AND rewrites any chained
+ * add_assistance_entry op's movementId.
+ *
+ * Dedup is informational at this layer; the apply path rejects exact
+ * normalized-name duplicates server-side and soft-falls-back on a race.
  */
 function AddMovementToLibraryDiff({
   op,
+  modified,
+  onModify,
+  onUseExisting,
 }: {
   op: EditOperation & { kind: 'add_movement_to_library' };
+  modified?: Record<string, unknown>;
+  onModify: (patch: Record<string, unknown>) => void;
+  onUseExisting: (tempMovementId: string, real: Movement) => void;
 }) {
+  const library = useMovements();
+  const effective = {
+    primaryMuscles:
+      (modified?.primaryMuscles as string[] | undefined) ?? op.primaryMuscles,
+  };
+  const dedupCandidates = useMemo(() => {
+    if (!library) return [];
+    return findFuzzyMatches(op, library, effective.primaryMuscles).slice(0, 3);
+  }, [library, op, effective.primaryMuscles]);
+
+  const toggleMuscle = (m: string) => {
+    const cur = new Set(effective.primaryMuscles);
+    if (cur.has(m)) {
+      if (cur.size > 1) cur.delete(m); // never empty — server requires ≥ 1
+    } else {
+      cur.add(m);
+    }
+    onModify({ primaryMuscles: Array.from(cur) });
+  };
+
   return (
     <div className="space-y-2 text-sm">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -786,24 +888,78 @@ function AddMovementToLibraryDiff({
           </>
         )}
       </div>
-      <div className="text-xs text-fg/80">
-        <span className="text-muted">Muscles:</span>{' '}
-        <span className="font-medium">{op.primaryMuscles.join(', ')}</span>
-        {op.secondaryMuscles && op.secondaryMuscles.length > 0 && (
-          <>
-            <span className="text-muted"> (secondary: </span>
-            <span>{op.secondaryMuscles.join(', ')}</span>
-            <span className="text-muted">)</span>
-          </>
-        )}
+      <div className="space-y-1">
+        <div className="text-[11px] uppercase tracking-wide text-muted">
+          Primary muscles{' '}
+          <span className="normal-case text-muted/70">(click to toggle)</span>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {ALL_MUSCLES.map((m) => {
+            const on = effective.primaryMuscles.includes(m);
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => toggleMuscle(m)}
+                aria-pressed={on}
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 transition ${
+                  on
+                    ? 'bg-emerald-500/20 text-emerald-100 ring-emerald-500/50'
+                    : 'bg-bg/30 text-muted ring-border hover:bg-bg/50 hover:text-fg/80'
+                }`}
+              >
+                {m}
+              </button>
+            );
+          })}
+        </div>
       </div>
+      {op.secondaryMuscles && op.secondaryMuscles.length > 0 && (
+        <div className="text-[11px] text-muted">
+          Secondary: <span className="text-fg/70">{op.secondaryMuscles.join(', ')}</span>
+        </div>
+      )}
       {op.cues && (
         <div className="rounded-lg border border-border bg-bg/40 px-3 py-2 text-xs text-fg/80">
           {op.cues}
         </div>
       )}
       {op.dedupHint && (
-        <div className="text-[11px] italic text-muted">AI dedup check: {op.dedupHint}</div>
+        <div className="text-[11px] italic text-muted">
+          AI dedup check: {op.dedupHint}
+        </div>
+      )}
+      {dedupCandidates.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/[0.06] px-3 py-2 text-xs">
+          <div className="mb-1 font-semibold text-amber-200">
+            Looks similar to {dedupCandidates.length === 1 ? 'an' : 'a few'} existing
+            {dedupCandidates.length === 1 ? '' : ' library entries'}:
+          </div>
+          <ul className="space-y-1">
+            {dedupCandidates.map((c) => (
+              <li
+                key={c.movement.id}
+                className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"
+              >
+                <span className="text-fg/90">
+                  <span className="font-medium">{c.movement.name}</span>{' '}
+                  <span className="text-[10px] text-muted">
+                    ({c.movement.pattern}; {c.movement.primaryMuscles.join('+') || '—'})
+                  </span>
+                  <span className="ml-2 text-[10px] text-amber-200/80">{c.reason}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onUseExisting(op.tempMovementId, c.movement)}
+                  className="rounded border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 font-semibold text-amber-100 hover:bg-amber-500/25"
+                  title="Decline this op and reroute any chained 'Add entry' op to this existing movement"
+                >
+                  Use this instead
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       <p className="text-[11px] text-muted leading-relaxed">
         Will be saved to your library as a custom movement. Accepting any chained
@@ -811,6 +967,107 @@ function AddMovementToLibraryDiff({
       </p>
     </div>
   );
+}
+
+const ALL_MUSCLES: string[] = [
+  'quads',
+  'hamstrings',
+  'glutes',
+  'calves',
+  'adductors',
+  'chest',
+  'back',
+  'lats',
+  'traps',
+  'shoulders',
+  'biceps',
+  'triceps',
+  'forearms',
+  'core',
+  'obliques',
+  'erectors',
+];
+
+interface DedupCandidate {
+  movement: Movement;
+  /** Why this surfaced — surfaced to the user. */
+  reason: string;
+  score: number;
+}
+
+/** Normalize for comparison: lowercase, strip articles + punctuation, collapse whitespace. */
+function normalizeName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/^the\s+/, '')
+    .replace(/[^a-z0-9\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Levenshtein distance — small impl, sufficient for ≤ 80-char movement names. */
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const prev: number[] = new Array(b.length + 1).fill(0).map((_, i) => i);
+  const cur: number[] = new Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min((cur[j - 1] ?? 0) + 1, (prev[j] ?? 0) + 1, (prev[j - 1] ?? 0) + cost);
+    }
+    for (let j = 0; j <= b.length; j++) prev[j] = cur[j] ?? 0;
+  }
+  return prev[b.length] ?? 0;
+}
+
+/**
+ * Find library movements that look like potential duplicates of the
+ * proposed new entry. Two signal sources:
+ *   - Levenshtein distance ≤ 2 on normalized names (catches "step-up"
+ *     vs "step up", "RDL" vs "Rdl", typos).
+ *   - Same `pattern` AND ≥ 60% primary-muscle overlap (Jaccard).
+ *
+ * Results sorted strongest match first.
+ */
+function findFuzzyMatches(
+  op: EditOperation & { kind: 'add_movement_to_library' },
+  library: Movement[],
+  effectivePrimaryMuscles: string[],
+): DedupCandidate[] {
+  const normalizedTarget = normalizeName(op.name);
+  if (!normalizedTarget) return [];
+  const targetMuscles = new Set(effectivePrimaryMuscles);
+  const out: DedupCandidate[] = [];
+  for (const m of library) {
+    const normalizedExisting = normalizeName(m.name);
+    if (!normalizedExisting) continue;
+    if (normalizedExisting === normalizedTarget) {
+      out.push({ movement: m, reason: 'exact name match', score: 0 });
+      continue;
+    }
+    const dist = levenshtein(normalizedTarget, normalizedExisting);
+    if (dist <= 2) {
+      out.push({ movement: m, reason: `near name (edit distance ${dist})`, score: dist });
+      continue;
+    }
+    if (m.pattern === op.pattern && m.primaryMuscles.length > 0 && targetMuscles.size > 0) {
+      const overlap = m.primaryMuscles.filter((mu) => targetMuscles.has(mu)).length;
+      const union = new Set([...m.primaryMuscles, ...targetMuscles]).size;
+      const jaccard = overlap / union;
+      if (jaccard >= 0.6) {
+        out.push({
+          movement: m,
+          reason: `same ${op.pattern} pattern, ${Math.round(jaccard * 100)}% muscle overlap`,
+          score: 10 - jaccard * 5, // worse than near-name matches
+        });
+      }
+    }
+  }
+  return out.sort((a, b) => a.score - b.score);
 }
 
 // ===== Reusable hooks =====
