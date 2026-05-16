@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { useAllCardio, useAllStrengthHr, useBlocks, useRecentWorkoutDays, useRunPlan, useUpcomingWorkouts, type RecentWorkoutDay } from '@/lib/hooks';
 import { liftLabel, liftLabelShort } from '@/lib/format';
@@ -99,6 +100,20 @@ export default function CalendarPage() {
   const allCardio = useAllCardio();
   const allImportedStrength = useAllStrengthHr();
   const runPlan = useRunPlan();
+  const router = useRouter();
+  const params = useSearchParams();
+  // View toggle persisted in the URL so reloads + deep-links keep the
+  // chosen mode. Default 'calendar' — the month-grid is the existing
+  // primary view; 'timeline' is the new horizontal macrocycle view.
+  const viewParam = params.get('view');
+  const view: 'calendar' | 'timeline' = viewParam === 'timeline' ? 'timeline' : 'calendar';
+  const setView = (next: 'calendar' | 'timeline') => {
+    const sp = new URLSearchParams(params.toString());
+    if (next === 'calendar') sp.delete('view');
+    else sp.set('view', next);
+    const qs = sp.toString();
+    router.replace(qs ? `?${qs}` : '?', { scroll: false });
+  };
   const blockById = useMemo(() => {
     const m = new Map<string, ProgramBlock>();
     for (const b of blocks ?? []) m.set(b.id, b);
@@ -287,27 +302,27 @@ export default function CalendarPage() {
     <div className="space-y-4">
       <header className="flex items-end justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Calendar</h1>
-        <button onClick={goToday} className="rounded-lg bg-card px-3 py-1 text-sm ring-1 ring-border">
-          Today
-        </button>
+        {view === 'calendar' && (
+          <button onClick={goToday} className="rounded-lg bg-card px-3 py-1 text-sm ring-1 ring-border">
+            Today
+          </button>
+        )}
       </header>
 
-      <div className="flex items-center justify-between gap-2">
-        <button onClick={goPrev} className="rounded-lg bg-card px-3 py-1 ring-1 ring-border" aria-label="Previous month">◀</button>
-        <h2 className="text-lg font-semibold">{MONTHS[month]} {year}</h2>
-        <button onClick={goNext} className="rounded-lg bg-card px-3 py-1 ring-1 ring-border" aria-label="Next month">▶</button>
-      </div>
-
-      <div role="tablist" aria-label="Filter calendar by event type" className="flex w-fit gap-1 rounded-lg border border-border bg-card p-0.5 text-xs">
-        {(['all', 'strength', 'cardio'] as const).map((v) => (
+      <div
+        role="tablist"
+        aria-label="Calendar view mode"
+        className="flex w-fit gap-1 rounded-lg border border-border bg-card p-0.5 text-xs"
+      >
+        {(['calendar', 'timeline'] as const).map((v) => (
           <button
             key={v}
             type="button"
             role="tab"
-            aria-selected={filter === v}
-            onClick={() => setFilter(v)}
+            aria-selected={view === v}
+            onClick={() => setView(v)}
             className={`rounded-md px-3 py-1 font-medium capitalize transition ${
-              filter === v
+              view === v
                 ? 'bg-accent/15 text-accent'
                 : 'text-muted hover:text-fg'
             }`}
@@ -317,12 +332,51 @@ export default function CalendarPage() {
         ))}
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-2">
-        <div className="grid grid-cols-7 gap-1 text-center text-xs text-muted">
-          {WEEKDAYS.map((w) => <div key={w} className="py-1">{w}</div>)}
+      {view === 'timeline' && (
+        <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted">
+          <p className="font-medium text-fg/80">Timeline view (coming soon)</p>
+          <p className="mt-2 leading-relaxed">
+            A horizontal macrocycle view: each program block as a colored swimlane
+            segment, race-date milestones as flag pins, and a today marker across
+            all lanes. Lets you see Leader → 7th-week → Anchor structure + race
+            taper alignment at a glance, instead of scrolling the month grid.
+          </p>
         </div>
-        <div className="mt-1 grid grid-cols-7 gap-1">
-          {grid.map((c, i) => {
+      )}
+
+      {view === 'calendar' && (
+        <>
+          <div className="flex items-center justify-between gap-2">
+            <button onClick={goPrev} className="rounded-lg bg-card px-3 py-1 ring-1 ring-border" aria-label="Previous month">◀</button>
+            <h2 className="text-lg font-semibold">{MONTHS[month]} {year}</h2>
+            <button onClick={goNext} className="rounded-lg bg-card px-3 py-1 ring-1 ring-border" aria-label="Next month">▶</button>
+          </div>
+
+          <div role="tablist" aria-label="Filter calendar by event type" className="flex w-fit gap-1 rounded-lg border border-border bg-card p-0.5 text-xs">
+            {(['all', 'strength', 'cardio'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="tab"
+                aria-selected={filter === v}
+                onClick={() => setFilter(v)}
+                className={`rounded-md px-3 py-1 font-medium capitalize transition ${
+                  filter === v
+                    ? 'bg-accent/15 text-accent'
+                    : 'text-muted hover:text-fg'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-2">
+            <div className="grid grid-cols-7 gap-1 text-center text-xs text-muted">
+              {WEEKDAYS.map((w) => <div key={w} className="py-1">{w}</div>)}
+            </div>
+            <div className="mt-1 grid grid-cols-7 gap-1">
+              {grid.map((c, i) => {
             if (!c.date) return <div key={i} className="min-h-[80px] md:min-h-[104px]" />;
             const ws = showStrength ? (byDay.get(c.iso!) ?? []) : [];
             const ups = showStrength && ws.length === 0 ? upcomingByDay.get(c.iso!) ?? [] : [];
@@ -636,6 +690,8 @@ export default function CalendarPage() {
           <span className="text-muted/70">· Strava badge on event = imported</span>
         </div>
       </div>
+        </>
+      )}
       {linkTarget && (
         <LinkActivityPicker
           slotDate={linkTarget.slotDate}
