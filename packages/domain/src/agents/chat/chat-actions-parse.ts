@@ -2,16 +2,11 @@
 // JSON block (if present) at the end of a chat assistant message, returns
 // the validated chip array plus the prose with the block stripped.
 //
-// Mirrors the ChatAction union in packages/db-schema/src/types.ts. The
-// shape stays narrow on purpose (3 kinds at v1); add new kinds by adding
-// a validator branch + extending the discriminated union.
+// As of v397 the <actions> sidecar carries ONLY `log_injury` chips.
+// Every other AI-driven write goes through the `propose_edit` tool-use
+// path; see packages/domain/src/agents/chat/edit-proposal-parse.ts.
 
-export type ParsedChatActionKind =
-  | 'log_injury'
-  | 'set_training_max'
-  | 'set_block_volume_preset'
-  | 'schedule_deload'
-  | 'substitute_movement';
+export type ParsedChatActionKind = 'log_injury';
 
 interface ParsedActionBase {
   id: string;
@@ -29,49 +24,11 @@ export interface ParsedLogInjuryAction extends ParsedActionBase {
   movementIds?: string[];
 }
 
-export interface ParsedSetTrainingMaxAction extends ParsedActionBase {
-  kind: 'set_training_max';
-  lift: 'squat' | 'bench' | 'deadlift' | 'press';
-  newTrainingMaxKg: number;
-  reason: string;
-}
-
-export interface ParsedSetBlockVolumePresetAction extends ParsedActionBase {
-  kind: 'set_block_volume_preset';
-  blockId?: string;
-  preset: 'minimal' | 'standard' | 'high';
-  reason: string;
-}
-
-export interface ParsedScheduleDeloadAction extends ParsedActionBase {
-  kind: 'schedule_deload';
-  reason: string;
-}
-
-export interface ParsedSubstituteMovementAction extends ParsedActionBase {
-  kind: 'substitute_movement';
-  blockId?: string;
-  dayId?: string;
-  dayIndex?: number;
-  currentMovementId: string;
-  currentMovementName: string;
-  newMovementId: string;
-  newMovementName: string;
-  reason: string;
-}
-
-export type ParsedChatAction =
-  | ParsedLogInjuryAction
-  | ParsedSetTrainingMaxAction
-  | ParsedSetBlockVolumePresetAction
-  | ParsedScheduleDeloadAction
-  | ParsedSubstituteMovementAction;
+export type ParsedChatAction = ParsedLogInjuryAction;
 
 const ACTIONS_OPEN = '<actions>';
 const ACTIONS_CLOSE = '</actions>';
 const MAX_ACTIONS = 4;
-const VALID_LIFTS = new Set(['squat', 'bench', 'deadlift', 'press']);
-const VALID_PRESETS = new Set(['minimal', 'standard', 'high']);
 const VALID_SEVERITIES = new Set([1, 2, 3, 4, 5]);
 
 export interface ParseChatActionsResult {
@@ -86,8 +43,9 @@ export interface ParseChatActionsResult {
  * present (or the JSON is malformed / no chip validates), `actions` is
  * empty and `prose` is the original input.
  *
- * `getId` allocates a stable id per chip. Callers should pass a UUID
- * generator (so the chips can be referenced later by id).
+ * Unknown chip kinds (e.g. legacy `set_training_max` from older AI
+ * emissions) are silently dropped — they're no longer supported and
+ * the model should have used `propose_edit` instead.
  */
 export function parseChatActionsBlock(
   raw: string,
@@ -96,9 +54,6 @@ export function parseChatActionsBlock(
   const open = raw.lastIndexOf(ACTIONS_OPEN);
   if (open < 0) return { prose: raw, actions: [] };
   const close = raw.indexOf(ACTIONS_CLOSE, open + ACTIONS_OPEN.length);
-  // If we have an opener but no closer, strip from opener onward (the
-  // model started emitting chips but never finished — better to drop
-  // the truncated mess than render it as prose).
   const prose = raw.slice(0, open).trimEnd();
   if (close < 0) return { prose, actions: [] };
   const jsonText = raw.slice(open + ACTIONS_OPEN.length, close).trim();
@@ -122,10 +77,23 @@ function validateOne(raw: unknown, getId: () => string): ParsedChatAction | null
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const kind = r.kind;
+  if (kind !== 'log_injury') return null;
   if (typeof r.label !== 'string') return null;
   const label = r.label.trim();
   if (label.length === 0 || label.length > 60) return null;
-  const base = {
+  if (typeof r.area !== 'string') return null;
+  const area = r.area.trim();
+  if (!area) return null;
+  const severity =
+    typeof r.severity === 'number' && VALID_SEVERITIES.has(r.severity)
+      ? (r.severity as 1 | 2 | 3 | 4 | 5)
+      : undefined;
+  const description =
+    typeof r.description === 'string' ? r.description.trim().slice(0, 500) : undefined;
+  const movementIds = Array.isArray(r.movementIds)
+    ? (r.movementIds.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, 10) as string[])
+    : undefined;
+  return {
     id: getId(),
     label,
     rationale:
@@ -133,90 +101,10 @@ function validateOne(raw: unknown, getId: () => string): ParsedChatAction | null
         ? r.rationale.trim().slice(0, 200)
         : undefined,
     status: 'pending' as const,
+    kind: 'log_injury',
+    area,
+    ...(severity ? { severity } : {}),
+    ...(description ? { description } : {}),
+    ...(movementIds && movementIds.length > 0 ? { movementIds } : {}),
   };
-
-  if (kind === 'log_injury') {
-    if (typeof r.area !== 'string') return null;
-    const area = r.area.trim();
-    if (!area) return null;
-    const severity =
-      typeof r.severity === 'number' && VALID_SEVERITIES.has(r.severity)
-        ? (r.severity as 1 | 2 | 3 | 4 | 5)
-        : undefined;
-    const description =
-      typeof r.description === 'string' ? r.description.trim().slice(0, 500) : undefined;
-    const movementIds = Array.isArray(r.movementIds)
-      ? (r.movementIds.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, 10) as string[])
-      : undefined;
-    return {
-      ...base,
-      kind: 'log_injury',
-      area,
-      ...(severity ? { severity } : {}),
-      ...(description ? { description } : {}),
-      ...(movementIds && movementIds.length > 0 ? { movementIds } : {}),
-    };
-  }
-
-  if (kind === 'set_training_max') {
-    if (typeof r.lift !== 'string' || !VALID_LIFTS.has(r.lift)) return null;
-    const kg = Number(r.newTrainingMaxKg);
-    if (!Number.isFinite(kg) || kg <= 0 || kg > 500) return null;
-    if (typeof r.reason !== 'string' || !r.reason.trim()) return null;
-    return {
-      ...base,
-      kind: 'set_training_max',
-      lift: r.lift as 'squat' | 'bench' | 'deadlift' | 'press',
-      newTrainingMaxKg: Math.round(kg * 2) / 2,
-      reason: r.reason.trim().slice(0, 300),
-    };
-  }
-
-  if (kind === 'set_block_volume_preset') {
-    if (typeof r.preset !== 'string' || !VALID_PRESETS.has(r.preset)) return null;
-    if (typeof r.reason !== 'string' || !r.reason.trim()) return null;
-    return {
-      ...base,
-      kind: 'set_block_volume_preset',
-      ...(typeof r.blockId === 'string' && r.blockId.length > 0 ? { blockId: r.blockId } : {}),
-      preset: r.preset as 'minimal' | 'standard' | 'high',
-      reason: r.reason.trim().slice(0, 300),
-    };
-  }
-
-  if (kind === 'schedule_deload') {
-    if (typeof r.reason !== 'string' || !r.reason.trim()) return null;
-    return {
-      ...base,
-      kind: 'schedule_deload',
-      reason: r.reason.trim().slice(0, 300),
-    };
-  }
-
-  if (kind === 'substitute_movement') {
-    if (typeof r.currentMovementId !== 'string' || !r.currentMovementId.trim()) return null;
-    if (typeof r.newMovementId !== 'string' || !r.newMovementId.trim()) return null;
-    if (typeof r.currentMovementName !== 'string' || !r.currentMovementName.trim()) return null;
-    if (typeof r.newMovementName !== 'string' || !r.newMovementName.trim()) return null;
-    if (r.currentMovementId === r.newMovementId) return null;
-    if (typeof r.reason !== 'string' || !r.reason.trim()) return null;
-    const dayIndex =
-      typeof r.dayIndex === 'number' && Number.isInteger(r.dayIndex) && r.dayIndex >= 0 && r.dayIndex < 10
-        ? r.dayIndex
-        : undefined;
-    return {
-      ...base,
-      kind: 'substitute_movement',
-      ...(typeof r.blockId === 'string' && r.blockId.length > 0 ? { blockId: r.blockId } : {}),
-      ...(typeof r.dayId === 'string' && r.dayId.length > 0 ? { dayId: r.dayId } : {}),
-      ...(dayIndex !== undefined ? { dayIndex } : {}),
-      currentMovementId: r.currentMovementId.trim(),
-      currentMovementName: r.currentMovementName.trim().slice(0, 80),
-      newMovementId: r.newMovementId.trim(),
-      newMovementName: r.newMovementName.trim().slice(0, 80),
-      reason: r.reason.trim().slice(0, 300),
-    };
-  }
-
-  return null;
 }
