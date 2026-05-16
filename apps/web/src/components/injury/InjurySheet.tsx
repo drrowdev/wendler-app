@@ -158,6 +158,7 @@ export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
       number,
       { modification: string; action: 'skip' | 'reduce-load' | 'reduce-range' | 'modify-execution' | 'monitor' }
     >,
+    swapTargets: Map<number, string | null>,
   ) => {
     if (!proposal) return;
     const db = getDb();
@@ -196,13 +197,16 @@ export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
     };
     await db.injuries.put(next);
 
-    // Auto-apply substitutions for accepted adjustments whose action is
-    // skip / reduce-load AND whose source movementId is currently
-    // scheduled in the active block. Uses the deterministic top
-    // alternative (alternatives[0]) as the replacement. Skips silently
-    // when the movement isn't scheduled or no alternative was produced —
-    // the accepted-text adjustment still applies as a flag, just no
-    // automatic swap.
+    // Auto-apply substitutions for accepted SKIP adjustments. The user
+    // had a chance to review the swap preview (SwapPreviewPanel) in the
+    // ProposalReview step and pick which alternative to use, OR opt to
+    // skip the swap entirely ("don't swap, just flag"). Honour the
+    // swapTargets map verbatim:
+    //   - undefined entry → use alternatives[0] (the default the
+    //     preview panel highlighted as "top pick")
+    //   - string entry → use that specific movementId
+    //   - null entry → user explicitly chose NOT to swap; only the
+    //     limitation flag applies
     const activeBlock = (await db.blocks.toArray()).find((b) => !b.completedAt);
     if (activeBlock?.plan) {
       let mutated = activeBlock;
@@ -211,16 +215,15 @@ export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
         const adj = proposal.proposedAdjustments[i]!;
         const edit = edited.get(i);
         const action = edit?.action ?? adj.action;
-        // Only `skip` triggers a movement swap. `reduce-load` /
-        // `reduce-range` / `modify-execution` / `monitor` mean "keep the
-        // same movement but train it differently" — they're flagged via
-        // the AssistanceTrack chip + suggester prompt section, not via
-        // an automatic substitution.
         if (action !== 'skip') continue;
-        const top = adj.alternatives[0];
-        if (!top) continue;
-        if (top.movementId === adj.movementId) continue;
-        mutated = applySubstitutionToBlock(mutated, adj.movementId, top);
+        if (adj.alternatives.length === 0) continue;
+        const targetOverride = swapTargets.get(i);
+        if (targetOverride === null) continue; // user opted out
+        const targetId = targetOverride ?? adj.alternatives[0]!.movementId;
+        const target = adj.alternatives.find((a) => a.movementId === targetId);
+        if (!target) continue;
+        if (target.movementId === adj.movementId) continue;
+        mutated = applySubstitutionToBlock(mutated, adj.movementId, target);
       }
       if (mutated !== activeBlock) {
         await db.blocks.put({ ...mutated, updatedAt: new Date().toISOString() });
@@ -496,6 +499,14 @@ interface ProposalReviewProps {
       number,
       { modification: string; action: 'skip' | 'reduce-load' | 'reduce-range' | 'modify-execution' | 'monitor' }
     >,
+    /**
+     * Per-adjustment swap target overrides. Keyed by adjustment index.
+     * `null` value = "approved as skip but DON'T auto-swap in the block";
+     * a string value = the movementId of the chosen alternative (defaults
+     * to alternatives[0] when the user accepts without overriding).
+     * Only applies to action=skip adjustments with alternatives.
+     */
+    swapTargets: Map<number, string | null>,
   ) => Promise<void>;
   onBack: () => void;
   onCancel: () => void;
@@ -516,6 +527,46 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
       { modification: string; action: 'skip' | 'reduce-load' | 'reduce-range' | 'modify-execution' | 'monitor' }
     >
   >(new Map());
+  // Per-accepted-skip-adjustment: user's choice of replacement movementId,
+  // or null = "don't swap, just flag the original entry". Undefined =
+  // default (alternatives[0]). Index = adjustment index.
+  const [swapTargets, setSwapTargets] = useState<Map<number, string | null>>(
+    new Map(),
+  );
+  // Active block plan snapshot, fetched on mount so the preview can resolve
+  // affected day labels per adjustment.
+  const [activeBlockPlan, setActiveBlockPlan] = useState<{
+    blockId: string;
+    blockName: string;
+    days: { id: string; label: string; assistance: { id: string; movementId?: string; movementName: string; sets: number; reps: number; repsMax?: number; unit?: string }[] }[];
+  } | null>(null);
+  useEffect(() => {
+    void (async () => {
+      const blocks = await getDb().blocks.toArray();
+      const active = blocks.find((b) => !b.completedAt);
+      if (!active?.plan) {
+        setActiveBlockPlan(null);
+        return;
+      }
+      setActiveBlockPlan({
+        blockId: active.id,
+        blockName: active.name,
+        days: active.plan.days.map((d, di) => ({
+          id: d.id,
+          label: d.label?.trim() || `Day ${di + 1}`,
+          assistance: d.assistance.map((e) => ({
+            id: e.id,
+            movementId: e.movementId,
+            movementName: e.movementName,
+            sets: e.sets,
+            reps: e.reps,
+            repsMax: e.repsMax,
+            unit: e.unit,
+          })),
+        })),
+      });
+    })();
+  }, []);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -553,7 +604,7 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
       if (v === 'accepted') acceptedSet.add(k);
     });
     setBusy(true);
-    await onSave(acceptedSet, editing);
+    await onSave(acceptedSet, editing, swapTargets);
     setBusy(false);
   };
 
@@ -676,16 +727,19 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
                     </p>
                   )}
                   {adj.alternatives.length > 0 && isAccepted && adj.action === 'skip' && (
-                    <div className="mt-2 rounded border border-sky-500/30 bg-sky-500/5 px-2 py-1 text-[11px] text-sky-200">
-                      <span aria-hidden className="mr-1">⤳</span>
-                      <span className="font-semibold">Auto-swap on accept:</span>{' '}
-                      {adj.movementName} → {adj.alternatives[0]!.movementName}{' '}
-                      <span className="text-sky-200/70">
-                        — applied to every day in the active block where this movement is scheduled.
-                      </span>
-                    </div>
+                    <SwapPreviewPanel
+                      adjustment={adj}
+                      blockPlan={activeBlockPlan}
+                      currentTarget={swapTargets.get(i)}
+                      onTargetChange={(target) => {
+                        const next = new Map(swapTargets);
+                        if (target === undefined) next.delete(i);
+                        else next.set(i, target);
+                        setSwapTargets(next);
+                      }}
+                    />
                   )}
-                  {adj.alternatives.length > 0 && (
+                  {adj.alternatives.length > 0 && (!isAccepted || adj.action !== 'skip') && (
                     <details className="mt-2 text-[11px] text-muted">
                       <summary className="cursor-pointer">
                         {adj.alternatives.length} alternative(s) from your library
@@ -808,6 +862,189 @@ function AnalyzingState({ area }: { area: string }) {
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+// SwapPreviewPanel — inline diff preview for a single accepted skip
+// adjustment. Shows which days/entries in the active block will be
+// affected, lets the user pick which alternative to swap to (from the
+// Coach's top-N alternatives), and offers a "Just flag, don't swap"
+// escape hatch when the user wants the limitation flag without an
+// automatic movement change.
+//
+// Surface area is deliberately small (~80 LOC of JSX): inline panel
+// expanded under the adjustment, not a full modal. The user sees the
+// preview at the same time they're making the accept/decline call.
+function SwapPreviewPanel({
+  adjustment,
+  blockPlan,
+  currentTarget,
+  onTargetChange,
+}: {
+  adjustment: {
+    movementId: string;
+    movementName: string;
+    alternatives: { movementId: string; movementName: string; rationale: string }[];
+  };
+  blockPlan: {
+    blockId: string;
+    blockName: string;
+    days: { id: string; label: string; assistance: { id: string; movementId?: string; movementName: string; sets: number; reps: number; repsMax?: number; unit?: string }[] }[];
+  } | null;
+  currentTarget: string | null | undefined;
+  onTargetChange: (target: string | null | undefined) => void;
+}) {
+  if (!blockPlan) {
+    return (
+      <div className="mt-2 rounded-lg border border-sky-500/30 bg-sky-500/5 p-2.5 text-xs text-sky-200">
+        <div className="font-semibold">⤳ Preview unavailable</div>
+        <p className="mt-1 text-sky-200/70">
+          No active block plan found, so no movements will be auto-swapped. The accepted
+          adjustment will still be recorded as a flag.
+        </p>
+      </div>
+    );
+  }
+
+  // Resolve affected entries across all days of the active block.
+  const affected = blockPlan.days
+    .flatMap((d) =>
+      d.assistance
+        .filter((e) => e.movementId === adjustment.movementId)
+        .map((e) => ({ dayLabel: d.label, entry: e })),
+    );
+
+  if (affected.length === 0) {
+    return (
+      <div className="mt-2 rounded-lg border border-sky-500/30 bg-sky-500/5 p-2.5 text-xs text-sky-200">
+        <div className="font-semibold">⤳ Nothing scheduled to swap</div>
+        <p className="mt-1 text-sky-200/70">
+          {adjustment.movementName} isn&apos;t currently scheduled in &quot;{blockPlan.blockName}&quot; — the
+          adjustment will be recorded as a flag for future generations.
+        </p>
+      </div>
+    );
+  }
+
+  // Effective target — explicit selection wins, else default to alternatives[0].
+  const effectiveTargetId =
+    currentTarget === undefined
+      ? adjustment.alternatives[0]!.movementId
+      : currentTarget;
+  const skipSwap = currentTarget === null;
+
+  const targetAlt = adjustment.alternatives.find((a) => a.movementId === effectiveTargetId);
+
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-sky-500/40 bg-sky-500/5 p-3 text-xs">
+      <div className="text-sky-100">
+        <span aria-hidden className="mr-1">⤳</span>
+        <span className="font-semibold">Auto-swap preview</span>
+        <span className="ml-1 text-sky-200/70">— review before saving</span>
+      </div>
+
+      {/* Affected days list */}
+      <div>
+        <div className="text-[11px] uppercase tracking-wide text-sky-300/80">
+          Affects {affected.length} entr{affected.length === 1 ? 'y' : 'ies'} in &quot;{blockPlan.blockName}&quot;:
+        </div>
+        <ul className="mt-1 space-y-0.5">
+          {affected.map((a, ai) => {
+            const reps =
+              a.entry.repsMax != null
+                ? `${a.entry.reps}-${a.entry.repsMax}`
+                : String(a.entry.reps);
+            return (
+              <li key={ai} className="flex flex-wrap items-center gap-1.5">
+                <span className="rounded bg-bg/60 px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-border">
+                  {a.dayLabel}
+                </span>
+                <span className="text-sky-100">
+                  {a.entry.movementName} {a.entry.sets}×{reps}
+                  {a.entry.unit === 'sec' ? ' sec' : ''}
+                </span>
+                {!skipSwap && targetAlt && (
+                  <>
+                    <span aria-hidden className="text-sky-300/70">→</span>
+                    <span className="rounded bg-sky-500/20 px-1.5 py-0.5 font-semibold text-sky-100 ring-1 ring-sky-400/40">
+                      {targetAlt.movementName}
+                    </span>
+                    <span className="text-sky-200/60">
+                      ({a.entry.sets}×{reps} preserved)
+                    </span>
+                  </>
+                )}
+                {skipSwap && (
+                  <span className="text-sky-200/70">— kept, flagged only</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      {/* Replacement picker */}
+      <div>
+        <div className="text-[11px] uppercase tracking-wide text-sky-300/80">Replacement</div>
+        <ul className="mt-1 space-y-1">
+          {adjustment.alternatives.map((alt, ai) => {
+            const isPicked = !skipSwap && alt.movementId === effectiveTargetId;
+            return (
+              <li key={alt.movementId}>
+                <label
+                  className={`flex cursor-pointer items-start gap-2 rounded px-2 py-1 ${
+                    isPicked ? 'bg-sky-500/15 ring-1 ring-sky-400/40' : 'hover:bg-bg/40'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name={`swap-${adjustment.movementId}`}
+                    checked={isPicked}
+                    onChange={() => onTargetChange(alt.movementId)}
+                    className="mt-1"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="font-semibold text-fg/90">{alt.movementName}</span>
+                      {ai === 0 && (
+                        <span className="rounded bg-sky-500/15 px-1 text-[9px] uppercase tracking-wide text-sky-300">
+                          top pick
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted">{alt.rationale}</p>
+                  </div>
+                </label>
+              </li>
+            );
+          })}
+          <li>
+            <label
+              className={`flex cursor-pointer items-start gap-2 rounded px-2 py-1 ${
+                skipSwap ? 'bg-amber-500/15 ring-1 ring-amber-400/40' : 'hover:bg-bg/40'
+              }`}
+            >
+              <input
+                type="radio"
+                name={`swap-${adjustment.movementId}`}
+                checked={skipSwap}
+                onChange={() => onTargetChange(null)}
+                className="mt-1"
+              />
+              <div className="min-w-0 flex-1">
+                <span className="font-semibold text-fg/90">
+                  Don&apos;t swap — just flag the entry
+                </span>
+                <p className="text-[11px] text-muted">
+                  Keeps {adjustment.movementName} scheduled. An amber chip appears on
+                  Today / Day showing the limitation. You decide what to do each session.
+                </p>
+              </div>
+            </label>
+          </li>
+        </ul>
+      </div>
     </div>
   );
 }
