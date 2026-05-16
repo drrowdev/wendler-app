@@ -206,6 +206,40 @@ async function buildContextBlob(): Promise<string> {
       }
     });
   }
+
+  // Movement library — every entry the AI can reference by movementId.
+  // Used by:
+  //   - add_assistance_entry  — movementId MUST exist in this list (or be
+  //                             a tmp:<slug> reference to a sibling
+  //                             add_movement_to_library op).
+  //   - swap_assistance_movement — newMovementId MUST exist here.
+  //   - add_movement_to_library — the AI's dedup self-check should scan
+  //                               this list BEFORE proposing a new entry.
+  // Compact format keeps the prompt token cost down; the AI only needs
+  // enough metadata to (a) pick the right movementId for a chained op
+  // and (b) detect "this already exists, don't propose a duplicate".
+  if (movements.length > 0) {
+    lines.push('', '## Movement library');
+    lines.push(
+      `(${movements.length} movements. When proposing add_movement_to_library, scan THIS list first and skip the op if any entry already matches by name OR by pattern + primary muscles overlap.)`,
+    );
+    const sorted = [...movements].sort((a, b) => {
+      if (a.pattern !== b.pattern) return a.pattern.localeCompare(b.pattern);
+      return a.name.localeCompare(b.name);
+    });
+    for (const m of sorted) {
+      const primary = m.primaryMuscles.join('+') || '—';
+      const tags: string[] = [];
+      if (m.isCompound) tags.push('compound');
+      if (m.isCustom) tags.push('custom');
+      if (m.externallyLoadable) tags.push('loadable');
+      const tagSuffix = tags.length > 0 ? `, ${tags.join('+')}` : '';
+      lines.push(
+        `  - ${m.name} (id=\`${m.id}\`; ${m.pattern}; ${primary}; ${m.equipment}${tagSuffix})`,
+      );
+    }
+  }
+
   return baseText + '\n' + lines.join('\n');
 }
 

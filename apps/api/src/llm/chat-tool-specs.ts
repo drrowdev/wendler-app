@@ -202,6 +202,7 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
                 'trim_assistance_entry',
                 'swap_assistance_movement',
                 'add_assistance_entry',
+                'add_movement_to_library',
                 'remove_assistance_entry',
                 'schedule_deload',
                 'skip_day_in_week',
@@ -323,6 +324,125 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
               type: 'string',
               description:
                 'skip_day_in_week only. Free-text user-visible note (e.g. "Z2 bike 60 min"). ≤ 200 chars.',
+            },
+
+            // add_movement_to_library
+            tempMovementId: {
+              type: 'string',
+              pattern: '^tmp:[a-z0-9-]+$',
+              description:
+                'add_movement_to_library only. Temp id you invent for this op; must match ^tmp:[a-z0-9-]+$ (e.g. "tmp:banded-clamshell"). Use the SAME tempMovementId as `movementId` on any sibling add_assistance_entry op that should reference the new library entry.',
+            },
+            name: {
+              type: 'string',
+              description:
+                'add_movement_to_library only. Display name (e.g. "Banded Clamshell"). ≤ 80 chars. The apply path rejects exact-normalized-name duplicates and soft-falls-back to the existing entry on a race-condition match.',
+            },
+            primaryMuscles: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: [
+                  'quads',
+                  'hamstrings',
+                  'glutes',
+                  'calves',
+                  'adductors',
+                  'chest',
+                  'back',
+                  'lats',
+                  'traps',
+                  'shoulders',
+                  'biceps',
+                  'triceps',
+                  'forearms',
+                  'core',
+                  'obliques',
+                  'erectors',
+                ],
+              },
+              minItems: 1,
+              description:
+                'add_movement_to_library only. At least one. Used for filtering + dedup against existing library entries. If unsure, ASK the user instead of guessing.',
+            },
+            secondaryMuscles: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: [
+                  'quads',
+                  'hamstrings',
+                  'glutes',
+                  'calves',
+                  'adductors',
+                  'chest',
+                  'back',
+                  'lats',
+                  'traps',
+                  'shoulders',
+                  'biceps',
+                  'triceps',
+                  'forearms',
+                  'core',
+                  'obliques',
+                  'erectors',
+                ],
+              },
+              description:
+                'add_movement_to_library only. Optional secondary muscles for completeness.',
+            },
+            equipment: {
+              type: 'string',
+              enum: [
+                'barbell',
+                'trap-bar',
+                'dumbbell',
+                'kettlebell',
+                'sandbag',
+                'bodyweight',
+                'machine',
+                'cable',
+                'band',
+                'weighted-vest',
+                'dip-belt',
+                'other',
+              ],
+              description:
+                'add_movement_to_library only. Defaults to bodyweight if omitted.',
+            },
+            pattern: {
+              type: 'string',
+              enum: [
+                'hinge',
+                'squat',
+                'push-horizontal',
+                'push-vertical',
+                'pull-horizontal',
+                'pull-vertical',
+                'carry',
+                'core',
+              ],
+              description: 'add_movement_to_library only. Required.',
+            },
+            isCompound: {
+              type: 'boolean',
+              description:
+                'add_movement_to_library only. True only for multi-joint free-weight movements that could carry a training max. Almost always FALSE for prehab/isolation/mobility.',
+            },
+            externallyLoadable: {
+              type: 'boolean',
+              description:
+                'add_movement_to_library only. True if the movement accepts vest/belt/loaded-DB external loading. Never set true for prehab/recovery/mobility/plyo or already-loaded movements (BB/DB/KB).',
+            },
+            cues: {
+              type: 'string',
+              description:
+                'add_movement_to_library only. Optional short technique cues from the user. ≤ 300 chars.',
+            },
+            dedupHint: {
+              type: 'string',
+              description:
+                'add_movement_to_library only. One-line note explaining which existing library entries you considered before proposing this new one (e.g. "Closest existing: Side-lying Clamshell (band, glutes) — different setup so not equivalent."). Builds the user\'s trust in your dedup check. ≤ 300 chars.',
             },
           },
           required: ['kind', 'label'],
