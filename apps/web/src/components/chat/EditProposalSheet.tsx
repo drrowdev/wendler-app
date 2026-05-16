@@ -43,6 +43,7 @@ const OP_LABELS: Record<EditOperation['kind'], string> = {
   trim_assistance_entry: 'Trim entry',
   swap_assistance_movement: 'Swap movement',
   add_assistance_entry: 'Add entry',
+  add_movement_to_library: 'Add to library',
   remove_assistance_entry: 'Remove entry',
   schedule_deload: 'Schedule deload',
   skip_day_in_week: 'Skip day',
@@ -54,6 +55,7 @@ const OP_TONE: Record<EditOperation['kind'], string> = {
   trim_assistance_entry: 'bg-amber-500/15 text-amber-100 ring-amber-500/40',
   swap_assistance_movement: 'bg-sky-500/15 text-sky-100 ring-sky-500/40',
   add_assistance_entry: 'bg-emerald-500/15 text-emerald-100 ring-emerald-500/40',
+  add_movement_to_library: 'bg-emerald-500/15 text-emerald-100 ring-emerald-500/40',
   remove_assistance_entry: 'bg-rose-500/15 text-rose-100 ring-rose-500/40',
   schedule_deload: 'bg-sky-500/15 text-sky-100 ring-sky-500/40',
   skip_day_in_week: 'bg-rose-500/15 text-rose-100 ring-rose-500/40',
@@ -378,6 +380,8 @@ function OpDiff({ op, modified, onModify }: DiffProps) {
       return <SwapAssistanceMovementDiff op={op} modified={modified} onModify={onModify} />;
     case 'add_assistance_entry':
       return <AddAssistanceEntryDiff op={op} modified={modified} onModify={onModify} />;
+    case 'add_movement_to_library':
+      return <AddMovementToLibraryDiff op={op} />;
     case 'remove_assistance_entry':
       return <RemoveAssistanceEntryDiff op={op} />;
     case 'schedule_deload':
@@ -752,6 +756,58 @@ function SkipDayInWeekDiff({
         The day stays in your rotation; the strength session is just marked
         skipped for those weeks. Pair this with a cardio-plan slot if you&apos;re
         replacing it with a ride / swim / etc.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * L1 placeholder renderer for add_movement_to_library. The richer
+ * variant — editable primaryMuscles chip widget + dedup warnings with
+ * "use existing X" rewrites of chained ops — lands in L3. For now,
+ * just summarise the movement so the user knows what they're approving.
+ */
+function AddMovementToLibraryDiff({
+  op,
+}: {
+  op: EditOperation & { kind: 'add_movement_to_library' };
+}) {
+  return (
+    <div className="space-y-2 text-sm">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className="font-semibold">{op.name}</span>
+        <span className="text-xs text-muted">{op.category}</span>
+        <span className="text-xs text-muted">·</span>
+        <span className="text-xs text-muted">{op.pattern}</span>
+        {op.equipment && (
+          <>
+            <span className="text-xs text-muted">·</span>
+            <span className="text-xs text-muted">{op.equipment}</span>
+          </>
+        )}
+      </div>
+      <div className="text-xs text-fg/80">
+        <span className="text-muted">Muscles:</span>{' '}
+        <span className="font-medium">{op.primaryMuscles.join(', ')}</span>
+        {op.secondaryMuscles && op.secondaryMuscles.length > 0 && (
+          <>
+            <span className="text-muted"> (secondary: </span>
+            <span>{op.secondaryMuscles.join(', ')}</span>
+            <span className="text-muted">)</span>
+          </>
+        )}
+      </div>
+      {op.cues && (
+        <div className="rounded-lg border border-border bg-bg/40 px-3 py-2 text-xs text-fg/80">
+          {op.cues}
+        </div>
+      )}
+      {op.dedupHint && (
+        <div className="text-[11px] italic text-muted">AI dedup check: {op.dedupHint}</div>
+      )}
+      <p className="text-[11px] text-muted leading-relaxed">
+        Will be saved to your library as a custom movement. Accepting any chained
+        &quot;Add entry&quot; ops in this proposal will reference it automatically.
       </p>
     </div>
   );

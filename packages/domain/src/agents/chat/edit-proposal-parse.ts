@@ -19,6 +19,7 @@ export type ParsedEditOperationKind =
   | 'trim_assistance_entry'
   | 'swap_assistance_movement'
   | 'add_assistance_entry'
+  | 'add_movement_to_library'
   | 'remove_assistance_entry'
   | 'schedule_deload'
   | 'skip_day_in_week';
@@ -77,6 +78,22 @@ export interface ParsedAddAssistanceEntryOp extends ParsedEditOpBase {
   unit: 'reps' | 'sec';
 }
 
+export interface ParsedAddMovementToLibraryOp extends ParsedEditOpBase {
+  kind: 'add_movement_to_library';
+  /** `tmp:<slug>` reference the AI invented. Parser rejects non-tmp: prefixes. */
+  tempMovementId: string;
+  name: string;
+  category: string;
+  primaryMuscles: string[];
+  secondaryMuscles?: string[];
+  equipment?: string;
+  pattern: string;
+  isCompound?: boolean;
+  externallyLoadable?: boolean;
+  cues?: string;
+  dedupHint?: string;
+}
+
 export interface ParsedRemoveAssistanceEntryOp extends ParsedEditOpBase {
   kind: 'remove_assistance_entry';
   blockId?: string;
@@ -111,6 +128,7 @@ export type ParsedEditOperation =
   | ParsedTrimAssistanceEntryOp
   | ParsedSwapAssistanceMovementOp
   | ParsedAddAssistanceEntryOp
+  | ParsedAddMovementToLibraryOp
   | ParsedRemoveAssistanceEntryOp
   | ParsedScheduleDeloadOp
   | ParsedSkipDayInWeekOp;
@@ -133,6 +151,7 @@ const OP_KINDS = new Set<ParsedEditOperationKind>([
   'trim_assistance_entry',
   'swap_assistance_movement',
   'add_assistance_entry',
+  'add_movement_to_library',
   'remove_assistance_entry',
   'schedule_deload',
   'skip_day_in_week',
@@ -150,6 +169,53 @@ const VALID_CATEGORIES = new Set([
   'carry',
 ]);
 const VALID_CONFIDENCES = new Set(['high', 'medium', 'low']);
+
+// Mirror of MuscleGroup / EquipmentType / MovementPattern from
+// packages/domain/src/types.ts. Kept in lockstep with the source-of-
+// truth unions — when adding a new value there, add it here too.
+const VALID_MUSCLES = new Set<string>([
+  'quads',
+  'hamstrings',
+  'glutes',
+  'calves',
+  'adductors',
+  'chest',
+  'back',
+  'lats',
+  'traps',
+  'shoulders',
+  'biceps',
+  'triceps',
+  'forearms',
+  'core',
+  'obliques',
+  'erectors',
+]);
+const VALID_EQUIPMENT = new Set<string>([
+  'barbell',
+  'trap-bar',
+  'dumbbell',
+  'kettlebell',
+  'sandbag',
+  'bodyweight',
+  'machine',
+  'cable',
+  'band',
+  'weighted-vest',
+  'dip-belt',
+  'other',
+]);
+const VALID_PATTERNS = new Set<string>([
+  'hinge',
+  'squat',
+  'push-horizontal',
+  'push-vertical',
+  'pull-horizontal',
+  'pull-vertical',
+  'carry',
+  'core',
+]);
+const TEMP_MOVEMENT_ID_RX = /^tmp:[a-z0-9-]+$/;
 
 export interface ParseEditProposalResult {
   /** Set when validation succeeded — ready to surface to the user. */
@@ -456,6 +522,115 @@ function validateOp(
         unit,
         ...(blockId ? { blockId } : {}),
         ...(repsMax !== undefined ? { repsMax } : {}),
+      };
+    }
+    case 'add_movement_to_library': {
+      const tempMovementId = strField(
+        op.tempMovementId,
+        `${where}.tempMovementId`,
+        errors,
+        80,
+      );
+      const name = strField(op.name, `${where}.name`, errors, 80);
+      const category = op.category;
+      const pattern = op.pattern;
+      const rawPrimary = op.primaryMuscles;
+      const rawSecondary = op.secondaryMuscles;
+      const categoryValid = typeof category === 'string' && VALID_CATEGORIES.has(category);
+      const patternValid = typeof pattern === 'string' && VALID_PATTERNS.has(pattern);
+      const tempIdValid =
+        typeof tempMovementId === 'string' && TEMP_MOVEMENT_ID_RX.test(tempMovementId);
+      if (tempMovementId && !tempIdValid) {
+        errors.push(
+          `${where}.tempMovementId must match ^tmp:[a-z0-9-]+$ (e.g. "tmp:banded-clamshell"). Got "${tempMovementId}".`,
+        );
+      }
+      if (!categoryValid) {
+        errors.push(`${where}.category must be one of ${[...VALID_CATEGORIES].join(', ')}.`);
+      }
+      if (!patternValid) {
+        errors.push(`${where}.pattern must be one of ${[...VALID_PATTERNS].join(', ')}.`);
+      }
+      let primaryMuscles: string[] | undefined;
+      if (!Array.isArray(rawPrimary) || rawPrimary.length === 0) {
+        errors.push(
+          `${where}.primaryMuscles must be a non-empty array of MuscleGroup values.`,
+        );
+      } else {
+        const ok: string[] = [];
+        for (const m of rawPrimary) {
+          if (typeof m !== 'string' || !VALID_MUSCLES.has(m)) {
+            errors.push(
+              `${where}.primaryMuscles contains invalid muscle "${String(m)}". Allowed: ${[...VALID_MUSCLES].join(', ')}.`,
+            );
+            continue;
+          }
+          if (!ok.includes(m)) ok.push(m);
+        }
+        if (ok.length > 0) primaryMuscles = ok;
+      }
+      let secondaryMuscles: string[] | undefined;
+      if (rawSecondary !== undefined && rawSecondary !== null) {
+        if (!Array.isArray(rawSecondary)) {
+          errors.push(`${where}.secondaryMuscles must be an array or omitted.`);
+        } else {
+          const ok: string[] = [];
+          for (const m of rawSecondary) {
+            if (typeof m !== 'string' || !VALID_MUSCLES.has(m)) {
+              errors.push(
+                `${where}.secondaryMuscles contains invalid muscle "${String(m)}".`,
+              );
+              continue;
+            }
+            if (!ok.includes(m) && !primaryMuscles?.includes(m)) ok.push(m);
+          }
+          if (ok.length > 0) secondaryMuscles = ok;
+        }
+      }
+      let equipment: string | undefined;
+      if (op.equipment !== undefined && op.equipment !== null) {
+        if (typeof op.equipment !== 'string' || !VALID_EQUIPMENT.has(op.equipment)) {
+          errors.push(
+            `${where}.equipment must be one of ${[...VALID_EQUIPMENT].join(', ')} (or omitted).`,
+          );
+        } else {
+          equipment = op.equipment;
+        }
+      }
+      const cues =
+        typeof op.cues === 'string' && op.cues.trim()
+          ? op.cues.trim().slice(0, 300)
+          : undefined;
+      const dedupHint =
+        typeof op.dedupHint === 'string' && op.dedupHint.trim()
+          ? op.dedupHint.trim().slice(0, 300)
+          : undefined;
+      if (
+        !tempMovementId ||
+        !tempIdValid ||
+        !name ||
+        !categoryValid ||
+        !patternValid ||
+        !primaryMuscles
+      ) {
+        return undefined;
+      }
+      return {
+        ...base,
+        kind,
+        tempMovementId,
+        name,
+        category: category as string,
+        pattern: pattern as string,
+        primaryMuscles,
+        ...(secondaryMuscles ? { secondaryMuscles } : {}),
+        ...(equipment ? { equipment } : {}),
+        ...(typeof op.isCompound === 'boolean' ? { isCompound: op.isCompound } : {}),
+        ...(typeof op.externallyLoadable === 'boolean'
+          ? { externallyLoadable: op.externallyLoadable }
+          : {}),
+        ...(cues ? { cues } : {}),
+        ...(dedupHint ? { dedupHint } : {}),
       };
     }
     case 'remove_assistance_entry': {

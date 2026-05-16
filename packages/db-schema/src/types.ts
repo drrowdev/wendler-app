@@ -1328,6 +1328,7 @@ export type EditOperationKind =
   | 'trim_assistance_entry'
   | 'swap_assistance_movement'
   | 'add_assistance_entry'
+  | 'add_movement_to_library'
   | 'remove_assistance_entry'
   | 'schedule_deload'
   | 'skip_day_in_week';
@@ -1389,7 +1390,13 @@ export interface AddAssistanceEntryEditOp extends EditOperationBase {
   kind: 'add_assistance_entry';
   blockId?: string;
   dayId: string;
-  /** movementId from the user's library — must exist. */
+  /**
+   * movementId from the user's library — must exist. May ALSO be a
+   * `tmp:<slug>` reference paired with a sibling `add_movement_to_library`
+   * op in the same proposal; the apply orchestrator rewrites it to the
+   * newly-created library movement's real id before the assistance entry
+   * is written.
+   */
   movementId: string;
   movementName: string;
   /** Slot category — one of push/pull/single-leg/core/prehab/isolation/carry. */
@@ -1398,6 +1405,63 @@ export interface AddAssistanceEntryEditOp extends EditOperationBase {
   reps: number;
   repsMax?: number;
   unit?: 'reps' | 'sec';
+}
+
+/**
+ * Add a new movement to the user's library. Always sets `isCustom: true`
+ * — these are treated identically to manually-added movements (same
+ * surface in /movements, no AI badge).
+ *
+ * Pairs with `add_assistance_entry`: when the AI wants to add a movement
+ * to a specific day AND the movement doesn't exist in the library yet,
+ * it emits an `add_movement_to_library` op with a `tempMovementId` of
+ * shape `tmp:<slug>`, and a sibling `add_assistance_entry` op whose
+ * `movementId` is the same `tmp:<slug>`. The apply orchestrator runs
+ * the library op first (APPLY_ORDER slot 0), captures the real
+ * generated movementId, and rewrites the chained assistance op's
+ * `movementId` before applying it.
+ *
+ * Dedup: the renderer surfaces a "use existing X" warning when a similar
+ * library movement exists (Levenshtein ≤ 2 on normalized name, or same
+ * pattern + primaryMuscles + ≥60% token overlap). The apply path
+ * rejects exact-normalized-name duplicates with a sticky error. When a
+ * race condition produces a real duplicate AFTER accept (parallel sync
+ * added the same movement), apply fails soft and rewrites chained ops
+ * to the existing movement instead.
+ */
+export interface AddMovementToLibraryEditOp extends EditOperationBase {
+  kind: 'add_movement_to_library';
+  /**
+   * Stable temp id the model invents — used so chained
+   * `add_assistance_entry` ops in the same proposal can reference this
+   * op's result before the real movementId exists. Must match
+   * `^tmp:[a-z0-9-]+$`. Parser rejects anything else.
+   */
+  tempMovementId: string;
+  /** Display name of the new movement (e.g. "Banded Clamshell"). */
+  name: string;
+  /** Slot category — one of push/pull/single-leg/core/prehab/isolation/carry. */
+  category: string;
+  /** Required. At least one primary muscle. Used for filtering + dedup. */
+  primaryMuscles: MuscleGroup[];
+  /** Optional secondary muscles for completeness. */
+  secondaryMuscles?: MuscleGroup[];
+  /** Defaults to 'bodyweight' if omitted. */
+  equipment?: EquipmentType;
+  /** Movement pattern — required for the library. */
+  pattern: MovementPattern;
+  /** Defaults to false. Almost always false for prehab/isolation work. */
+  isCompound?: boolean;
+  /** Defaults to false. True for movements that accept vest/belt loading. */
+  externallyLoadable?: boolean;
+  /** Optional cue text — populates Movement.techniqueCues. */
+  cues?: string;
+  /**
+   * AI's dedup self-check (informational only — server validates
+   * dedup independently). When set, the parser keeps it on the op so
+   * the UI can show "the AI checked these existing entries first".
+   */
+  dedupHint?: string;
 }
 
 export interface RemoveAssistanceEntryEditOp extends EditOperationBase {
@@ -1452,6 +1516,7 @@ export type EditOperation =
   | TrimAssistanceEntryEditOp
   | SwapAssistanceMovementEditOp
   | AddAssistanceEntryEditOp
+  | AddMovementToLibraryEditOp
   | RemoveAssistanceEntryEditOp
   | ScheduleDeloadEditOp
   | SkipDayInWeekEditOp;
@@ -1492,6 +1557,18 @@ export type EditOperationAppliedDetail =
       newMovementName: string;
     }
   | { kind: 'add_assistance_entry'; newEntryId: string; movementName: string }
+  | {
+      kind: 'add_movement_to_library';
+      newMovementId: string;
+      movementName: string;
+      /**
+       * When apply detected an exact-normalized-name duplicate AFTER the
+       * user accepted (parallel-sync race), it falls back to the existing
+       * library movement. The orchestrator records that here so the audit
+       * trail captures the soft-fallback.
+       */
+      reusedExistingMovementId?: string;
+    }
   | { kind: 'remove_assistance_entry'; removedMovementName: string }
   | { kind: 'schedule_deload'; newBlockId: string; sequenceIndex: number }
   | {

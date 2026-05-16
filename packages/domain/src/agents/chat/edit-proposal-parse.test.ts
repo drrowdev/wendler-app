@@ -186,6 +186,107 @@ describe('parseEditProposal', () => {
     );
     expect(r.errors.some((e) => e.includes('category must be one of'))).toBe(true);
   });
+
+  it('accepts a well-formed add_movement_to_library op', () => {
+    const r = parseEditProposal(
+      {
+        label: 'Add Banded Clamshell',
+        headline: 'Add Banded Clamshell to library',
+        reason: 'Prehab work for hip stability before half-marathon.',
+        operations: [
+          {
+            kind: 'add_movement_to_library',
+            label: 'Add Banded Clamshell',
+            tempMovementId: 'tmp:banded-clamshell',
+            name: 'Banded Clamshell',
+            category: 'prehab',
+            primaryMuscles: ['glutes'],
+            secondaryMuscles: ['adductors'],
+            equipment: 'band',
+            pattern: 'core',
+          },
+        ],
+      },
+      { idGen: idGen() },
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.proposal).toBeDefined();
+    const op = r.proposal!.operations[0]!;
+    expect(op.kind).toBe('add_movement_to_library');
+    if (op.kind !== 'add_movement_to_library') throw new Error('kind mismatch');
+    expect(op.tempMovementId).toBe('tmp:banded-clamshell');
+    expect(op.primaryMuscles).toEqual(['glutes']);
+    expect(op.equipment).toBe('band');
+  });
+
+  it('rejects add_movement_to_library when tempMovementId is missing tmp: prefix', () => {
+    const r = parseEditProposal(
+      {
+        label: 'x',
+        headline: 'h',
+        reason: 'r',
+        operations: [
+          {
+            kind: 'add_movement_to_library',
+            label: 'bad',
+            tempMovementId: 'banded-clamshell',
+            name: 'Banded Clamshell',
+            category: 'prehab',
+            primaryMuscles: ['glutes'],
+            pattern: 'core',
+          },
+        ],
+      },
+      { idGen: idGen() },
+    );
+    expect(r.errors.some((e) => e.includes('tempMovementId'))).toBe(true);
+  });
+
+  it('rejects add_movement_to_library when primaryMuscles is empty', () => {
+    const r = parseEditProposal(
+      {
+        label: 'x',
+        headline: 'h',
+        reason: 'r',
+        operations: [
+          {
+            kind: 'add_movement_to_library',
+            label: 'bad',
+            tempMovementId: 'tmp:weird-thing',
+            name: 'Weird Thing',
+            category: 'prehab',
+            primaryMuscles: [],
+            pattern: 'core',
+          },
+        ],
+      },
+      { idGen: idGen() },
+    );
+    expect(r.errors.some((e) => e.includes('primaryMuscles'))).toBe(true);
+  });
+
+  it('rejects add_movement_to_library when a primary muscle is not in the enum', () => {
+    const r = parseEditProposal(
+      {
+        label: 'x',
+        headline: 'h',
+        reason: 'r',
+        operations: [
+          {
+            kind: 'add_movement_to_library',
+            label: 'bad',
+            tempMovementId: 'tmp:weird-thing',
+            name: 'Weird Thing',
+            category: 'prehab',
+            primaryMuscles: ['glutes', 'spleen'],
+            pattern: 'core',
+          },
+        ],
+      },
+      { idGen: idGen() },
+    );
+    expect(r.errors.some((e) => e.includes('invalid muscle "spleen"'))).toBe(true);
+  });
 });
 
 describe('applyDecisionToOp', () => {

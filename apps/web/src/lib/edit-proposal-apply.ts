@@ -31,6 +31,7 @@ import type {
   EditOperation,
   EditOperationAppliedDetail,
   EditOperationDecision,
+  Movement,
   Notification,
   ProgramBlock,
   ProposeEditChatAction,
@@ -46,10 +47,11 @@ const APPLY_ORDER: Record<EditOperation['kind'], number> = {
   schedule_deload: 1,
   skip_day_in_week: 2,
   remove_assistance_entry: 3,
-  add_assistance_entry: 4,
-  trim_assistance_entry: 5,
-  swap_assistance_movement: 6,
-  set_training_max: 7,
+  add_movement_to_library: 4,
+  add_assistance_entry: 5,
+  trim_assistance_entry: 6,
+  swap_assistance_movement: 7,
+  set_training_max: 8,
 };
 
 export interface ApplyProposalResult {
@@ -124,6 +126,12 @@ export async function applyEditProposal(
   const now = new Date().toISOString();
 
   // Atomic transaction. If any op throws, the whole tx rolls back.
+  //
+  // tempIdMap is mutated as the loop runs — when an add_movement_to_library
+  // op runs (slot 4), it stores the temp→real id mapping so the chained
+  // add_assistance_entry op (slot 5) can resolve its `movementId` against
+  // it. Plain Map shared across the tx is fine — the tx is sequential.
+  const tempIdMap = new Map<string, string>();
   try {
     await db.transaction(
       'rw',
@@ -133,7 +141,7 @@ export async function applyEditProposal(
           // Re-resolve the target block fresh per op (a previous op in
           // the same tx may have mutated it; we read the latest from
           // the tx-scoped table view).
-          const detail = await performOp(op);
+          const detail = await performOp(op, tempIdMap);
           perOp[op.id] = { status: 'applied', detail };
         }
       },
@@ -229,7 +237,10 @@ async function writeProposalNotification(
 // Each handler PERFORMS the op AND returns the audit detail. Throws
 // on any validation or write failure so the tx rolls back.
 
-async function performOp(op: EditOperation): Promise<EditOperationAppliedDetail> {
+async function performOp(
+  op: EditOperation,
+  tempIdMap: Map<string, string>,
+): Promise<EditOperationAppliedDetail> {
   switch (op.kind) {
     case 'set_training_max':
       return performSetTrainingMax(op);
@@ -240,7 +251,9 @@ async function performOp(op: EditOperation): Promise<EditOperationAppliedDetail>
     case 'swap_assistance_movement':
       return performSwapAssistanceMovement(op);
     case 'add_assistance_entry':
-      return performAddAssistanceEntry(op);
+      return performAddAssistanceEntry(op, tempIdMap);
+    case 'add_movement_to_library':
+      return performAddMovementToLibrary(op, tempIdMap);
     case 'remove_assistance_entry':
       return performRemoveAssistanceEntry(op);
     case 'schedule_deload':
@@ -392,13 +405,28 @@ async function performSwapAssistanceMovement(
 
 async function performAddAssistanceEntry(
   op: EditOperation & { kind: 'add_assistance_entry' },
+  tempIdMap: Map<string, string>,
 ): Promise<EditOperationAppliedDetail> {
   const db = getDb();
   const block = await resolveBlock(op.blockId);
   if (!block.plan) throw new Error(`Block "${block.name}" has no plan to add to.`);
-  const movement = await db.movements.get(op.movementId);
+  // Resolve tmp:<slug> references against the temp-id map populated by
+  // a prior add_movement_to_library op in the same proposal. If the
+  // reference can't be resolved, fail loud — better than silently
+  // writing a broken entry.
+  let resolvedMovementId = op.movementId;
+  if (op.movementId.startsWith('tmp:')) {
+    const real = tempIdMap.get(op.movementId);
+    if (!real) {
+      throw new Error(
+        `Assistance entry references "${op.movementId}" but no matching add_movement_to_library op ran first.`,
+      );
+    }
+    resolvedMovementId = real;
+  }
+  const movement = await db.movements.get(resolvedMovementId);
   if (!movement) {
-    throw new Error(`Movement \`${op.movementId}\` not in library.`);
+    throw new Error(`Movement \`${resolvedMovementId}\` not in library.`);
   }
   const entryId = nanoid();
   let inserted = false;
@@ -407,7 +435,7 @@ async function performAddAssistanceEntry(
     inserted = true;
     const entry: AssistanceEntry = {
       id: entryId,
-      movementId: op.movementId,
+      movementId: resolvedMovementId,
       movementName: op.movementName,
       category: op.category as AssistanceEntry['category'],
       sets: op.sets,
@@ -544,5 +572,75 @@ async function performSkipDayInWeek(
     skipReason: op.skipReason,
     ...(op.dayLabel ? { dayLabel: op.dayLabel } : {}),
     ...(op.skipNote ? { skipNote: op.skipNote } : {}),
+  };
+}
+
+/**
+ * Normalize a movement name for dedup comparison: lowercase, trim,
+ * strip punctuation, collapse whitespace, strip leading articles.
+ */
+function normalizeMovementName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/^the\s+/, '')
+    .replace(/[^a-z0-9\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function performAddMovementToLibrary(
+  op: EditOperation & { kind: 'add_movement_to_library' },
+  tempIdMap: Map<string, string>,
+): Promise<EditOperationAppliedDetail> {
+  const db = getDb();
+  // Server-side exact-dup check. The renderer surfaces fuzzy matches
+  // as informational warnings; this is the hard reject path. When an
+  // exact normalized-name match exists, we DO NOT throw — we soft-fall
+  // back to the existing movement (race-condition handling: parallel
+  // sync may have added the same movement after the user accepted).
+  // The tempIdMap is populated with the existing id so the chained
+  // add_assistance_entry op resolves to it.
+  const targetName = normalizeMovementName(op.name);
+  if (!targetName) {
+    throw new Error('Movement name resolves to empty after normalization.');
+  }
+  const existing = await db.movements.toArray();
+  const exactDup = existing.find(
+    (m) => normalizeMovementName(m.name) === targetName,
+  );
+  if (exactDup) {
+    tempIdMap.set(op.tempMovementId, exactDup.id);
+    return {
+      kind: 'add_movement_to_library',
+      newMovementId: exactDup.id,
+      movementName: exactDup.name,
+      reusedExistingMovementId: exactDup.id,
+    };
+  }
+  // Genuine new movement. Generate an id in the same shape that the
+  // /movements/new page uses so the library row is indistinguishable
+  // from manually-created ones (per user preference — no AI badge).
+  const newId = `custom:${nanoid(8)}`;
+  const movement: Movement = {
+    id: newId,
+    name: op.name.trim(),
+    equipment: (op.equipment ?? 'bodyweight') as Movement['equipment'],
+    pattern: op.pattern as Movement['pattern'],
+    primaryMuscles: op.primaryMuscles as Movement['primaryMuscles'],
+    secondaryMuscles: (op.secondaryMuscles ?? []) as Movement['secondaryMuscles'],
+    isCustom: true,
+    ...(op.isCompound !== undefined ? { isCompound: op.isCompound } : { isCompound: false }),
+    ...(op.externallyLoadable !== undefined
+      ? { externallyLoadable: op.externallyLoadable }
+      : {}),
+    ...(op.cues ? { techniqueCues: op.cues } : {}),
+  };
+  await db.movements.put(movement);
+  tempIdMap.set(op.tempMovementId, newId);
+  return {
+    kind: 'add_movement_to_library',
+    newMovementId: newId,
+    movementName: movement.name,
   };
 }
