@@ -81,6 +81,20 @@ export function EditProposalSheet({ chatId, messageId, action, onClose }: Props)
     setDecisions((d) => ({ ...d, [opId]: next }));
   };
 
+  /** Bulk-set every pending op. Skips ops the user has already decided. */
+  const setAllPending = (status: 'accepted' | 'declined') => {
+    setDecisions((d) => {
+      const next = { ...d };
+      for (const op of action.operations) {
+        const cur = next[op.id];
+        if (!cur || cur.status === 'pending') {
+          next[op.id] = { status, ...(cur?.modifiedInput ? { modifiedInput: cur.modifiedInput } : {}) };
+        }
+      }
+      return next;
+    });
+  };
+
   const setModified = (opId: string, patch: Record<string, unknown>) => {
     setDecisions((d) => {
       const cur = d[opId] ?? { status: 'pending' };
@@ -151,6 +165,28 @@ export function EditProposalSheet({ chatId, messageId, action, onClose }: Props)
         </header>
 
         <ol className="flex-1 overflow-y-auto p-4 space-y-3">
+          {!results && action.operations.length > 1 && (
+            <li className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-bg/30 px-3 py-2 text-xs">
+              <span className="text-muted">Bulk-set pending ops:</span>
+              <button
+                type="button"
+                onClick={() => setAllPending('accepted')}
+                className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 font-semibold text-emerald-100 hover:bg-emerald-500/20"
+              >
+                Accept all
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllPending('declined')}
+                className="rounded border border-rose-500/40 bg-rose-500/10 px-2 py-1 font-semibold text-rose-100 hover:bg-rose-500/20"
+              >
+                Decline all
+              </button>
+              <span className="ml-auto text-[11px] text-muted">
+                {acceptedCount}/{total} accepted · {total - decidedCount} pending
+              </span>
+            </li>
+          )}
           {action.operations.map((op, i) => (
             <OpRow
               key={op.id}
@@ -337,7 +373,7 @@ function OpDiff({ op, modified, onModify }: DiffProps) {
     case 'trim_assistance_entry':
       return <TrimAssistanceEntryDiff op={op} modified={modified} onModify={onModify} />;
     case 'swap_assistance_movement':
-      return <SwapAssistanceMovementDiff op={op} modified={modified} />;
+      return <SwapAssistanceMovementDiff op={op} modified={modified} onModify={onModify} />;
     case 'add_assistance_entry':
       return <AddAssistanceEntryDiff op={op} modified={modified} onModify={onModify} />;
     case 'remove_assistance_entry':
@@ -496,18 +532,80 @@ function TrimAssistanceEntryDiff({
 function SwapAssistanceMovementDiff({
   op,
   modified,
+  onModify,
 }: {
   op: EditOperation & { kind: 'swap_assistance_movement' };
   modified?: Record<string, unknown>;
+  onModify: (patch: Record<string, unknown>) => void;
 }) {
   const entry = useResolvedEntry(op.blockId, op.dayId, op.entryId);
-  const effName = (modified?.newMovementName as string | undefined) ?? op.newMovementName;
+  const [showAll, setShowAll] = useState(false);
+
+  // Library candidate picker. By default we offer same-pattern movements
+  // (the safer, most-physiologically-similar swap surface). "Show all"
+  // expands to the full library so the user can override.
+  const candidates = useLiveQuery(async () => {
+    const movements = await getDb().movements.toArray();
+    const sourceMovement = movements.find((m) => m.id === op.currentMovementId);
+    const samePattern = sourceMovement
+      ? movements.filter((m) => m.id !== op.currentMovementId && m.pattern === sourceMovement.pattern)
+      : [];
+    return { samePattern, all: movements.filter((m) => m.id !== op.currentMovementId) };
+  }, [op.currentMovementId]);
+
+  const effectiveId = (modified?.newMovementId as string | undefined) ?? op.newMovementId;
+  const effectiveName = (modified?.newMovementName as string | undefined) ?? op.newMovementName;
+
+  const visibleCandidates = showAll ? candidates?.all : candidates?.samePattern;
+  // If the AI's proposed movement isn't in the same-pattern shortlist,
+  // auto-expand so the user sees the AI's pick highlighted in the full list.
+  const hasInShortlist = visibleCandidates?.some((m) => m.id === effectiveId);
+
   return (
     <div className="space-y-2 text-sm">
       <div className="flex flex-wrap items-baseline gap-2">
         <span>{op.currentMovementName}</span>
         <span aria-hidden className="text-muted">→</span>
-        <span className="font-semibold text-emerald-200">{effName}</span>
+        <select
+          value={effectiveId}
+          onChange={(e) => {
+            const id = e.target.value;
+            const m = candidates?.all.find((x) => x.id === id);
+            if (m) onModify({ newMovementId: m.id, newMovementName: m.name });
+          }}
+          className="rounded border border-border bg-bg/40 px-2 py-1 text-sm font-semibold text-emerald-100 focus:border-accent focus:outline-none"
+          aria-label="Replacement movement"
+        >
+          {/* Always include the AI's proposed option, even if it's
+              outside the visible shortlist, so the user sees what was
+              recommended. */}
+          {!hasInShortlist && (
+            <option value={effectiveId}>{effectiveName} (AI pick)</option>
+          )}
+          {visibleCandidates?.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+        {!showAll && candidates && candidates.samePattern.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowAll(true)}
+            className="text-[11px] text-muted underline hover:text-fg"
+          >
+            Show all library
+          </button>
+        )}
+        {showAll && (
+          <button
+            type="button"
+            onClick={() => setShowAll(false)}
+            className="text-[11px] text-muted underline hover:text-fg"
+          >
+            Same pattern only
+          </button>
+        )}
       </div>
       {entry && (
         <div className="text-xs text-muted">
