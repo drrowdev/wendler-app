@@ -20,11 +20,21 @@ export type CoachAction =
   | 'modify-execution'
   | 'monitor';
 
+export type CoachConfidence = 'high' | 'medium' | 'low';
+
 export interface CoachProposedAdjustment {
   movementId: string;
   action: CoachAction;
   modification: string;
   reasoning: string;
+  /**
+   * Optional relative-confidence signal the Coach attaches to this
+   * adjustment. UI uses it to tone the card visually so the user can
+   * see which adjustments the Coach stands behind firmly vs which are
+   * softer. NEVER interpret as an absolute probability — it's a
+   * relative ordering only.
+   */
+  confidence?: CoachConfidence;
 }
 
 export interface CoachResponse {
@@ -160,11 +170,19 @@ export function parseCoachResponse(
 
       if (!bad && typeof movementId === 'string') {
         seenMovementIds.add(movementId);
+        // Optional confidence: accept high/medium/low; silently ignore
+        // anything else (don't reject the whole adjustment over it).
+        const rawConfidence = a.confidence;
+        const confidence: CoachConfidence | undefined =
+          rawConfidence === 'high' || rawConfidence === 'medium' || rawConfidence === 'low'
+            ? rawConfidence
+            : undefined;
         cleanAdjustments.push({
           movementId: movementId.trim(),
           action: action as CoachAction,
           modification: (modification as string).trim(),
           reasoning: (reasoning as string).trim(),
+          ...(confidence ? { confidence } : {}),
         });
       }
     });
