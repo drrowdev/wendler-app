@@ -45,6 +45,7 @@ const OP_LABELS: Record<EditOperation['kind'], string> = {
   add_assistance_entry: 'Add entry',
   remove_assistance_entry: 'Remove entry',
   schedule_deload: 'Schedule deload',
+  skip_day_in_week: 'Skip day',
 };
 
 const OP_TONE: Record<EditOperation['kind'], string> = {
@@ -55,6 +56,7 @@ const OP_TONE: Record<EditOperation['kind'], string> = {
   add_assistance_entry: 'bg-emerald-500/15 text-emerald-100 ring-emerald-500/40',
   remove_assistance_entry: 'bg-rose-500/15 text-rose-100 ring-rose-500/40',
   schedule_deload: 'bg-sky-500/15 text-sky-100 ring-sky-500/40',
+  skip_day_in_week: 'bg-rose-500/15 text-rose-100 ring-rose-500/40',
 };
 
 export function EditProposalSheet({ chatId, messageId, action, onClose }: Props) {
@@ -380,6 +382,8 @@ function OpDiff({ op, modified, onModify }: DiffProps) {
       return <RemoveAssistanceEntryDiff op={op} />;
     case 'schedule_deload':
       return <ScheduleDeloadDiff />;
+    case 'skip_day_in_week':
+      return <SkipDayInWeekDiff op={op} />;
   }
 }
 
@@ -710,6 +714,46 @@ function ScheduleDeloadDiff() {
     <p className="text-sm text-fg/85">
       Insert a 7th-week deload block right after the currently-active block.
     </p>
+  );
+}
+
+function SkipDayInWeekDiff({
+  op,
+}: {
+  op: EditOperation & { kind: 'skip_day_in_week' };
+}) {
+  const labelByWeek: Record<string, string> = {
+    '1': 'Week 1',
+    '2': 'Week 2',
+    '3': 'Week 3',
+    deload: 'Deload week',
+    '7w': '7th-week',
+  };
+  return (
+    <div className="space-y-2 text-sm">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="font-semibold">{op.dayLabel ?? 'Day'}</span>
+        <span aria-hidden className="text-muted">→</span>
+        <span className="font-semibold text-rose-200">Skipped</span>
+        <span className="text-xs text-muted">({op.skipReason.replace('-', ' ')})</span>
+      </div>
+      <div className="text-xs text-muted">
+        Weeks affected:{' '}
+        <span className="font-medium text-fg/85">
+          {op.weeks.map((w) => labelByWeek[w] ?? w).join(' · ')}
+        </span>
+      </div>
+      {op.skipNote && (
+        <div className="rounded-lg border border-border bg-bg/40 px-3 py-2 text-xs text-fg/80">
+          {op.skipNote}
+        </div>
+      )}
+      <p className="text-[11px] text-muted leading-relaxed">
+        The day stays in your rotation; the strength session is just marked
+        skipped for those weeks. Pair this with a cardio-plan slot if you&apos;re
+        replacing it with a ride / swim / etc.
+      </p>
+    </div>
   );
 }
 

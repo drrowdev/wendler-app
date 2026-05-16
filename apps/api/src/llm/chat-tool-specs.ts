@@ -204,6 +204,7 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
                 'add_assistance_entry',
                 'remove_assistance_entry',
                 'schedule_deload',
+                'skip_day_in_week',
               ],
             },
             label: { type: 'string', description: 'Per-op row label. ≤ 80 chars.' },
@@ -295,6 +296,33 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
               type: 'string',
               enum: ['reps', 'sec'],
               description: 'add_assistance_entry only. Defaults to "reps".',
+            },
+
+            // skip_day_in_week
+            weeks: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['1', '2', '3', 'deload', '7w'],
+              },
+              minItems: 1,
+              description:
+                'skip_day_in_week only. Which weeks of the block to skip the day in. At least one required; multi-week skips are encouraged (e.g. ["2","3","deload"] for a taper).',
+            },
+            dayLabel: {
+              type: 'string',
+              description:
+                'skip_day_in_week only. Display label for the day (echo of the BlockDay label) so the UI can render it without a Dexie lookup.',
+            },
+            skipReason: {
+              type: 'string',
+              enum: ['cardio-replacement', 'rest-day', 'travel', 'fatigue', 'pain', 'other'],
+              description: 'skip_day_in_week only. Why the day is skipped.',
+            },
+            skipNote: {
+              type: 'string',
+              description:
+                'skip_day_in_week only. Free-text user-visible note (e.g. "Z2 bike 60 min"). ≤ 200 chars.',
             },
           },
           required: ['kind', 'label'],

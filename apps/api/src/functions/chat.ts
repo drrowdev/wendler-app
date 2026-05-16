@@ -118,6 +118,7 @@ For ANY program change (training-max tweaks, volume-preset shifts, assistance tr
 - \`add_assistance_entry\`: \`{ blockId?, dayId, movementId, movementName, category, sets, reps, repsMax?, unit? }\`. category ∈ push|pull|single-leg|core|prehab|isolation|carry. movementId must exist in the user's library.
 - \`remove_assistance_entry\`: \`{ blockId?, dayId, entryId, movementName }\`.
 - \`schedule_deload\`: \`{ }\`. Inserts a 7th-week deload block right after the active block.
+- \`skip_day_in_week\`: \`{ blockId?, dayId, dayLabel?, weeks, skipReason, skipNote? }\`. Marks a specific day SKIPPED for one or more weeks of the block. Use when the user wants to drop a strength day temporarily (e.g. race taper — drop Day 3 of weeks 2 + 3 + deload). \`weeks\` is an array of "1" | "2" | "3" | "deload" | "7w"; pass all the weeks to skip in ONE op rather than emitting one op per week. \`skipReason\` ∈ cardio-replacement | rest-day | travel | fatigue | pain | other. \`skipNote\` is free-text shown to the user (e.g. "Z2 bike 60 min" — pair with an explicit cardio-plan slot for that weekday so the bike ride lands on the calendar). The day stays in the rotation; the load model is unaffected (no sets logged = no strength contribution; Strava-imported replacement cardio contributes normally).
 
 **Plan-level guidance**:
 - Coordinate ops — if you're cutting the volume preset, also emit the trim_assistance_entry ops that actually rescale the already-scheduled entries proportionally. Don't ship the preset change alone and leave the user to manually wipe + regenerate.

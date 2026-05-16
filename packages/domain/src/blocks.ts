@@ -801,6 +801,42 @@ export interface BlockPlan {
   days: BlockDay[];
   /** Per-week override of assistance, keyed `${week}|${dayId}`. */
   assistanceOverrides?: Record<string, AssistanceEntry[]>;
+  /**
+   * Per-week override of an entire day's lift schedule, keyed
+   * `${week}|${dayId}` (same key shape as assistanceOverrides). Used to
+   * mark a strength day as SKIPPED for a specific week — e.g. dropping
+   * Day 3 for the last 2 weeks of marathon prep and replacing with a
+   * Z2 bike ride scheduled in the cardio plan.
+   *
+   * When skipped, the day still exists in the rotation (so the rest of
+   * the block stays stable) but:
+   *  - NextUpCard skips past it
+   *  - /program/block renders the day as "Skipped — <note>"
+   *  - /analytics excludes it from the session-completion denominator
+   *  - the AI snapshot reports the skip with the reason
+   *
+   * The skip does NOT affect the load model — load tracks what was
+   * actually performed (no sets logged = no strength contribution; the
+   * Strava-imported replacement cardio contributes via the cardio
+   * pipeline). This is purely a planning-side concept.
+   */
+  dayOverridesByWeek?: Record<
+    string,
+    {
+      /** True iff the day is skipped for this week. */
+      skipped: boolean;
+      /** Why it was skipped. UI label hint. */
+      skipReason?:
+        | 'cardio-replacement'
+        | 'rest-day'
+        | 'travel'
+        | 'fatigue'
+        | 'pain'
+        | 'other';
+      /** Free-text note shown to the user (e.g. "Z2 bike 60 min"). */
+      skipNote?: string;
+    }
+  >;
 }
 
 /**

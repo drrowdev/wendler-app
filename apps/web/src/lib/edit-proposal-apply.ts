@@ -44,11 +44,12 @@ import { updateActionStatus } from './chat-actions';
 const APPLY_ORDER: Record<EditOperation['kind'], number> = {
   set_block_volume_preset: 0,
   schedule_deload: 1,
-  remove_assistance_entry: 2,
-  add_assistance_entry: 3,
-  trim_assistance_entry: 4,
-  swap_assistance_movement: 5,
-  set_training_max: 6,
+  skip_day_in_week: 2,
+  remove_assistance_entry: 3,
+  add_assistance_entry: 4,
+  trim_assistance_entry: 5,
+  swap_assistance_movement: 6,
+  set_training_max: 7,
 };
 
 export interface ApplyProposalResult {
@@ -244,6 +245,8 @@ async function performOp(op: EditOperation): Promise<EditOperationAppliedDetail>
       return performRemoveAssistanceEntry(op);
     case 'schedule_deload':
       return performScheduleDeload();
+    case 'skip_day_in_week':
+      return performSkipDayInWeek(op);
   }
 }
 
@@ -503,4 +506,43 @@ async function resolveBlock(blockId?: string): Promise<ProgramBlock> {
   const active = all.find((b) => !b.completedAt);
   if (!active) throw new Error('No active block found.');
   return active;
+}
+
+async function performSkipDayInWeek(
+  op: EditOperation & { kind: 'skip_day_in_week' },
+): Promise<EditOperationAppliedDetail> {
+  const db = getDb();
+  const block = await resolveBlock(op.blockId);
+  if (!block.plan) {
+    throw new Error(`Block "${block.name}" has no plan; nothing to skip.`);
+  }
+  const day = block.plan.days.find((d) => d.id === op.dayId);
+  if (!day) {
+    throw new Error(`Day ${op.dayId} not found in block "${block.name}".`);
+  }
+  // Idempotent merge into dayOverridesByWeek. Existing override entries
+  // for the SAME (week, dayId) are replaced; entries for other weeks /
+  // days are preserved.
+  const overrides = { ...(block.plan.dayOverridesByWeek ?? {}) };
+  for (const wk of op.weeks) {
+    const key = `${wk}|${op.dayId}`;
+    overrides[key] = {
+      skipped: true,
+      skipReason: op.skipReason,
+      ...(op.skipNote ? { skipNote: op.skipNote } : {}),
+    };
+  }
+  await db.blocks.put({
+    ...block,
+    plan: { ...block.plan, dayOverridesByWeek: overrides },
+    updatedAt: new Date().toISOString(),
+  });
+  return {
+    kind: 'skip_day_in_week',
+    dayId: op.dayId,
+    weeks: op.weeks,
+    skipReason: op.skipReason,
+    ...(op.dayLabel ? { dayLabel: op.dayLabel } : {}),
+    ...(op.skipNote ? { skipNote: op.skipNote } : {}),
+  };
 }

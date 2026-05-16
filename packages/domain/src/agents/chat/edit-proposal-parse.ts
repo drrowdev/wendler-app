@@ -20,7 +20,8 @@ export type ParsedEditOperationKind =
   | 'swap_assistance_movement'
   | 'add_assistance_entry'
   | 'remove_assistance_entry'
-  | 'schedule_deload';
+  | 'schedule_deload'
+  | 'skip_day_in_week';
 
 interface ParsedEditOpBase {
   id: string;
@@ -88,6 +89,22 @@ export interface ParsedScheduleDeloadOp extends ParsedEditOpBase {
   kind: 'schedule_deload';
 }
 
+export interface ParsedSkipDayInWeekOp extends ParsedEditOpBase {
+  kind: 'skip_day_in_week';
+  blockId?: string;
+  dayId: string;
+  dayLabel?: string;
+  weeks: Array<'1' | '2' | '3' | 'deload' | '7w'>;
+  skipReason:
+    | 'cardio-replacement'
+    | 'rest-day'
+    | 'travel'
+    | 'fatigue'
+    | 'pain'
+    | 'other';
+  skipNote?: string;
+}
+
 export type ParsedEditOperation =
   | ParsedSetTrainingMaxOp
   | ParsedSetBlockVolumePresetOp
@@ -95,7 +112,8 @@ export type ParsedEditOperation =
   | ParsedSwapAssistanceMovementOp
   | ParsedAddAssistanceEntryOp
   | ParsedRemoveAssistanceEntryOp
-  | ParsedScheduleDeloadOp;
+  | ParsedScheduleDeloadOp
+  | ParsedSkipDayInWeekOp;
 
 export interface ParsedProposeEditAction {
   id: string;
@@ -117,6 +135,7 @@ const OP_KINDS = new Set<ParsedEditOperationKind>([
   'add_assistance_entry',
   'remove_assistance_entry',
   'schedule_deload',
+  'skip_day_in_week',
 ]);
 
 const VALID_LIFTS = new Set(['squat', 'bench', 'deadlift', 'press']);
@@ -455,6 +474,75 @@ function validateOp(
     }
     case 'schedule_deload': {
       return { ...base, kind };
+    }
+    case 'skip_day_in_week': {
+      const dayId = strField(op.dayId, `${where}.dayId`, errors, 100);
+      const skipReasonRaw = op.skipReason;
+      const VALID_SKIP_REASONS = new Set<string>([
+        'cardio-replacement',
+        'rest-day',
+        'travel',
+        'fatigue',
+        'pain',
+        'other',
+      ]);
+      const VALID_WEEKS = new Set<string>(['1', '2', '3', 'deload', '7w']);
+      const rawWeeks = op.weeks;
+      let weeks: Array<'1' | '2' | '3' | 'deload' | '7w'> | undefined;
+      if (!Array.isArray(rawWeeks) || rawWeeks.length === 0) {
+        errors.push(`${where}.weeks must be a non-empty array of week labels.`);
+      } else {
+        const ok: Array<'1' | '2' | '3' | 'deload' | '7w'> = [];
+        for (const w of rawWeeks) {
+          // Accept both string ("1") and number (1) for week labels.
+          const s = typeof w === 'number' ? String(w) : w;
+          if (typeof s === 'string' && VALID_WEEKS.has(s)) {
+            ok.push(s as '1' | '2' | '3' | 'deload' | '7w');
+          } else {
+            errors.push(
+              `${where}.weeks[] entries must be one of "1" | "2" | "3" | "deload" | "7w" (got ${JSON.stringify(w)}).`,
+            );
+          }
+        }
+        // De-dupe + stable order.
+        const uniq = Array.from(new Set(ok));
+        if (uniq.length > 0) weeks = uniq;
+      }
+      if (
+        typeof skipReasonRaw !== 'string' ||
+        !VALID_SKIP_REASONS.has(skipReasonRaw)
+      ) {
+        errors.push(
+          `${where}.skipReason must be one of ${[...VALID_SKIP_REASONS].join(', ')}.`,
+        );
+      }
+      const dayLabel =
+        typeof op.dayLabel === 'string' && op.dayLabel.trim()
+          ? op.dayLabel.trim().slice(0, 80)
+          : undefined;
+      const skipNote =
+        typeof op.skipNote === 'string' && op.skipNote.trim()
+          ? op.skipNote.trim().slice(0, 200)
+          : undefined;
+      if (!dayId || !weeks || typeof skipReasonRaw !== 'string' || !VALID_SKIP_REASONS.has(skipReasonRaw)) {
+        return undefined;
+      }
+      return {
+        ...base,
+        kind,
+        dayId,
+        weeks,
+        skipReason: skipReasonRaw as
+          | 'cardio-replacement'
+          | 'rest-day'
+          | 'travel'
+          | 'fatigue'
+          | 'pain'
+          | 'other',
+        ...(blockId ? { blockId } : {}),
+        ...(dayLabel ? { dayLabel } : {}),
+        ...(skipNote ? { skipNote } : {}),
+      };
     }
     default:
       errors.push(`${where}.kind unhandled: ${kind}`);

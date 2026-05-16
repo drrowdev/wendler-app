@@ -1329,7 +1329,8 @@ export type EditOperationKind =
   | 'swap_assistance_movement'
   | 'add_assistance_entry'
   | 'remove_assistance_entry'
-  | 'schedule_deload';
+  | 'schedule_deload'
+  | 'skip_day_in_week';
 
 interface EditOperationBase {
   /** Stable id within the proposal. Assigned by the parser if missing. */
@@ -1412,6 +1413,39 @@ export interface ScheduleDeloadEditOp extends EditOperationBase {
   kind: 'schedule_deload';
 }
 
+/**
+ * Skip one or more weeks of a specific day in the active (or specified)
+ * block. The day still exists in the rotation; the per-week override
+ * marks it skipped + records the reason. Used most often during a race
+ * taper to drop a strength day and replace it with a cardio session
+ * scheduled in the cardio plan.
+ *
+ * Multiple weeks can be skipped in one op (e.g. "skip Day 3 in weeks
+ * 2 + 3 + deload"). Apply is idempotent — running it twice writes the
+ * same override state.
+ */
+export interface SkipDayInWeekEditOp extends EditOperationBase {
+  kind: 'skip_day_in_week';
+  /** Optional block id; defaults to the active block. */
+  blockId?: string;
+  /** Stable day id from the active block's plan. */
+  dayId: string;
+  /** Display label for the day (for the UI; echo of the BlockDay label). */
+  dayLabel?: string;
+  /** Which weeks of the block to skip. At least one required. */
+  weeks: Array<'1' | '2' | '3' | 'deload' | '7w'>;
+  /** Why the day is skipped. UI label hint. */
+  skipReason:
+    | 'cardio-replacement'
+    | 'rest-day'
+    | 'travel'
+    | 'fatigue'
+    | 'pain'
+    | 'other';
+  /** Free-text note shown to the user (e.g. "Z2 bike 60 min"). */
+  skipNote?: string;
+}
+
 export type EditOperation =
   | SetTrainingMaxEditOp
   | SetBlockVolumePresetEditOp
@@ -1419,7 +1453,8 @@ export type EditOperation =
   | SwapAssistanceMovementEditOp
   | AddAssistanceEntryEditOp
   | RemoveAssistanceEntryEditOp
-  | ScheduleDeloadEditOp;
+  | ScheduleDeloadEditOp
+  | SkipDayInWeekEditOp;
 
 /**
  * Per-op user decision captured in the EditProposalSheet UI before
@@ -1458,7 +1493,15 @@ export type EditOperationAppliedDetail =
     }
   | { kind: 'add_assistance_entry'; newEntryId: string; movementName: string }
   | { kind: 'remove_assistance_entry'; removedMovementName: string }
-  | { kind: 'schedule_deload'; newBlockId: string; sequenceIndex: number };
+  | { kind: 'schedule_deload'; newBlockId: string; sequenceIndex: number }
+  | {
+      kind: 'skip_day_in_week';
+      dayId: string;
+      dayLabel?: string;
+      weeks: Array<'1' | '2' | '3' | 'deload' | '7w'>;
+      skipReason: string;
+      skipNote?: string;
+    };
 
 export type ChatActionKind = 'log_injury' | 'propose_edit';
 
