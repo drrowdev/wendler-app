@@ -38,8 +38,10 @@ Node 20.18+ and pnpm 10+ required.
 
 ## Versioning
 
-SemVer with Conventional Commits. The full per-release history lives in
-[`CHANGELOG.md`](CHANGELOG.md); the table below is the high-level theme map.
+SemVer with Conventional Commits. CI auto-deploys every push to `main`, so the
+"current" theme below is what's live on the production URL right now.
+[`CHANGELOG.md`](CHANGELOG.md) has the full per-feature history; the table
+below is the high-level theme map.
 
 | Version | Theme |
 |---|---|
@@ -54,7 +56,7 @@ SemVer with Conventional Commits. The full per-release history lives in
 | v1.2.0 | Weekly run-plan template, day-of-week run matching, in-gym UX polish |
 | v1.3.0 | Four-axis Training Profile, AI assistance suggester with phase awareness, race-proximity phase auto-derivation, phase-aware assistance volume auto-shift |
 | v1.4.0 | Public-repo migration + movement library expansion (~180 movements with pattern/muscle/equipment tagging) |
-| **v1.5.0 (Unreleased)** | **Agentic architecture — Coach (injury triage), Programmer (plan diffs), Periodizer (block sequencing), Summarizer (weekly review), and a chat orchestrator with tool-use. Action chips let chat propose writes (log injury, set training max, set block volume preset, schedule deload, substitute movement) with preview-before-write guardrails on every AI write path.** |
+| **v1.5.0 (current)** | **Agentic architecture — Coach (injury triage), Programmer (plan diffs), Periodizer (block sequencing), Summarizer (weekly review), and a chat orchestrator with tool-use. Action chips let chat propose writes (log injury, set training max, set block volume preset, schedule deload, substitute movement) with preview-before-write guardrails on every AI write path.** |
 
 ## Documentation
 
