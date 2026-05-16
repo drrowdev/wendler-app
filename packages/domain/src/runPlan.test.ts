@@ -3,12 +3,12 @@ import { isCardioLinkableToSlot, isRunCandidate, isoDayOfWeek, matchActivityToPl
 import type { RunPlanSlot } from './types';
 
 const PLAN: RunPlanSlot[] = [
-  { dayOfWeek: 0, kind: 'easy' }, // Mon
-  { dayOfWeek: 1, kind: 'easy' }, // Tue
-  { dayOfWeek: 2, kind: 'quality' }, // Wed
-  { dayOfWeek: 4, kind: 'quality' }, // Fri
-  { dayOfWeek: 5, kind: 'long' }, // Sat
-  { dayOfWeek: 6, kind: 'rest' }, // Sun
+  { dayOfWeek: 0, modality: 'run', kind: 'easy' }, // Mon
+  { dayOfWeek: 1, modality: 'run', kind: 'easy' }, // Tue
+  { dayOfWeek: 2, modality: 'run', kind: 'quality' }, // Wed
+  { dayOfWeek: 4, modality: 'run', kind: 'quality' }, // Fri
+  { dayOfWeek: 5, modality: 'run', kind: 'long' }, // Sat
+  { dayOfWeek: 6, modality: 'run', kind: 'rest' }, // Sun
 ];
 
 // Mon 2026-05-04, Wed 2026-05-06, Sat 2026-05-09, Sun 2026-05-10

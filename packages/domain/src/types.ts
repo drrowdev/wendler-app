@@ -120,22 +120,64 @@ export interface TrainingMaxConfig {
 }
 
 /**
- * Kind of run/cardio planned for a given weekday in the recurring weekly
+ * Kind of cardio planned for a given weekday in the recurring weekly
  * cardio template. Lives in domain (not db-schema) because the matching
- * algorithm in `runPlan.ts` needs to reference it without a circular import.
+ * algorithm in `cardioPlan.ts` needs to reference it without a circular
+ * import.
+ *
+ * The vocabulary covers run + bike + swim + row + other modalities. Some
+ * kinds are modality-flavoured (e.g. `long` reads as "long run" when
+ * modality is `run` and "long ride" when modality is `bike`); the
+ * matching + AI-reasoning logic combines `modality + kind` to produce
+ * the right behaviour.
  */
-export type RunPlannedKind =
+export type CardioPlannedKind =
   | 'rest'
   | 'easy'
   | 'long'
   | 'quality'
   | 'recovery'
   | 'race-pace'
+  | 'z2'
+  | 'intervals'
   | 'cross';
 
-export interface RunPlanSlot {
+/**
+ * Back-compat alias. The old name is still re-exported so external
+ * callers don't break during the rebrand; new code should use the
+ * `CardioPlannedKind` name directly.
+ *
+ * @deprecated use CardioPlannedKind
+ */
+export type RunPlannedKind = CardioPlannedKind;
+
+/** Cardio modality. Used both for logged sessions (CardioSession.modality) and planned slots (CardioPlanSlot.modality). */
+export type CardioModality = 'run' | 'bike' | 'swim' | 'row' | 'walk' | 'padel' | 'other';
+
+export interface CardioPlanSlot {
   /** ISO day-of-week: 0 = Monday … 6 = Sunday (European convention). */
   dayOfWeek: number;
-  kind: RunPlannedKind;
+  /**
+   * Modality. Defaults to `'run'` on rows migrated from the legacy
+   * RunPlan; new slots set it explicitly via the cardio-plan editor.
+   * AI prompts + the `findNextCardio` helper key on this field to pick
+   * icons + run-specific reasoning (e.g. pre-long-run lower-body veto
+   * fires only when modality === 'run' && kind === 'long').
+   */
+  modality: CardioModality;
+  kind: CardioPlannedKind;
+  /** Optional planned duration in minutes. UI only. */
+  durationMin?: number;
+  /** Free-text note shown to the user (e.g. "60 min indoor trainer"). */
+  notes?: string;
 }
+
+/**
+ * Back-compat alias for the legacy slot shape. New code should use
+ * `CardioPlanSlot` directly; this exists so module-resolution + existing
+ * callers don't fan out during the rebrand.
+ *
+ * @deprecated use CardioPlanSlot
+ */
+export type RunPlanSlot = CardioPlanSlot;
 

@@ -11,6 +11,9 @@ import type {
   Program,
   ProgramBlock,
   ProgramSchedule,
+  CardioModality,
+  CardioPlannedKind,
+  CardioPlanSlot,
   RunPlannedKind,
   RunPlanSlot,
   SecondaryGoal,
@@ -30,6 +33,9 @@ export type {
   Program,
   ProgramBlock,
   ProgramSchedule,
+  CardioModality,
+  CardioPlannedKind,
+  CardioPlanSlot,
   RunPlannedKind,
   RunPlanSlot,
   SupplementalTemplateId,
@@ -632,23 +638,35 @@ export interface StrengthHrEnrichment {
 }
 
 /**
- * High-level recurring weekly cardio template. The user fills in once
- * ("Tuesday = easy, Wednesday = tempo, Saturday = long"); imported Strava
- * runs are then matched to the slots automatically by day-of-week + name.
+ * Persistent recurring weekly cardio template, stored as a singleton row
+ * in the local `cardioPlan` table and synced to Cosmos via the LWW
+ * pipeline. Slots are sparse; missing days of week mean "no plan / rest
+ * day". Each slot carries a modality (run / bike / swim / row / other)
+ * and a kind (easy / long / z2 / intervals / …); AI prompts + the
+ * NextUpCard logic combine the two to render the right icon + reason
+ * about training stress correctly.
  *
- * Stored as a single Dexie row keyed by `id: 'singleton'` (mirrors settings/
- * schedule). Days without a slot are treated as rest / no plan.
- *
- * The `RunPlannedKind` and `RunPlanSlot` value types live in `@wendler/domain`
- * (re-exported above) so the matching algorithm there can reference them
- * without a circular import back to db-schema.
+ * The `CardioPlannedKind` / `CardioPlanSlot` / `CardioModality` value
+ * types live in `@wendler/domain` (re-exported above) so the matching
+ * algorithm there can reference them without a circular import back to
+ * db-schema. Legacy `RunPlannedKind` / `RunPlanSlot` aliases stay for
+ * back-compat during the rebrand.
  */
-export interface RunPlan {
+export interface CardioPlan {
   id: 'singleton';
   /** Sparse list keyed by dayOfWeek; missing days = no plan / rest. */
-  slots: RunPlanSlot[];
+  slots: CardioPlanSlot[];
   updatedAt: string;
 }
+
+/**
+ * Back-compat alias for the previous name. The persisted table is now
+ * `cardioPlan`; the old `runPlan` table is migrated forward by the Dexie
+ * upgrade fn in apps/web/src/lib/db.ts (v20).
+ *
+ * @deprecated use CardioPlan
+ */
+export type RunPlan = CardioPlan;
 
 /**
  * Daily recovery checkin. One row per date (YYYY-MM-DD).

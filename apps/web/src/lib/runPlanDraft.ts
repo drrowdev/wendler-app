@@ -20,7 +20,9 @@ export function draftToSlots(draft: RunPlannedKind[]): RunPlanSlot[] {
   for (let i = 0; i < draft.length; i++) {
     const k = draft[i]!;
     if (k === 'rest') continue;
-    out.push({ dayOfWeek: i, kind: k });
+    // Legacy draft is all-runs; new cardio plan editor will let the
+    // user pick modality per slot.
+    out.push({ dayOfWeek: i, modality: 'run', kind: k });
   }
   return out;
 }

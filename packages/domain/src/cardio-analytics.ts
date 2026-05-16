@@ -10,9 +10,9 @@
 import { isoWeekKey } from './analytics';
 import { isoDayOfWeek } from './runPlan';
 import { weightedCardioMinutes } from './load';
-import type { RunPlanSlot, RunPlannedKind } from './types';
+import type { CardioModality, RunPlanSlot, RunPlannedKind } from './types';
 
-export type CardioModality = 'run' | 'bike' | 'swim' | 'row' | 'walk' | 'padel' | 'other';
+export type { CardioModality };
 
 export interface MinimalCardio {
   id: string;

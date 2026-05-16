@@ -689,7 +689,7 @@ export function useUnreadNotificationCount(): number {
 }
 
 export function useRunPlan() {
-  return useLiveQuery(() => getDb().runPlan.get('singleton'), []);
+  return useLiveQuery(() => getDb().cardioPlan.get('singleton'), []);
 }
 
 /** All races in the calendar, newest-soonest first. */

@@ -353,7 +353,7 @@ async function collectOutbound(sinceIso: string): Promise<OutboundDoc[]> {
   // RunPlan singleton: only one row, plain LWW on updatedAt — no bare-shape
   // hardening needed because the seedless lazy-create means there's no risk
   // of a "factory defaults" overwrite scenario like settings/schedule had.
-  const runPlan = await db.runPlan.get('singleton');
+  const runPlan = await db.cardioPlan.get('singleton');
   if (runPlan && runPlan.updatedAt > since) {
     out.push({
       kind: 'runPlan',
@@ -645,7 +645,7 @@ async function applyIncoming(doc: IncomingDoc) {
     }
     case 'runPlan': {
       const incoming = doc.payload as RunPlan;
-      await lwwPut(db.runPlan, incoming, 'singleton');
+      await lwwPut(db.cardioPlan, incoming, 'singleton');
       break;
     }
     case 'race': {

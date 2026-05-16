@@ -177,10 +177,10 @@ describe('polarizedSummary', () => {
 describe('runPlanAdherence', () => {
   // 2026-04-06 is a Monday. dayOfWeek=0 (ISO Mon=0 in our scheme).
   const slots: RunPlanSlot[] = [
-    { dayOfWeek: 0, kind: 'easy' },
-    { dayOfWeek: 2, kind: 'quality' },
-    { dayOfWeek: 5, kind: 'long' },
-    { dayOfWeek: 6, kind: 'rest' },
+    { dayOfWeek: 0, modality: 'run', kind: 'easy' },
+    { dayOfWeek: 2, modality: 'run', kind: 'quality' },
+    { dayOfWeek: 5, modality: 'run', kind: 'long' },
+    { dayOfWeek: 6, modality: 'run', kind: 'rest' },
   ];
 
   it('rates each non-rest slot over the window', () => {

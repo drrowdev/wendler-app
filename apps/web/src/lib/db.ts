@@ -5,6 +5,7 @@ import {
   SCHEMA_VERSION,
   SEED_MOVEMENTS,
   type AiGeneration,
+  type CardioPlan,
   type CardioSession,
   type Chat,
   type Goal,
@@ -16,7 +17,6 @@ import {
   type PushSubscriptionRecord,
   type Race,
   type RecoveryEntry,
-  type RunPlan,
   type SessionRecord,
   type SetRecord,
   type StrengthHrEnrichment,
@@ -56,7 +56,7 @@ class WendlerDb extends Dexie {
   recovery!: Table<RecoveryEntry, string>;
   pushSub!: Table<PushSubscriptionRecord, 'pushSub'>;
   tombstones!: Table<Tombstone, string>;
-  runPlan!: Table<RunPlan, 'singleton'>;
+  cardioPlan!: Table<CardioPlan, 'singleton'>;
   strengthHr!: Table<StrengthHrEnrichment, string>;
   races!: Table<Race, string>;
   wellness!: Table<WellnessFlag, string>;
@@ -448,7 +448,7 @@ class WendlerDb extends Dexie {
     // week, keyed by id, indexed by weekStart (Monday YYYY-MM-DD) so the
     // /stats card can look up the latest review without scanning. Synced
     // via LWW so the same review surfaces across devices.
-    this.version(SCHEMA_VERSION).stores({
+    this.version(19).stores({
       movements: 'id, name, equipment, pattern, isMainLift, isCustom',
       trainingMaxes: 'id, lift, createdAt',
       settings: 'id',
@@ -474,6 +474,68 @@ class WendlerDb extends Dexie {
       injuries: 'id, area, startedAt, resolvedAt, updatedAt',
       weeklyReviews: 'id, weekStart, generatedAt, updatedAt',
     });
+    // v20 schema: rename `runPlan` table → `cardioPlan` + add the
+    // required `modality` field to every slot. The runPlan table itself
+    // is dropped from the v20 store map; the upgrade fn copies the
+    // singleton row into cardioPlan with `modality: 'run'` filled in
+    // for every existing slot (back-compat default). Removing it from
+    // the store map deletes the table in IndexedDB; the upgrade tx
+    // runs before the table is dropped, so the read is safe.
+    this.version(SCHEMA_VERSION)
+      .stores({
+        movements: 'id, name, equipment, pattern, isMainLift, isCustom',
+        trainingMaxes: 'id, lift, createdAt',
+        settings: 'id',
+        sets: 'id, movementId, sessionId, performedAt, kind',
+        sessions: 'id, performedAt, mainLift, week, blockId',
+        blocks: 'id, kind, startedAt, completedAt, createdAt, programId',
+        programs: 'id, createdAt, completedAt',
+        schedule: 'id',
+        syncMeta: 'id',
+        goals: 'id, kind, deadline, createdAt, completedAt',
+        cardio: 'id, performedAt, modality, externalId',
+        recovery: 'id',
+        pushSub: 'id',
+        tombstones: 'id, kind, recordId, deletedAt',
+        runPlan: null, // drop the legacy table after migrating its row
+        cardioPlan: 'id',
+        strengthHr: 'id, performedAt, externalId',
+        races: 'id, date, priority, completedAt, createdAt',
+        wellness: 'id, kind, startedAt, recoveredAt, updatedAt',
+        notifications: 'id, createdAt, channel, severity, readAt, updatedAt',
+        aiGenerations: 'id, createdAt, blockId, weekScope, outcome, source, updatedAt',
+        chats: 'id, createdAt, updatedAt',
+        userProfile: 'id',
+        injuries: 'id, area, startedAt, resolvedAt, updatedAt',
+        weeklyReviews: 'id, weekStart, generatedAt, updatedAt',
+      })
+      .upgrade(async (tx) => {
+        // Migrate the runPlan singleton (if any) into cardioPlan. Defaults
+        // modality to 'run' for every slot — every pre-v20 user had only
+        // run slots. New slots added via the cardio-plan editor pick a
+        // modality explicitly.
+        try {
+          // Access the legacy table by name via the raw transaction — it
+          // still exists during the upgrade callback even though it's
+          // marked `null` in the v20 store map.
+          const legacy = await tx.table('runPlan').get('singleton');
+          if (legacy && Array.isArray(legacy.slots)) {
+            const migrated = {
+              id: 'singleton',
+              updatedAt: legacy.updatedAt ?? new Date().toISOString(),
+              slots: legacy.slots.map((s: { dayOfWeek: number; kind: string; modality?: string }) => ({
+                dayOfWeek: s.dayOfWeek,
+                modality: s.modality ?? 'run',
+                kind: s.kind,
+              })),
+            };
+            await tx.table('cardioPlan').put(migrated);
+          }
+        } catch {
+          // Table-doesn't-exist or empty — fine, the new cardioPlan table
+          // starts empty.
+        }
+      });
   }
 }
 

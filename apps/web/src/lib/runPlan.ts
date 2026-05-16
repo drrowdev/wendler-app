@@ -20,7 +20,7 @@ import { getDb } from './db';
  */
 export async function rematchAllCardioAgainstPlan(): Promise<number> {
   const db = getDb();
-  const plan = await db.runPlan.get('singleton');
+  const plan = await db.cardioPlan.get('singleton');
   const all = await db.cardio.toArray();
   const slots = plan?.slots ?? [];
   const updates: CardioSession[] = [];
@@ -125,7 +125,7 @@ export async function applyPlanMatchToBatch(
   batch: CardioSession[],
 ): Promise<CardioSession[]> {
   const db = getDb();
-  const plan = await db.runPlan.get('singleton');
+  const plan = await db.cardioPlan.get('singleton');
   const slots = plan?.slots ?? [];
   if (slots.length === 0) return batch;
   return batch.map((c) => {
@@ -145,7 +145,7 @@ export async function applyPlanMatchToBatch(
 /** Persist the run plan singleton, bumping updatedAt for sync. */
 export async function saveRunPlan(plan: Omit<RunPlan, 'id' | 'updatedAt'>): Promise<void> {
   const db = getDb();
-  await db.runPlan.put({
+  await db.cardioPlan.put({
     id: 'singleton',
     slots: plan.slots,
     updatedAt: new Date().toISOString(),
