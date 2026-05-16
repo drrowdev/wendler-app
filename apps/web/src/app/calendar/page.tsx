@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { useAllCardio, useAllStrengthHr, useBlocks, useRecentWorkoutDays, useRunPlan, useUpcomingWorkouts, type RecentWorkoutDay } from '@/lib/hooks';
+import { useAllCardio, useAllStrengthHr, useBlocks, useRaces, useRecentWorkoutDays, useRunPlan, useUpcomingWorkouts, type RecentWorkoutDay } from '@/lib/hooks';
 import { liftLabel, liftLabelShort } from '@/lib/format';
 import { CARDIO_EMOJI, CARDIO_SHORT, cardioFullTitle, cardioMetric } from '@/lib/cardio-display';
 import { LinkActivityPicker } from '@/components/LinkActivityPicker';
+import { ProgramTimeline } from '@/components/ProgramTimeline';
 import type { CardioSession, StrengthHrEnrichment } from '@wendler/db-schema';
 import { importedStrengthLabel, isoDayOfWeek, planEmoji, planLabel, toLocalYmd, type MainLift, type ProgramBlock, type RunPlannedKind, type UpcomingWorkout } from '@wendler/domain';
 
@@ -100,6 +101,7 @@ export default function CalendarPage() {
   const allCardio = useAllCardio();
   const allImportedStrength = useAllStrengthHr();
   const runPlan = useRunPlan();
+  const races = useRaces();
   const router = useRouter();
   const params = useSearchParams();
   // View toggle persisted in the URL so reloads + deep-links keep the
@@ -333,15 +335,7 @@ export default function CalendarPage() {
       </div>
 
       {view === 'timeline' && (
-        <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted">
-          <p className="font-medium text-fg/80">Timeline view (coming soon)</p>
-          <p className="mt-2 leading-relaxed">
-            A horizontal macrocycle view: each program block as a colored swimlane
-            segment, race-date milestones as flag pins, and a today marker across
-            all lanes. Lets you see Leader → 7th-week → Anchor structure + race
-            taper alignment at a glance, instead of scrolling the month grid.
-          </p>
-        </div>
+        <ProgramTimeline blocks={blocks ?? []} races={races ?? []} today={today} />
       )}
 
       {view === 'calendar' && (
