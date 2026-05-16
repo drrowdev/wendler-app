@@ -617,7 +617,7 @@ function SwapAssistanceMovementDiff({
       )}
       {!entry && (
         <div className="text-xs text-rose-200">
-          ⚠ Entry not found in the current plan — apply will fail unless the AI's ids
+          ⚠ Entry not found in the current plan — apply will fail unless the AI&apos;s ids
           are stale.
         </div>
       )}
