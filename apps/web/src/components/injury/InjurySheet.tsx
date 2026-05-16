@@ -497,9 +497,13 @@ interface ProposalReviewProps {
 }
 
 function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewProps) {
-  // Default: accept all (the user can flip individual ones to declined).
-  const [accepted, setAccepted] = useState<Set<number>>(
-    () => new Set(proposal.proposedAdjustments.map((_, i) => i)),
+  // Per-row decision: 'accepted' / 'declined' / undefined (= no choice yet).
+  // Starts undefined for every adjustment — the user MUST explicitly accept
+  // or decline each one. Save is disabled until every row has a decision,
+  // which removes the "I left it alone, what happens?" ambiguity that the
+  // previous default-accepted UX caused.
+  const [decisions, setDecisions] = useState<Map<number, 'accepted' | 'declined'>>(
+    new Map(),
   );
   const [editing] = useState<
     Map<
@@ -510,23 +514,41 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setAccepted(new Set(proposal.proposedAdjustments.map((_, i) => i)));
+    setDecisions(new Map());
   }, [proposal]);
 
-  const toggle = (i: number) => {
-    const next = new Set(accepted);
-    if (next.has(i)) next.delete(i);
-    else next.add(i);
-    setAccepted(next);
+  const setDecision = (i: number, choice: 'accepted' | 'declined') => {
+    const next = new Map(decisions);
+    next.set(i, choice);
+    setDecisions(next);
   };
 
-  const acceptAll = () =>
-    setAccepted(new Set(proposal.proposedAdjustments.map((_, i) => i)));
-  const declineAll = () => setAccepted(new Set());
+  const acceptAll = () => {
+    const next = new Map<number, 'accepted' | 'declined'>();
+    proposal.proposedAdjustments.forEach((_, i) => next.set(i, 'accepted'));
+    setDecisions(next);
+  };
+  const declineAll = () => {
+    const next = new Map<number, 'accepted' | 'declined'>();
+    proposal.proposedAdjustments.forEach((_, i) => next.set(i, 'declined'));
+    setDecisions(next);
+  };
+
+  const acceptedCount = Array.from(decisions.values()).filter(
+    (v) => v === 'accepted',
+  ).length;
+  const decidedCount = decisions.size;
+  const totalCount = proposal.proposedAdjustments.length;
+  const allDecided = decidedCount === totalCount;
 
   const onSaveClick = async () => {
+    if (!allDecided) return;
+    const acceptedSet = new Set<number>();
+    decisions.forEach((v, k) => {
+      if (v === 'accepted') acceptedSet.add(k);
+    });
     setBusy(true);
-    await onSave(accepted, editing);
+    await onSave(acceptedSet, editing);
     setBusy(false);
   };
 
@@ -565,10 +587,21 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
         <>
           <div className="flex items-baseline justify-between text-xs text-muted">
             <span>
-              <span className="font-semibold text-emerald-300">{accepted.size}</span>
-              <span className="mx-1">of</span>
-              <span>{proposal.proposedAdjustments.length}</span>{' '}
-              accepted · only accepted ones apply.
+              {allDecided ? (
+                <>
+                  <span className="font-semibold text-emerald-300">{acceptedCount}</span>
+                  <span className="mx-1">of</span>
+                  <span>{totalCount}</span> accepted · only accepted ones apply.
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold text-amber-300">
+                    {decidedCount}
+                  </span>
+                  <span className="mx-1">of</span>
+                  <span>{totalCount}</span> decided · accept or decline each below.
+                </>
+              )}
             </span>
             <div className="flex gap-2">
               <button type="button" onClick={acceptAll} className="underline-offset-2 hover:underline">
@@ -581,7 +614,9 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
           </div>
           <ul className="space-y-2">
             {proposal.proposedAdjustments.map((adj, i) => {
-              const isAccepted = accepted.has(i);
+              const decision = decisions.get(i);
+              const isAccepted = decision === 'accepted';
+              const isDeclined = decision === 'declined';
               const editState = editing.get(i);
               return (
                 <li
@@ -589,7 +624,9 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
                   className={`rounded-lg border p-3 ${
                     isAccepted
                       ? 'border-emerald-500/40 bg-emerald-500/5'
-                      : 'border-border bg-bg/40'
+                      : isDeclined
+                        ? 'border-rose-500/30 bg-rose-500/5 opacity-70'
+                        : 'border-amber-500/40 bg-amber-500/5'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -599,22 +636,40 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
                         {(editState?.action ?? adj.action).replace('-', ' ')}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => toggle(i)}
-                      aria-pressed={isAccepted}
-                      title={isAccepted ? 'Tap to decline' : 'Tap to accept'}
-                      className={`shrink-0 rounded-lg border px-2.5 py-1 text-xs font-semibold ${
-                        isAccepted
-                          ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-100'
-                          : 'border-rose-500/40 bg-rose-500/10 text-rose-200'
-                      }`}
-                    >
-                      {isAccepted ? '✓ Accepted' : '✕ Declined'}
-                    </button>
+                    <div className="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setDecision(i, 'accepted')}
+                        aria-pressed={isAccepted}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                          isAccepted
+                            ? 'border-emerald-500/70 bg-emerald-500/25 text-emerald-100'
+                            : 'border-border bg-bg/40 text-muted hover:border-emerald-500/40 hover:text-emerald-200'
+                        }`}
+                      >
+                        ✓ Accept
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDecision(i, 'declined')}
+                        aria-pressed={isDeclined}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                          isDeclined
+                            ? 'border-rose-500/60 bg-rose-500/20 text-rose-100'
+                            : 'border-border bg-bg/40 text-muted hover:border-rose-500/40 hover:text-rose-200'
+                        }`}
+                      >
+                        ✕ Decline
+                      </button>
+                    </div>
                   </div>
                   <p className="mt-2 text-sm">{editState?.modification ?? adj.modification}</p>
                   <p className="mt-1 text-[11px] italic text-muted">{adj.reasoning}</p>
+                  {!decision && (
+                    <p className="mt-2 text-[11px] text-amber-300">
+                      Pending — pick Accept or Decline.
+                    </p>
+                  )}
                   {adj.alternatives.length > 0 && isAccepted && (adj.action === 'skip' || adj.action === 'reduce-load') && (
                     <div className="mt-2 rounded border border-sky-500/30 bg-sky-500/5 px-2 py-1 text-[11px] text-sky-200">
                       <span aria-hidden className="mr-1">⤳</span>
@@ -669,11 +724,16 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
         </button>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || !allDecided}
           onClick={onSaveClick}
+          title={!allDecided ? `${totalCount - decidedCount} adjustment(s) still need a decision` : undefined}
           className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg disabled:opacity-50"
         >
-          {busy ? 'Saving…' : 'Save'}
+          {busy
+            ? 'Saving…'
+            : !allDecided
+              ? `Save (${decidedCount}/${totalCount} decided)`
+              : `Save (${acceptedCount} accepted)`}
         </button>
       </div>
     </div>
