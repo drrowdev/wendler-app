@@ -25,11 +25,26 @@ crib.
   and cross-package imports). Before pushing anything that touches
   `packages/domain`, also run `cd packages/domain && npx tsc --noEmit` —
   this matches what CI does and catches the gaps `pnpm typecheck` misses.
-- **Build**: `pnpm --filter @wendler/web build` (must succeed for deploy).
+- **Build before push — non-negotiable**: `pnpm --filter @wendler/web build`
+  MUST succeed locally before every push that touches `apps/web`. This is
+  the only check that runs Next.js's eslint pass (`react/no-unescaped-entities`
+  and friends) — `tsc --noEmit` and `vitest` both skip it. If lint fails,
+  the Azure Static Web Apps deploy fails silently while CI shows a green
+  Security check, and the live PWA is stuck on the previous version while
+  every subsequent push compounds the same backlog. Past incident: v395-v398
+  all failed to deploy for 4 consecutive commits because of one unescaped
+  apostrophe; cost ~hours of confused "why isn't this live" debugging. Run
+  the build.
 - **Always `git push` after `git commit`** — the deployed PWA only updates
   after push (CI builds + ships on push to `main`).
 - **Conventional commits** — `feat(scope): …`, `fix(scope): …`, etc.
   Always include the trailer `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`.
+- **Verify the deploy actually landed** after pushing anything user-visible:
+  `gh run list -L 3 --json conclusion,workflowName,headSha | ConvertFrom-Json | Format-Table`.
+  All three workflows (CI, Security, **Deploy to Azure Static Web Apps**)
+  must show `success`. If `Deploy` failed but `Security` passed, the SW
+  bump never reached production and the user's PWA is still on the old
+  version — don't assume push = deploy.
 - **Bump the SW cache** in `apps/web/public/sw.js` (`CACHE = 'wendler-shell-vNNN'`)
   on every meaningful release so installed PWAs evict stale assets.
 - **Don't deploy via SWA-CLI** — `swa deploy apps/api` ships pnpm-symlinked
