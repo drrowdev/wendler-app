@@ -1,0 +1,479 @@
+// Strict validator for `propose_edit` tool-use input. Parses the
+// Anthropic tool input shape into a typed proposal.
+//
+// Whole-proposal rejection on any per-op validation failure — the
+// caller sends the error list back to the model as the tool_result so
+// it can retry within the same turn.
+//
+// Type SHAPE mirrors the EditOperation / ProposeEditChatAction unions
+// in packages/db-schema/src/types.ts. We can't import from db-schema
+// here (domain → db-schema would invert the dependency rule + break
+// tsc rootDir). KEEP IN LOCKSTEP. Adding a new op kind requires a
+// validator branch here AND the type addition in db-schema.
+
+// --- Local type mirrors (shape parity with db-schema's EditOperation) ---
+
+export type ParsedEditOperationKind =
+  | 'set_training_max'
+  | 'set_block_volume_preset'
+  | 'trim_assistance_entry'
+  | 'swap_assistance_movement'
+  | 'add_assistance_entry'
+  | 'remove_assistance_entry'
+  | 'schedule_deload';
+
+interface ParsedEditOpBase {
+  id: string;
+  kind: ParsedEditOperationKind;
+  label: string;
+  rationale?: string;
+}
+
+export interface ParsedSetTrainingMaxOp extends ParsedEditOpBase {
+  kind: 'set_training_max';
+  lift: 'squat' | 'bench' | 'deadlift' | 'press';
+  newTrainingMaxKg: number;
+}
+
+export interface ParsedSetBlockVolumePresetOp extends ParsedEditOpBase {
+  kind: 'set_block_volume_preset';
+  blockId?: string;
+  preset: 'minimal' | 'standard' | 'high';
+}
+
+export interface ParsedTrimAssistanceEntryOp extends ParsedEditOpBase {
+  kind: 'trim_assistance_entry';
+  blockId?: string;
+  dayId: string;
+  entryId: string;
+  movementName: string;
+  newSets: number;
+  newReps: number;
+  newRepsMax?: number;
+}
+
+export interface ParsedSwapAssistanceMovementOp extends ParsedEditOpBase {
+  kind: 'swap_assistance_movement';
+  blockId?: string;
+  dayId: string;
+  entryId: string;
+  currentMovementId: string;
+  currentMovementName: string;
+  newMovementId: string;
+  newMovementName: string;
+}
+
+export interface ParsedAddAssistanceEntryOp extends ParsedEditOpBase {
+  kind: 'add_assistance_entry';
+  blockId?: string;
+  dayId: string;
+  movementId: string;
+  movementName: string;
+  category: string;
+  sets: number;
+  reps: number;
+  repsMax?: number;
+  unit: 'reps' | 'sec';
+}
+
+export interface ParsedRemoveAssistanceEntryOp extends ParsedEditOpBase {
+  kind: 'remove_assistance_entry';
+  blockId?: string;
+  dayId: string;
+  entryId: string;
+  movementName: string;
+}
+
+export interface ParsedScheduleDeloadOp extends ParsedEditOpBase {
+  kind: 'schedule_deload';
+}
+
+export type ParsedEditOperation =
+  | ParsedSetTrainingMaxOp
+  | ParsedSetBlockVolumePresetOp
+  | ParsedTrimAssistanceEntryOp
+  | ParsedSwapAssistanceMovementOp
+  | ParsedAddAssistanceEntryOp
+  | ParsedRemoveAssistanceEntryOp
+  | ParsedScheduleDeloadOp;
+
+export interface ParsedProposeEditAction {
+  id: string;
+  kind: 'propose_edit';
+  status: 'pending';
+  label: string;
+  headline: string;
+  reason: string;
+  rationale?: string;
+  confidence?: 'high' | 'medium' | 'low';
+  operations: ParsedEditOperation[];
+}
+
+const OP_KINDS = new Set<ParsedEditOperationKind>([
+  'set_training_max',
+  'set_block_volume_preset',
+  'trim_assistance_entry',
+  'swap_assistance_movement',
+  'add_assistance_entry',
+  'remove_assistance_entry',
+  'schedule_deload',
+]);
+
+const VALID_LIFTS = new Set(['squat', 'bench', 'deadlift', 'press']);
+const VALID_PRESETS = new Set(['minimal', 'standard', 'high']);
+const VALID_CATEGORIES = new Set([
+  'push',
+  'pull',
+  'single-leg',
+  'core',
+  'prehab',
+  'isolation',
+  'carry',
+]);
+const VALID_CONFIDENCES = new Set(['high', 'medium', 'low']);
+
+export interface ParseEditProposalResult {
+  /** Set when validation succeeded — ready to surface to the user. */
+  proposal?: ParsedProposeEditAction;
+  /** Per-op + plan-level errors. Empty when `proposal` is set. */
+  errors: string[];
+}
+
+export interface ParseEditProposalOptions {
+  /** Returns a stable id for the chip + each op. Inject crypto.randomUUID. */
+  idGen: () => string;
+  /** Hard cap on operations per proposal. Defaults to 10. */
+  maxOperations?: number;
+}
+
+/**
+ * Validate a `propose_edit` tool input and return a typed proposal.
+ * On ANY validation failure the whole proposal is rejected — partial
+ * proposals are worse than none (the user can't trust the partial set,
+ * the AI doesn't know which ops were dropped).
+ */
+export function parseEditProposal(
+  toolInput: unknown,
+  opts: ParseEditProposalOptions,
+): ParseEditProposalResult {
+  const errors: string[] = [];
+  const maxOps = opts.maxOperations ?? 10;
+
+  if (!toolInput || typeof toolInput !== 'object' || Array.isArray(toolInput)) {
+    return { errors: ['Tool input must be an object.'] };
+  }
+  const obj = toolInput as Record<string, unknown>;
+
+  const label = strField(obj.label, 'label', errors, 35);
+  const headline = strField(obj.headline, 'headline', errors, 200);
+  const reason = strField(obj.reason, 'reason', errors, 500);
+  const rationale =
+    typeof obj.rationale === 'string' && obj.rationale.trim() !== ''
+      ? obj.rationale.trim()
+      : undefined;
+
+  let confidence: 'high' | 'medium' | 'low' | undefined;
+  if (obj.confidence !== undefined) {
+    if (typeof obj.confidence === 'string' && VALID_CONFIDENCES.has(obj.confidence)) {
+      confidence = obj.confidence as 'high' | 'medium' | 'low';
+    } else {
+      errors.push('`confidence` must be one of "high" | "medium" | "low" when present.');
+    }
+  }
+
+  const rawOps = obj.operations;
+  if (!Array.isArray(rawOps) || rawOps.length === 0) {
+    errors.push('`operations` must be a non-empty array.');
+  } else if (rawOps.length > maxOps) {
+    errors.push(`Too many operations (${rawOps.length}). Maximum is ${maxOps}.`);
+  }
+
+  const operations: ParsedEditOperation[] = [];
+  if (Array.isArray(rawOps)) {
+    const seenIds = new Set<string>();
+    rawOps.forEach((rawOp, i) => {
+      const op = validateOp(rawOp, i, opts.idGen, errors);
+      if (op) {
+        if (seenIds.has(op.id)) {
+          errors.push(`operations[${i}].id "${op.id}" is duplicated within the proposal.`);
+        } else {
+          seenIds.add(op.id);
+          operations.push(op);
+        }
+      }
+    });
+  }
+
+  if (errors.length > 0 || !label || !headline || !reason || operations.length === 0) {
+    return { errors };
+  }
+
+  const proposal: ParsedProposeEditAction = {
+    id: opts.idGen(),
+    kind: 'propose_edit',
+    status: 'pending',
+    label,
+    headline,
+    reason,
+    operations,
+    ...(rationale ? { rationale } : {}),
+    ...(confidence ? { confidence } : {}),
+  };
+  return { proposal, errors: [] };
+}
+
+function strField(
+  v: unknown,
+  name: string,
+  errors: string[],
+  maxLen: number,
+): string | undefined {
+  if (typeof v !== 'string' || v.trim() === '') {
+    errors.push(`\`${name}\` is required and must be a non-empty string.`);
+    return undefined;
+  }
+  if (v.length > maxLen) {
+    errors.push(`\`${name}\` exceeds ${maxLen} chars (got ${v.length}).`);
+    return undefined;
+  }
+  return v.trim();
+}
+
+function num(v: unknown, name: string, errors: string[], where: string): number | undefined {
+  if (typeof v !== 'number' || !Number.isFinite(v)) {
+    errors.push(`${where}.${name} is required and must be a finite number.`);
+    return undefined;
+  }
+  return v;
+}
+
+function posInt(v: unknown, name: string, errors: string[], where: string): number | undefined {
+  const n = num(v, name, errors, where);
+  if (n === undefined) return undefined;
+  if (!Number.isInteger(n) || n < 1) {
+    errors.push(`${where}.${name} must be a positive integer (got ${n}).`);
+    return undefined;
+  }
+  return n;
+}
+
+function validateOp(
+  raw: unknown,
+  i: number,
+  idGen: () => string,
+  errors: string[],
+): ParsedEditOperation | undefined {
+  const where = `operations[${i}]`;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    errors.push(`${where} must be an object.`);
+    return undefined;
+  }
+  const op = raw as Record<string, unknown>;
+  const kind = op.kind;
+  if (typeof kind !== 'string' || !OP_KINDS.has(kind as ParsedEditOperationKind)) {
+    errors.push(
+      `${where}.kind must be one of ${[...OP_KINDS].join(', ')} (got ${JSON.stringify(kind)}).`,
+    );
+    return undefined;
+  }
+  const id = typeof op.id === 'string' && op.id.trim() ? op.id.trim() : idGen();
+  const label = strField(op.label, `${where}.label`, errors, 80);
+  if (!label) return undefined;
+  const rationale =
+    typeof op.rationale === 'string' && op.rationale.trim()
+      ? op.rationale.trim()
+      : undefined;
+
+  const base = { id, label, ...(rationale ? { rationale } : {}) };
+  const blockId =
+    typeof op.blockId === 'string' && op.blockId.trim() ? op.blockId.trim() : undefined;
+
+  switch (kind) {
+    case 'set_training_max': {
+      const lift = op.lift;
+      const newTrainingMaxKg = num(op.newTrainingMaxKg, 'newTrainingMaxKg', errors, where);
+      if (typeof lift !== 'string' || !VALID_LIFTS.has(lift)) {
+        errors.push(`${where}.lift must be one of ${[...VALID_LIFTS].join(', ')}.`);
+        return undefined;
+      }
+      if (newTrainingMaxKg === undefined) return undefined;
+      const rounded = Math.round(newTrainingMaxKg * 2) / 2;
+      return {
+        ...base,
+        kind,
+        lift: lift as 'squat' | 'bench' | 'deadlift' | 'press',
+        newTrainingMaxKg: rounded,
+      };
+    }
+    case 'set_block_volume_preset': {
+      const preset = op.preset;
+      if (typeof preset !== 'string' || !VALID_PRESETS.has(preset)) {
+        errors.push(`${where}.preset must be one of ${[...VALID_PRESETS].join(', ')}.`);
+        return undefined;
+      }
+      return {
+        ...base,
+        kind,
+        preset: preset as 'minimal' | 'standard' | 'high',
+        ...(blockId ? { blockId } : {}),
+      };
+    }
+    case 'trim_assistance_entry': {
+      const dayId = strField(op.dayId, `${where}.dayId`, errors, 100);
+      const entryId = strField(op.entryId, `${where}.entryId`, errors, 100);
+      const movementName = strField(op.movementName, `${where}.movementName`, errors, 120);
+      const newSets = posInt(op.newSets, 'newSets', errors, where);
+      const newReps = posInt(op.newReps, 'newReps', errors, where);
+      if (!dayId || !entryId || !movementName || newSets === undefined || newReps === undefined) {
+        return undefined;
+      }
+      let newRepsMax: number | undefined;
+      if (op.newRepsMax !== undefined && op.newRepsMax !== null) {
+        const n = posInt(op.newRepsMax, 'newRepsMax', errors, where);
+        if (n === undefined) return undefined;
+        if (n < newReps) {
+          errors.push(`${where}.newRepsMax (${n}) must be >= newReps (${newReps}).`);
+          return undefined;
+        }
+        newRepsMax = n;
+      }
+      return {
+        ...base,
+        kind,
+        dayId,
+        entryId,
+        movementName,
+        newSets,
+        newReps,
+        ...(blockId ? { blockId } : {}),
+        ...(newRepsMax !== undefined ? { newRepsMax } : {}),
+      };
+    }
+    case 'swap_assistance_movement': {
+      const dayId = strField(op.dayId, `${where}.dayId`, errors, 100);
+      const entryId = strField(op.entryId, `${where}.entryId`, errors, 100);
+      const currentMovementId = strField(
+        op.currentMovementId,
+        `${where}.currentMovementId`,
+        errors,
+        100,
+      );
+      const currentMovementName = strField(
+        op.currentMovementName,
+        `${where}.currentMovementName`,
+        errors,
+        120,
+      );
+      const newMovementId = strField(op.newMovementId, `${where}.newMovementId`, errors, 100);
+      const newMovementName = strField(
+        op.newMovementName,
+        `${where}.newMovementName`,
+        errors,
+        120,
+      );
+      if (
+        !dayId ||
+        !entryId ||
+        !currentMovementId ||
+        !currentMovementName ||
+        !newMovementId ||
+        !newMovementName
+      ) {
+        return undefined;
+      }
+      return {
+        ...base,
+        kind,
+        dayId,
+        entryId,
+        currentMovementId,
+        currentMovementName,
+        newMovementId,
+        newMovementName,
+        ...(blockId ? { blockId } : {}),
+      };
+    }
+    case 'add_assistance_entry': {
+      const dayId = strField(op.dayId, `${where}.dayId`, errors, 100);
+      const movementId = strField(op.movementId, `${where}.movementId`, errors, 100);
+      const movementName = strField(op.movementName, `${where}.movementName`, errors, 120);
+      const category = op.category;
+      const sets = posInt(op.sets, 'sets', errors, where);
+      const reps = posInt(op.reps, 'reps', errors, where);
+      const categoryValid = typeof category === 'string' && VALID_CATEGORIES.has(category);
+      if (
+        !dayId ||
+        !movementId ||
+        !movementName ||
+        sets === undefined ||
+        reps === undefined ||
+        !categoryValid
+      ) {
+        if (!categoryValid) {
+          errors.push(`${where}.category must be one of ${[...VALID_CATEGORIES].join(', ')}.`);
+        }
+        return undefined;
+      }
+      let repsMax: number | undefined;
+      if (op.repsMax !== undefined && op.repsMax !== null) {
+        const n = posInt(op.repsMax, 'repsMax', errors, where);
+        if (n === undefined) return undefined;
+        if (n < reps) {
+          errors.push(`${where}.repsMax (${n}) must be >= reps (${reps}).`);
+          return undefined;
+        }
+        repsMax = n;
+      }
+      const unit: 'reps' | 'sec' = op.unit === 'sec' ? 'sec' : 'reps';
+      return {
+        ...base,
+        kind,
+        dayId,
+        movementId,
+        movementName,
+        category: category as string,
+        sets,
+        reps,
+        unit,
+        ...(blockId ? { blockId } : {}),
+        ...(repsMax !== undefined ? { repsMax } : {}),
+      };
+    }
+    case 'remove_assistance_entry': {
+      const dayId = strField(op.dayId, `${where}.dayId`, errors, 100);
+      const entryId = strField(op.entryId, `${where}.entryId`, errors, 100);
+      const movementName = strField(op.movementName, `${where}.movementName`, errors, 120);
+      if (!dayId || !entryId || !movementName) return undefined;
+      return {
+        ...base,
+        kind,
+        dayId,
+        entryId,
+        movementName,
+        ...(blockId ? { blockId } : {}),
+      };
+    }
+    case 'schedule_deload': {
+      return { ...base, kind };
+    }
+    default:
+      errors.push(`${where}.kind unhandled: ${kind}`);
+      return undefined;
+  }
+}
+
+/**
+ * Merge a user's per-op decision modifications onto the AI's original
+ * op input. Returns the effective op the apply handler should use.
+ * Only fields present in `modifiedInput` are taken from the override.
+ * The caller is responsible for re-validating the merged op against
+ * the kind's schema (post-modify validation runs in the apply
+ * orchestrator).
+ */
+export function applyDecisionToOp(
+  op: ParsedEditOperation,
+  modifiedInput: Record<string, unknown> | undefined,
+): ParsedEditOperation {
+  if (!modifiedInput) return op;
+  return { ...op, ...modifiedInput } as ParsedEditOperation;
+}

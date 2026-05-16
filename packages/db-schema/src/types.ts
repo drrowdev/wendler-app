@@ -1298,12 +1298,157 @@ export type ChatRole = 'user' | 'assistant';
 // New action kinds plug in by adding to the union + a handler in
 // `apps/web/src/lib/chat-actions.ts`.
 
+// Op-kind discriminator + operation shapes for the `propose_edit`
+// ChatAction. Each op kind has typed input + a parallel before/after
+// audit shape captured at apply time. Adding a new op kind requires
+// edits in three places: the EditOperation union (here), the parser
+// validator (chat-actions-parse.ts), and the apply handler
+// (chat-actions.ts).
+export type EditOperationKind =
+  | 'set_training_max'
+  | 'set_block_volume_preset'
+  | 'trim_assistance_entry'
+  | 'swap_assistance_movement'
+  | 'add_assistance_entry'
+  | 'remove_assistance_entry'
+  | 'schedule_deload';
+
+interface EditOperationBase {
+  /** Stable id within the proposal. Assigned by the parser if missing. */
+  id: string;
+  kind: EditOperationKind;
+  /** Human-readable summary the UI puts in the row header (≤ 80 chars). */
+  label: string;
+  /** Optional per-op rationale. */
+  rationale?: string;
+}
+
+export interface SetTrainingMaxEditOp extends EditOperationBase {
+  kind: 'set_training_max';
+  lift: 'squat' | 'bench' | 'deadlift' | 'press';
+  /** Proposed new TM, rounded to 0.5 kg. */
+  newTrainingMaxKg: number;
+}
+
+export interface SetBlockVolumePresetEditOp extends EditOperationBase {
+  kind: 'set_block_volume_preset';
+  /** Optional — defaults to the currently active block. */
+  blockId?: string;
+  preset: 'minimal' | 'standard' | 'high';
+}
+
+export interface TrimAssistanceEntryEditOp extends EditOperationBase {
+  kind: 'trim_assistance_entry';
+  /** Optional — defaults to the currently active block. */
+  blockId?: string;
+  /** Stable day id from the active block's plan. */
+  dayId: string;
+  /** Stable entry id within the day's assistance list. */
+  entryId: string;
+  /** Display name (echo, for UI). */
+  movementName: string;
+  /** New sets count. */
+  newSets: number;
+  /** New reps target. */
+  newReps: number;
+  /** Optional new repsMax (range upper bound). Omit to drop AMRAP range. */
+  newRepsMax?: number;
+}
+
+export interface SwapAssistanceMovementEditOp extends EditOperationBase {
+  kind: 'swap_assistance_movement';
+  blockId?: string;
+  dayId: string;
+  entryId: string;
+  currentMovementId: string;
+  currentMovementName: string;
+  newMovementId: string;
+  newMovementName: string;
+}
+
+export interface AddAssistanceEntryEditOp extends EditOperationBase {
+  kind: 'add_assistance_entry';
+  blockId?: string;
+  dayId: string;
+  /** movementId from the user's library — must exist. */
+  movementId: string;
+  movementName: string;
+  /** Slot category — one of push/pull/single-leg/core/prehab/isolation/carry. */
+  category: string;
+  sets: number;
+  reps: number;
+  repsMax?: number;
+  unit?: 'reps' | 'sec';
+}
+
+export interface RemoveAssistanceEntryEditOp extends EditOperationBase {
+  kind: 'remove_assistance_entry';
+  blockId?: string;
+  dayId: string;
+  entryId: string;
+  /** Display name (echo, for UI confirmation). */
+  movementName: string;
+}
+
+export interface ScheduleDeloadEditOp extends EditOperationBase {
+  kind: 'schedule_deload';
+}
+
+export type EditOperation =
+  | SetTrainingMaxEditOp
+  | SetBlockVolumePresetEditOp
+  | TrimAssistanceEntryEditOp
+  | SwapAssistanceMovementEditOp
+  | AddAssistanceEntryEditOp
+  | RemoveAssistanceEntryEditOp
+  | ScheduleDeloadEditOp;
+
+/**
+ * Per-op user decision captured in the EditProposalSheet UI before
+ * apply. Modifications override the AI's proposed input field-by-field
+ * (the orchestrator merges these into the op input at apply time).
+ */
+export interface EditOperationDecision {
+  status: 'pending' | 'accepted' | 'declined';
+  /**
+   * Partial override of the op's input fields. Shape is the same as the
+   * op kind but every field optional. Only fields the user actually
+   * changed are present.
+   */
+  modifiedInput?: Record<string, unknown>;
+}
+
+/** Per-op apply result for the proposal's audit log. */
+export type EditOperationAppliedDetail =
+  | { kind: 'set_training_max'; recordId: string; previousKg?: number; newKg: number }
+  | { kind: 'set_block_volume_preset'; previousPreset?: string; newPreset: string }
+  | {
+      kind: 'trim_assistance_entry';
+      previousSets: number;
+      previousReps: number;
+      previousRepsMax?: number;
+      newSets: number;
+      newReps: number;
+      newRepsMax?: number;
+    }
+  | {
+      kind: 'swap_assistance_movement';
+      previousMovementId: string;
+      previousMovementName: string;
+      newMovementId: string;
+      newMovementName: string;
+    }
+  | { kind: 'add_assistance_entry'; newEntryId: string; movementName: string }
+  | { kind: 'remove_assistance_entry'; removedMovementName: string }
+  | { kind: 'schedule_deload'; newBlockId: string; sequenceIndex: number };
+
 export type ChatActionKind =
   | 'log_injury'
   | 'set_training_max'
   | 'set_block_volume_preset'
   | 'schedule_deload'
-  | 'substitute_movement';
+  | 'substitute_movement'
+  | 'propose_edit';
 
 export type ChatActionStatus = 'pending' | 'applied' | 'dismissed';
 
@@ -1368,6 +1513,13 @@ export type ChatActionApplyDetails =
       previousMovementName: string;
       newMovementId: string;
       newMovementName: string;
+    }
+  | {
+      kind: 'propose_edit';
+      /** Per-op apply outcome, keyed by op.id. Successful ops only. */
+      operationResults: Record<string, EditOperationAppliedDetail>;
+      /** Op ids that the user declined; recorded for audit completeness. */
+      declinedOperationIds: string[];
     };
 
 export interface LogInjuryChatAction extends ChatActionBase {
@@ -1431,12 +1583,48 @@ export interface SubstituteMovementChatAction extends ChatActionBase {
   reason: string;
 }
 
+/**
+ * `propose_edit` — the coordinated multi-op edit primitive that
+ * replaces the narrower single-op chip kinds. Carries a structured
+ * plan of N operations; the UI renders the whole plan as a diff with
+ * per-op accept / decline / modify, and an atomic Dexie-transaction
+ * apply orchestrator commits the accepted subset all-or-nothing.
+ *
+ * See files/edit-proposals-design.md in the session workspace for the
+ * full rationale + migration plan. Operations vocabulary is the
+ * `EditOperation` discriminated union above.
+ *
+ * `userDecisions` is captured in the UI before apply (keyed by op.id):
+ * undefined = the user hasn't reviewed the op yet; status determines
+ * whether the op is included in the apply set; `modifiedInput` lets
+ * the user override the AI's proposed field values per op (e.g. nudge
+ * the proposed new TM from 102.5 to 105 before applying).
+ */
+export interface ProposeEditChatAction extends ChatActionBase {
+  kind: 'propose_edit';
+  /** Headline summary the proposal sheet shows above the op list. */
+  headline: string;
+  /** 1-2 sentence rationale for the WHOLE plan. */
+  reason: string;
+  /** Plan-level relative confidence. */
+  confidence?: 'high' | 'medium' | 'low';
+  /** The ordered list of operations the AI proposes. Immutable. */
+  operations: EditOperation[];
+  /**
+   * User's per-op decisions (set in the UI before apply). Keyed by
+   * op.id. Ops not present here are treated as `pending` and block
+   * the Apply button.
+   */
+  userDecisions?: Record<string, EditOperationDecision>;
+}
+
 export type ChatAction =
   | LogInjuryChatAction
   | SetTrainingMaxChatAction
   | SetBlockVolumePresetChatAction
   | ScheduleDeloadChatAction
-  | SubstituteMovementChatAction;
+  | SubstituteMovementChatAction
+  | ProposeEditChatAction;
 
 export interface ChatMessage {
   id: string;

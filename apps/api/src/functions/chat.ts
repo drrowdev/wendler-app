@@ -9,6 +9,7 @@ import { verifyRequest } from '../auth';
 import { CHAT_TOOL_SPECS } from '../llm/chat-tool-specs';
 import { dispatchTool } from '../llm/chat-tools';
 import { parseChatActionsBlock } from '../llm/chat-actions-parse';
+import { parseEditProposal } from '../llm/edit-proposal-parse';
 import { randomUUID } from 'node:crypto';
 
 // Opt the Functions runtime into HTTP-stream mode. By default
@@ -414,6 +415,15 @@ ${context}
           const toolUses = response.content.filter(
             (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
           );
+          // Split out `propose_edit` — it doesn't dispatch to a sub-agent.
+          // Each propose_edit tool_use is parsed inline, surfaced to the
+          // client as an action_chips SSE event, and acked back to the model
+          // with a synthetic tool_result so the turn can end cleanly.
+          // Specialist consultations (consult_coach / consult_programmer /
+          // etc.) keep the existing dispatch path.
+          const proposeEditUses = toolUses.filter((tu) => tu.name === 'propose_edit');
+          const specialistUses = toolUses.filter((tu) => tu.name !== 'propose_edit');
+
           // Announce all tool_use_start events before kicking off dispatch
           // so the UI shows the spinner cluster the moment Claude requests
           // them. Dispatches happen in parallel.
@@ -421,8 +431,46 @@ ${context}
             yield sse({ type: 'tool_use_start', id: tu.id, name: tu.name });
           }
 
+          // Inline propose_edit handling: parse + emit + ack.
+          const proposeEditResults: Array<{
+            tu: Anthropic.ToolUseBlock;
+            resultText: string;
+            durationMs: number;
+          }> = [];
+          for (const tu of proposeEditUses) {
+            const startedAt = Date.now();
+            const parsed = parseEditProposal(tu.input as unknown, { idGen: () => randomUUID() });
+            const durationMs = Date.now() - startedAt;
+            if (parsed.proposal) {
+              // Emit ONE action_chips event carrying the parsed proposal.
+              // The client's existing chip-rendering pipeline will pick up
+              // the propose_edit kind and route it to EditProposalSheet
+              // (Phase 2 UI). For Phase 1 the chip still persists on the
+              // ChatMessage like every other chip kind.
+              yield sse({ type: 'action_chips', actions: [parsed.proposal] });
+              proposeEditResults.push({
+                tu,
+                durationMs,
+                resultText:
+                  'Proposal emitted for user review. They will accept, decline, or modify each operation in the EditProposalSheet UI. Do not re-emit unless the user asks for a different plan.',
+              });
+            } else {
+              // Send the validation errors back to the model so it can
+              // self-correct within the same turn (it'll retry the tool_use
+              // with a fixed input on the next iteration).
+              const errBody = parsed.errors.join('\n  - ');
+              proposeEditResults.push({
+                tu,
+                durationMs,
+                resultText:
+                  `Proposal REJECTED — validation errors. Fix and retry with corrected input:\n  - ${errBody}`,
+              });
+            }
+          }
+
+          // Specialist dispatch path (parallel) — same as before.
           const dispatched = await Promise.all(
-            toolUses.map(async (tu) => {
+            specialistUses.map(async (tu) => {
               const startedAt = Date.now();
               const result = await dispatchTool(tu.name, tu.input as Record<string, unknown>, {
                 chatContext: context,
@@ -440,6 +488,17 @@ ${context}
             }),
           );
 
+          // Emit tool_use_end events for both propose_edit + specialists.
+          for (const { tu, durationMs } of proposeEditResults) {
+            yield sse({
+              type: 'tool_use_end',
+              id: tu.id,
+              name: tu.name,
+              durationMs,
+              inputTokens: 0,
+              outputTokens: 0,
+            });
+          }
           for (const { tu, result, durationMs } of dispatched) {
             yield sse({
               type: 'tool_use_end',
@@ -459,14 +518,23 @@ ${context}
           // Echo Claude's assistant turn into history (must contain the
           // tool_use blocks verbatim, plus any text it emitted alongside).
           loopMessages.push({ role: 'assistant', content: response.content });
-          // Feed back tool_result blocks paired by tool_use_id.
-          loopMessages.push({
-            role: 'user',
-            content: dispatched.map(({ tu, result }) => ({
+          // Feed back tool_result blocks paired by tool_use_id — one per
+          // tool_use, both propose_edit acks and specialist results.
+          const toolResultBlocks: Anthropic.ToolResultBlockParam[] = [
+            ...proposeEditResults.map(({ tu, resultText }) => ({
+              type: 'tool_result' as const,
+              tool_use_id: tu.id,
+              content: resultText,
+            })),
+            ...dispatched.map(({ tu, result }) => ({
               type: 'tool_result' as const,
               tool_use_id: tu.id,
               content: result.resultText,
             })),
+          ];
+          loopMessages.push({
+            role: 'user',
+            content: toolResultBlocks,
           });
           toolCallsThisTurn += toolUses.length;
           continue;

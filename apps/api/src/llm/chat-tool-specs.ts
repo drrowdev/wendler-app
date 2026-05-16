@@ -127,9 +127,190 @@ export const SUMMARIZER_TOOL_SPEC: AnthropicToolSpec = {
   },
 };
 
+/**
+ * Tool spec for `propose_edit` — the structured multi-op edit primitive.
+ *
+ * The model emits this tool_use to surface a coordinated plan of
+ * up-to-10 operations on the user's program data. The chat handler
+ * captures the tool input verbatim, validates it via
+ * parseEditProposal, and emits it to the client as an action_chips
+ * event. The orchestrator then synthesizes an ack tool_result back to
+ * the model ("Proposal emitted for user review.") so the turn can
+ * end cleanly.
+ *
+ * This tool does NOT call out to a sub-agent — it's a structured
+ * EMISSION primitive. The user reviews + commits in the
+ * EditProposalSheet UI.
+ *
+ * Each operation kind is documented in the input_schema's operations
+ * array — the validator (edit-proposal-parse.ts) enforces the same
+ * shape. KEEP IN LOCKSTEP when adding op kinds.
+ */
+export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
+  name: 'propose_edit',
+  description:
+    'Emit a coordinated multi-op edit proposal for the user to review. ' +
+    'Use this for ANY concrete program change recommendation (training-max ' +
+    'tweaks, volume-preset shifts, assistance trims/swaps/adds/removes, ' +
+    'deload scheduling). The user sees the WHOLE plan as a diff with ' +
+    'per-op accept / decline / modify before any write happens. Prefer ' +
+    'one proposal with multiple coordinated operations over many small ' +
+    'unrelated ones. Skip this tool entirely for purely informational ' +
+    'replies or when you have not actually done the analysis to back a ' +
+    'recommendation.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      label: {
+        type: 'string',
+        description: 'Imperative ≤ 35 char summary used as the chip button label.',
+      },
+      headline: {
+        type: 'string',
+        description:
+          'One-sentence summary of the WHOLE plan the user sees above the op list. ≤ 200 chars.',
+      },
+      reason: {
+        type: 'string',
+        description:
+          '1-2 sentence rationale for the WHOLE plan — why these changes together, why now. ≤ 500 chars.',
+      },
+      confidence: {
+        type: 'string',
+        enum: ['high', 'medium', 'low'],
+        description:
+          'Relative confidence in the plan. Used by the UI for visual toning. Treat as relative ordering, not absolute probability.',
+      },
+      operations: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 10,
+        description:
+          'Ordered list of 1-10 typed operations. Each must include a ' +
+          'unique `id`, a `kind` from the controlled vocabulary, a `label` ' +
+          '(≤ 80 chars), an optional `rationale`, plus kind-specific fields. ' +
+          'See per-kind shapes below.',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: 'Stable id within the proposal.' },
+            kind: {
+              type: 'string',
+              enum: [
+                'set_training_max',
+                'set_block_volume_preset',
+                'trim_assistance_entry',
+                'swap_assistance_movement',
+                'add_assistance_entry',
+                'remove_assistance_entry',
+                'schedule_deload',
+              ],
+            },
+            label: { type: 'string', description: 'Per-op row label. ≤ 80 chars.' },
+            rationale: { type: 'string', description: 'Optional per-op why.' },
+
+            // set_training_max
+            lift: {
+              type: 'string',
+              enum: ['squat', 'bench', 'deadlift', 'press'],
+              description: 'set_training_max only.',
+            },
+            newTrainingMaxKg: {
+              type: 'number',
+              description: 'set_training_max only. Will be rounded to 0.5 kg.',
+            },
+
+            // set_block_volume_preset
+            preset: {
+              type: 'string',
+              enum: ['minimal', 'standard', 'high'],
+              description: 'set_block_volume_preset only.',
+            },
+
+            // trim / swap / add / remove — block + day + entry targeting
+            blockId: {
+              type: 'string',
+              description: 'Optional — defaults to the active block.',
+            },
+            dayId: {
+              type: 'string',
+              description:
+                'Stable day id from the active block plan. Required for trim / swap / add / remove ops. Copy verbatim from the snapshot.',
+            },
+            entryId: {
+              type: 'string',
+              description:
+                'Stable entry id within the day. Required for trim / swap / remove ops.',
+            },
+            movementName: {
+              type: 'string',
+              description: 'Display name. Required for trim / add / remove ops.',
+            },
+
+            // trim_assistance_entry
+            newSets: { type: 'integer', minimum: 1, description: 'trim_assistance_entry only.' },
+            newReps: { type: 'integer', minimum: 1, description: 'trim_assistance_entry only.' },
+            newRepsMax: {
+              type: 'integer',
+              minimum: 1,
+              description: 'trim_assistance_entry only. Must be >= newReps when present.',
+            },
+
+            // swap_assistance_movement
+            currentMovementId: {
+              type: 'string',
+              description: 'swap_assistance_movement only. Copy verbatim from the snapshot.',
+            },
+            currentMovementName: {
+              type: 'string',
+              description: 'swap_assistance_movement only.',
+            },
+            newMovementId: {
+              type: 'string',
+              description: 'swap_assistance_movement only. Must exist in the user library.',
+            },
+            newMovementName: {
+              type: 'string',
+              description: 'swap_assistance_movement only.',
+            },
+
+            // add_assistance_entry
+            movementId: {
+              type: 'string',
+              description: 'add_assistance_entry only. Must exist in the user library.',
+            },
+            category: {
+              type: 'string',
+              enum: ['push', 'pull', 'single-leg', 'core', 'prehab', 'isolation', 'carry'],
+              description: 'add_assistance_entry only.',
+            },
+            sets: { type: 'integer', minimum: 1, description: 'add_assistance_entry only.' },
+            reps: { type: 'integer', minimum: 1, description: 'add_assistance_entry only.' },
+            repsMax: {
+              type: 'integer',
+              minimum: 1,
+              description: 'add_assistance_entry only. Must be >= reps when present.',
+            },
+            unit: {
+              type: 'string',
+              enum: ['reps', 'sec'],
+              description: 'add_assistance_entry only. Defaults to "reps".',
+            },
+          },
+          required: ['kind', 'label'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['label', 'headline', 'reason', 'operations'],
+    additionalProperties: false,
+  },
+};
+
 export const CHAT_TOOL_SPECS: AnthropicToolSpec[] = [
   COACH_TOOL_SPEC,
   PROGRAMMER_TOOL_SPEC,
   PERIODIZER_TOOL_SPEC,
   SUMMARIZER_TOOL_SPEC,
+  PROPOSE_EDIT_TOOL_SPEC,
 ];
