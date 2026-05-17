@@ -21,6 +21,7 @@
 
 import { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { resolveDayAssistance, type WendlerWeek } from '@wendler/domain';
 import type {
   EditOperation,
   EditOperationDecision,
@@ -1083,8 +1084,21 @@ function useResolvedBlock(blockId?: string): ProgramBlock | undefined {
 function useResolvedEntry(blockId: string | undefined, dayId: string, entryId: string) {
   const block = useResolvedBlock(blockId);
   return useMemo(() => {
-    const day = block?.plan?.days.find((d) => d.id === dayId);
-    return day?.assistance.find((e) => e.id === entryId);
+    if (!block?.plan) return undefined;
+    // After v21, the base `day.assistance` is empty on migrated blocks.
+    // Look up the entry by iterating the per-week canonical store
+    // (assistanceOverrides). Entry IDs are shared across weeks for the
+    // same movement-per-day, so ANY week's lookup finds it — we just
+    // need the first hit to render "before" sets/reps. Falls back to
+    // the legacy base for pre-v21 / unmigrated blocks.
+    const weeks: WendlerWeek[] =
+      block.kind === 'seventh-week' ? ['7w'] : [1, 2, 3, 'deload'];
+    for (const wk of weeks) {
+      const entries = resolveDayAssistance(block.plan, wk, dayId);
+      const hit = entries.find((e) => e.id === entryId);
+      if (hit) return hit;
+    }
+    return undefined;
   }, [block, dayId, entryId]);
 }
 
