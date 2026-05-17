@@ -36,6 +36,7 @@ import type {
   Movement,
   Notification,
   ProgramBlock,
+  ProgramSchedule,
   ProposeEditChatAction,
   TrainingMaxRecord,
   AssistanceEntry,
@@ -785,40 +786,70 @@ async function performAddCardioPlanSlot(
   // 'AI keeps the plan up-to-date with what we agreed' UX. The AI can
   // opt out by passing linkedToActiveBlock: false when the user wants
   // a permanent slot.
+  //
+  // Selection order:
+  //   1. Block pointed to by schedule.cursor.blockId — the user's
+  //      "I'm working on this right now" block. This is the canonical
+  //      anchor used by the timeline + projection.
+  //   2. First uncompleted block — fallback for cases where the
+  //      cursor isn't set or points to a deleted block.
   const linkToActive = op.linkedToActiveBlock !== false;
   let linkedBlock: ProgramBlock | undefined;
+  let allBlocks: ProgramBlock[] = [];
+  let schedule: ProgramSchedule | undefined;
   if (linkToActive) {
-    const allBlocks = await db.blocks.toArray();
-    linkedBlock = allBlocks.find((b) => !b.completedAt);
+    allBlocks = await db.blocks.toArray();
+    schedule = await db.schedule.get('singleton');
+    if (schedule?.cursor?.blockId) {
+      linkedBlock = allBlocks.find((b) => b.id === schedule!.cursor!.blockId);
+    }
+    if (!linkedBlock) {
+      linkedBlock = allBlocks.find((b) => !b.completedAt);
+    }
   }
   const linkedBlockId = linkedBlock?.id;
 
   // Resolve appliesToWeeks → effectiveFrom/Until ISO dates against the
-  // linked block's anchored start. Anchor logic mirrors the timeline:
-  // active block startMonday = today's Monday minus (cursor.week - 1)
-  // weeks; week N spans [startMonday + (N-1)*7, +6 days]. Without a
-  // linked block we can't resolve, so we silently drop the scope.
+  // linked block's start.
+  //
+  // Anchor selection (block startMonday):
+  //   1. If `linkedBlock.startedAt` is set, use the Monday of THAT
+  //      date — that's the canonical source of truth for when Wk 1
+  //      began. Robust against a stale or mid-transition schedule
+  //      cursor.
+  //   2. Fallback: derive from today's Monday minus (cursorWeek - 1)
+  //      weeks. Used only for blocks that haven't started yet (no
+  //      startedAt) — rare but possible for a programmatically-created
+  //      deload block via schedule_deload.
   let effectiveFrom: string | undefined;
   let effectiveUntil: string | undefined;
   if (op.appliesToWeeks && op.appliesToWeeks.length > 0 && linkedBlock) {
-    const schedule = await db.schedule.get('singleton');
-    const cursorWeek =
-      schedule?.cursor?.blockId === linkedBlock.id ? schedule.cursor.week : 1;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayMondayWd = (today.getDay() + 6) % 7;
-    const todayMonday = new Date(today);
-    todayMonday.setDate(todayMonday.getDate() - todayMondayWd);
-    let weeksAlreadyIn = 0;
-    if (cursorWeek === 'deload') {
-      weeksAlreadyIn = linkedBlock.weeksBeforeDeload;
-    } else if (cursorWeek === '7w') {
-      weeksAlreadyIn = 0;
+    const isoMonday = (d: Date): Date => {
+      const m = new Date(d);
+      m.setHours(0, 0, 0, 0);
+      const wd = (m.getDay() + 6) % 7;
+      m.setDate(m.getDate() - wd);
+      return m;
+    };
+    let activeStartMonday: Date;
+    if (linkedBlock.startedAt) {
+      activeStartMonday = isoMonday(new Date(linkedBlock.startedAt));
     } else {
-      weeksAlreadyIn = Math.max(0, (cursorWeek as 1 | 2 | 3) - 1);
+      const today = new Date();
+      const todayMonday = isoMonday(today);
+      const cursorWeek =
+        schedule?.cursor?.blockId === linkedBlock.id ? schedule.cursor.week : 1;
+      let weeksAlreadyIn = 0;
+      if (cursorWeek === 'deload') {
+        weeksAlreadyIn = linkedBlock.weeksBeforeDeload;
+      } else if (cursorWeek === '7w') {
+        weeksAlreadyIn = 0;
+      } else {
+        weeksAlreadyIn = Math.max(0, (cursorWeek as 1 | 2 | 3) - 1);
+      }
+      activeStartMonday = new Date(todayMonday);
+      activeStartMonday.setDate(activeStartMonday.getDate() - weeksAlreadyIn * 7);
     }
-    const activeStartMonday = new Date(todayMonday);
-    activeStartMonday.setDate(activeStartMonday.getDate() - weeksAlreadyIn * 7);
     // Resolve each week label to its (Monday, Sunday) range.
     const weekRanges: Array<{ start: Date; end: Date }> = [];
     for (const wk of op.appliesToWeeks) {
