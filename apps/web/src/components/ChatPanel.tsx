@@ -5,7 +5,7 @@
 // message rendering (with markdown), suggested-prompt chips on empty state,
 // the streaming/loading indicator, and inline title rename.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Chat, ChatMessage } from '@wendler/db-schema';
@@ -388,6 +388,19 @@ function Composer({
   onChange: (v: string) => void;
   onSubmit: () => void;
 }) {
+  // Auto-grow the textarea with content up to a cap, then scroll inside.
+  // Plus user-resizable (drag the bottom edge) — handy for long prompts
+  // where the auto-grow cap isn't enough.
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Reset to auto so shrink works when the user deletes content.
+    el.style.height = 'auto';
+    // Grow up to ~12 lines (~280px) before letting scroll take over.
+    const next = Math.min(el.scrollHeight, 280);
+    el.style.height = `${Math.max(next, 64)}px`;
+  }, [value]);
   return (
     <form
       onSubmit={(e) => {
@@ -397,10 +410,11 @@ function Composer({
       className="flex items-end gap-2 border-t border-border bg-card/80 p-2"
     >
       <textarea
+        ref={ref}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Ask a question about your training…"
-        rows={2}
+        placeholder="Ask a question about your training… (⌘/Ctrl+Enter to send · drag bottom to resize)"
+        rows={3}
         disabled={disabled}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -408,7 +422,7 @@ function Composer({
             onSubmit();
           }
         }}
-        className="flex-1 resize-none rounded-md border border-border bg-bg px-2 py-1.5 text-sm focus:border-accent focus:outline-none disabled:opacity-60"
+        className="min-h-[4rem] max-h-[60vh] flex-1 resize-y rounded-md border border-border bg-bg px-2 py-1.5 text-sm leading-relaxed focus:border-accent focus:outline-none disabled:opacity-60"
       />
       <button
         type="submit"
