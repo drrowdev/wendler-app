@@ -184,11 +184,15 @@ export default function ProgramDetail() {
       if (!sched) return;
       const target = programBlocks.find((b) => b.id === blockId);
       const week = target ? initialCursorWeek(target) : 1;
+      const now = new Date().toISOString();
+      if (target && !target.startedAt) {
+        await dbi.blocks.put({ ...target, startedAt: now, updatedAt: now });
+      }
       await dbi.schedule.put({
         ...sched,
         activeBlockId: blockId,
         cursor: { blockId, week, groupIndex: 0 },
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
       });
     } finally {
       setBusy(false);

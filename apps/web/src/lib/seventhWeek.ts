@@ -73,6 +73,9 @@ export async function insertSeventhWeekBlock(opts: {
     supplementalTemplate: 'none',
     mainScheme: lastNormal?.mainScheme ?? '5s-pro',
     createdAt: now,
+    // Stamp startedAt now so cardio-scope resolution + timeline have
+    // a concrete anchor for the new active block.
+    startedAt: now,
     programId,
     sequenceIndex: insertSeq,
     ...(plan ? { plan } : {}),

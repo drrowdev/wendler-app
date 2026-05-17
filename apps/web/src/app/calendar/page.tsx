@@ -9,7 +9,7 @@ import { CARDIO_EMOJI, CARDIO_SHORT, cardioFullTitle, cardioMetric } from '@/lib
 import { LinkActivityPicker } from '@/components/LinkActivityPicker';
 import { ProgramTimeline } from '@/components/ProgramTimeline';
 import type { CardioSession, StrengthHrEnrichment } from '@wendler/db-schema';
-import { importedStrengthLabel, isoDayOfWeek, planEmoji, planLabel, toLocalYmd, type MainLift, type ProgramBlock, type RunPlannedKind, type UpcomingWorkout } from '@wendler/domain';
+import { importedStrengthLabel, isoDayOfWeek, planEmoji, planLabel, slotAppliesOnDate, toLocalYmd, type MainLift, type ProgramBlock, type RunPlannedKind, type UpcomingWorkout } from '@wendler/domain';
 
 const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
 const MONTHS = [
@@ -218,26 +218,31 @@ export default function CalendarPage() {
   // Plan → by-day projection. For each non-rest slot, every visible date
   // (today onward) whose ISO day-of-week matches that slot gets an
   // "upcoming cardio" pill, unless an actual cardio session already exists
-  // on that date AND the date falls within the slot's effective window
-  // (effectiveFrom..effectiveUntil — both inclusive ISO dates). Slots
-  // without an effective window apply to every matching weekday
-  // (legacy / always-recurring behavior).
+  // on that date.
+  //
+  // Visibility is resolved via the shared `slotAppliesOnDate` helper which
+  // first tries dynamic resolution (slot.appliesToWeeks + linked block's
+  // current startedAt) and falls back to the legacy effectiveFrom/Until
+  // static cache. Means: if the user corrects a block's startedAt or the
+  // AI re-scopes a slot, the calendar updates without storing stale dates.
   const planSlots = useMemo(
     () =>
       (runPlan?.slots ?? []).filter((s) => s.kind !== 'rest'),
     [runPlan],
   );
+  const blocksById = useMemo(() => {
+    const m = new Map<string, ProgramBlock>();
+    for (const b of blocks ?? []) m.set(b.id, b);
+    return m;
+  }, [blocks]);
   const slotForDate = useMemo(() => {
     return (dateIso: string, dayOfWeek: number): RunPlannedKind | undefined => {
       for (const s of planSlots) {
-        if (s.dayOfWeek !== dayOfWeek) continue;
-        if (s.effectiveFrom && dateIso < s.effectiveFrom) continue;
-        if (s.effectiveUntil && dateIso > s.effectiveUntil) continue;
-        return s.kind;
+        if (slotAppliesOnDate(s, dateIso, dayOfWeek, blocksById)) return s.kind;
       }
       return undefined;
     };
-  }, [planSlots]);
+  }, [planSlots, blocksById]);
   // Back-compat shim: code paths that just need 'is anything planned
   // on this weekday at any time' still use the planByDayOfWeek map.
   // For per-date-aware checks (the actual cell rendering), use

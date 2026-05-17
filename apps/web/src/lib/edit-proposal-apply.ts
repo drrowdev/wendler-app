@@ -920,6 +920,13 @@ async function performAddCardioPlanSlot(
     ...(linkedBlockId ? { linkedBlockId } : {}),
     ...(effectiveFrom ? { effectiveFrom } : {}),
     ...(effectiveUntil ? { effectiveUntil } : {}),
+    // Persist the canonical week labels so the calendar can resolve
+    // visibility DYNAMICALLY against the linked block's current
+    // startedAt — auto-corrects if the user fixes block data later.
+    // effectiveFrom/Until above are kept as a fast static cache.
+    ...(op.appliesToWeeks && op.appliesToWeeks.length > 0
+      ? { appliesToWeeks: op.appliesToWeeks }
+      : {}),
   };
   let wasUpdate = false;
   if (dupIdx >= 0) {

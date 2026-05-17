@@ -108,6 +108,12 @@ function BlockDetailPage() {
             .filter((b) => b.id !== block.id && !b.completedAt)
             .sort((a, b) => (a.sequenceIndex ?? 0) - (b.sequenceIndex ?? 0))[0];
         if (next) {
+          // Stamp startedAt on the newly-activated block so cardio-scope
+          // resolution and timeline placement have a concrete anchor. Skip
+          // if the block already has one (e.g. re-activated after an undo).
+          if (!next.startedAt) {
+            await dbi.blocks.put({ ...next, startedAt: now, updatedAt: now });
+          }
           await dbi.schedule.put({
             ...sched,
             activeBlockId: next.id,
@@ -150,6 +156,9 @@ function BlockDetailPage() {
       if (block.programId) {
         const sched = await dbi.schedule.get('singleton');
         if (sched && !sched.activeBlockId) {
+          if (!block.startedAt) {
+            await dbi.blocks.put({ ...block, startedAt: now, updatedAt: now });
+          }
           await dbi.schedule.put({
             ...sched,
             activeBlockId: block.id,

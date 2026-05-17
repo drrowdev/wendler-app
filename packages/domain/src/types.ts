@@ -194,6 +194,17 @@ export interface CardioPlanSlot {
    * ISO date (YYYY-MM-DD). Pairs with `effectiveFrom`.
    */
   effectiveUntil?: string;
+  /**
+   * Wendler week labels the slot applies to (e.g. `['2', '3', 'deload']`).
+   * When set together with `linkedBlockId`, the calendar resolves the
+   * effective date range DYNAMICALLY at render time against the linked
+   * block's current `startedAt` — so if the block's start date is later
+   * corrected by the user, the slot's visibility automatically shifts
+   * without re-running the AI. `effectiveFrom`/`effectiveUntil` are
+   * still written as a cache for legacy renderers, but the dynamic
+   * resolution wins when present.
+   */
+  appliesToWeeks?: Array<'1' | '2' | '3' | 'deload' | '7w'>;
 }
 
 /**
