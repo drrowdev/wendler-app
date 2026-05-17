@@ -118,6 +118,18 @@ function ChatActionChip({
       setProposalSheetOpen(true);
       return;
     }
+    if (action.kind === 'schedule_followup') {
+      setBusy(true);
+      try {
+        const { applyScheduleFollowup } = await import('@/lib/chat-actions');
+        await applyScheduleFollowup(chatId, messageId, action);
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
   };
 
   const onDismiss = async () => {
@@ -203,6 +215,10 @@ function formatAppliedDetails(details: ChatActionApplyDetails): string {
       const declined = details.declinedOperationIds.length;
       const total = applied + declined;
       return `${applied}/${total} ops applied${declined > 0 ? ` (${declined} declined)` : ''}`;
+    }
+    case 'schedule_followup': {
+      const t = new Date(details.dueAt);
+      return `Check-in scheduled for ${t.toLocaleString()}`;
     }
     default:
       return '';

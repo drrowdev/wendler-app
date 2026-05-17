@@ -160,3 +160,72 @@ export async function applyLogInjuryAudit(
   );
 }
 
+/**
+ * Schedule a follow-up check-in. Writes a future-dated notification
+ * that the inbox hides until `now >= dueAt`. When the user eventually
+ * taps it, the deeplink lands them in the same chat with `prompt`
+ * pre-filled as `pendingAutoSend` — the AI then runs with the prior
+ * conversation as context and can adjust based on whatever the user
+ * replies.
+ *
+ * `markFailed` is used here only if Dexie throws. Soft success
+ * (notification write fails) still marks the chip applied since the
+ * scheduling intent was captured on the chip itself.
+ */
+export async function applyScheduleFollowup(
+  chatId: string,
+  messageId: string,
+  action: ChatAction & { kind: 'schedule_followup' },
+): Promise<void> {
+  try {
+    const now = new Date();
+    const dueAt = new Date(now.getTime() + action.inHours * 3600 * 1000).toISOString();
+    const notificationId = `chat-followup:${action.id}`;
+    const nowIso = now.toISOString();
+    const friendlyDelay = formatDelay(action.inHours);
+    await getDb().notifications.put({
+      id: notificationId,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      channel: 'ai-action',
+      severity: 'info',
+      title: action.topic,
+      body: `Tap to check in — the coach will ask: "${truncate(action.prompt, 120)}"`,
+      dueAt,
+      deepLink: {
+        href: `/chat?id=${chatId}&followup=${action.id}`,
+        label: 'Open check-in',
+      },
+      context: {
+        kind: 'chat-followup',
+        chatId,
+        followupActionId: action.id,
+        // The prompt is also stored on the chip itself — duplicated
+        // here so the chat page can read it without scanning the
+        // whole chat's actions array.
+        followupPrompt: action.prompt,
+      },
+    });
+    await updateActionStatus(chatId, messageId, action.id, {
+      status: 'applied',
+      appliedAt: nowIso,
+      appliedDetails: { kind: 'schedule_followup', dueAt, notificationId },
+      applyError: undefined,
+    });
+    kickSync();
+  } catch (err) {
+    await markFailed(chatId, messageId, action, (err as Error).message);
+  }
+}
+
+function formatDelay(hours: number): string {
+  if (hours < 24) return `in ${hours} hour${hours === 1 ? '' : 's'}`;
+  const days = Math.round(hours / 24);
+  return `in ${days} day${days === 1 ? '' : 's'}`;
+}
+
+function truncate(s: string, n: number): string {
+  if (s.length <= n) return s;
+  return s.slice(0, n - 1).trimEnd() + '…';
+}
+

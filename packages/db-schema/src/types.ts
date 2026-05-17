@@ -1199,6 +1199,15 @@ export interface Notification {
    * (e.g. successful sync) lets the inbox auto-clean; not used yet.
    */
   expiresAt?: string;
+  /**
+   * Optional future-due timestamp. When set, the notification is hidden
+   * from the inbox until `now >= dueAt`. Used by the AI's
+   * `schedule_followup` action to defer a check-in notification until
+   * the chosen time. The notification still exists in the database the
+   * moment it's created (and syncs across devices); only its rendering
+   * is gated.
+   */
+  dueAt?: string;
   /** LWW sync timestamp — bumped on every state change (read, dismiss). */
   updatedAt: string;
   /** Soft-delete via tombstone, mirroring other synced tables. */
@@ -1709,7 +1718,7 @@ export type EditOperationAppliedDetail =
       skipNote?: string;
     };
 
-export type ChatActionKind = 'log_injury' | 'propose_edit';
+export type ChatActionKind = 'log_injury' | 'propose_edit' | 'schedule_followup';
 
 export type ChatActionStatus = 'pending' | 'applied' | 'dismissed';
 
@@ -1760,6 +1769,13 @@ export type ChatActionApplyDetails =
       operationResults: Record<string, EditOperationAppliedDetail>;
       /** Op ids that the user declined; recorded for audit completeness. */
       declinedOperationIds: string[];
+    }
+  | {
+      kind: 'schedule_followup';
+      /** ISO timestamp the follow-up notification is due. */
+      dueAt: string;
+      /** Notification id that was created. */
+      notificationId: string;
     };
 
 export interface LogInjuryChatAction extends ChatActionBase {
@@ -1769,6 +1785,30 @@ export interface LogInjuryChatAction extends ChatActionBase {
   description?: string;
   /** Library movementIds (with prefix) the user said are affected. */
   movementIds?: string[];
+}
+
+/**
+ * `schedule_followup` — the AI proposes a future check-in. On accept,
+ * a future-dated notification is created (Notification.dueAt) that
+ * remains hidden in the inbox until its time arrives. When the user
+ * eventually taps the notification, the deeplink lands them in the
+ * SAME chat thread with `prompt` pre-filled as a new user message
+ * that auto-sends — so the AI's next turn has the prior conversation
+ * as context and can adjust based on the user's reply.
+ *
+ * Used by the injury coach trigger to schedule 24h / 72h / 7d
+ * check-ins on adductor pain, etc. Generalises to any "I'll check
+ * back in on you" pattern (post-deload feel, race recovery,
+ * mid-cut weight check, …).
+ */
+export interface ScheduleFollowupChatAction extends ChatActionBase {
+  kind: 'schedule_followup';
+  /** Hours from accept until the notification fires. 1–720 (30d max). */
+  inHours: number;
+  /** Brief headline for the notification (≤60 chars). */
+  topic: string;
+  /** The user message that will auto-send when the user taps the notification. */
+  prompt: string;
 }
 
 /**
@@ -1805,7 +1845,7 @@ export interface ProposeEditChatAction extends ChatActionBase {
   userDecisions?: Record<string, EditOperationDecision>;
 }
 
-export type ChatAction = LogInjuryChatAction | ProposeEditChatAction;
+export type ChatAction = LogInjuryChatAction | ProposeEditChatAction | ScheduleFollowupChatAction;
 
 export interface ChatMessage {
   id: string;

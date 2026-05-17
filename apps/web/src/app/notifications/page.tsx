@@ -53,13 +53,17 @@ export default function NotificationsPage() {
 
   const filtered = useMemo(() => {
     if (!all) return [];
-    if (channelFilter === 'all') return all;
-    return all.filter((n) => n.channel === channelFilter);
+    const nowIso = new Date().toISOString();
+    // Hide future-due notifications (scheduled follow-ups) — they
+    // appear in the inbox only once their `dueAt` has arrived.
+    const visible = all.filter((n) => !n.dueAt || n.dueAt <= nowIso);
+    if (channelFilter === 'all') return visible;
+    return visible.filter((n) => n.channel === channelFilter);
   }, [all, channelFilter]);
 
   const unreadCount = useMemo(
-    () => (all ?? []).reduce((acc, n) => (n.readAt ? acc : acc + 1), 0),
-    [all],
+    () => (filtered ?? []).reduce((acc, n) => (n.readAt ? acc : acc + 1), 0),
+    [filtered],
   );
 
   const grouped = useMemo(() => {

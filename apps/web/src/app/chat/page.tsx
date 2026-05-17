@@ -4,21 +4,72 @@
 // page-sized layout with a sidebar of conversations. Reachable via the
 // "Expand" button in the FAB drawer, the /more list, and Quick-jump.
 // `?id=…` deep-links a conversation; absent = new chat.
+// `?followup=…` (when paired with id) primes the chat with a follow-up
+// prompt the AI proposed earlier — used by scheduled check-in
+// notifications.
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ChatConversationList, ChatPanel } from '@/components/ChatPanel';
 import { SnapshotInspector } from '@/components/SnapshotInspector';
 import { useChatList } from '@/lib/useChat';
+import { getDb } from '@/lib/db';
 
 export default function ChatPage() {
   const router = useRouter();
   const params = useSearchParams();
   const id = params.get('id');
+  const followupActionId = params.get('followup');
   const debugSnapshot = params.get('debug') === 'snapshot';
   const conversations = useChatList();
   const [mobileListOpen, setMobileListOpen] = useState(false);
+
+  // When the URL carries a `followup=<actionId>`, read the matching
+  // notification's `context.followupPrompt`, stash it as
+  // `pendingAutoSend` on the chat, and drop the param. ChatPanel's
+  // existing auto-send effect then fires the send so the AI runs the
+  // moment the page settles — same UX as the injury-coach trigger.
+  useEffect(() => {
+    if (!id || !followupActionId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const db = getDb();
+        const notificationId = `chat-followup:${followupActionId}`;
+        const note = await db.notifications.get(notificationId);
+        const prompt =
+          note && typeof (note.context as Record<string, unknown>)?.followupPrompt === 'string'
+            ? ((note.context as Record<string, unknown>).followupPrompt as string)
+            : undefined;
+        if (!prompt) return;
+        const chat = await db.chats.get(id);
+        if (!chat || cancelled) return;
+        await db.chats.put({
+          ...chat,
+          pendingAutoSend: prompt,
+          updatedAt: new Date().toISOString(),
+        });
+        // Mark the notification read so it stops showing as "new".
+        if (!note?.readAt) {
+          await db.notifications.put({
+            ...note!,
+            readAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      } catch {
+        // Best-effort. Worst case: user lands on chat without auto-send.
+      } finally {
+        if (!cancelled) {
+          router.replace(`/chat?id=${id}`, { scroll: false });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, followupActionId, router]);
 
   const select = useCallback(
     (nextId: string | null) => {
