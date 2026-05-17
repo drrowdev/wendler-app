@@ -45,18 +45,56 @@ function ChatActionChip({
   const [proposalSheetOpen, setProposalSheetOpen] = useState(false);
 
   if (action.status === 'applied') {
-    return (
-      <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200">
+    // Make propose_edit chips clickable so the user can re-open the
+    // accept-sheet in audit (read-only) mode and inspect exactly what
+    // was applied. Other action kinds (log_injury) don't have a
+    // re-openable sheet yet — they still render as plain text.
+    const reopenable = action.kind === 'propose_edit';
+    const chipBody = (
+      <>
         <div className="flex items-center gap-2">
           <span aria-hidden>✓</span>
           <span className="font-semibold">Applied:</span>
           <span className="truncate">{action.label}</span>
+          {reopenable && (
+            <span className="ml-auto text-[10px] text-emerald-200/70 underline-offset-2 group-hover:underline">
+              View
+            </span>
+          )}
         </div>
         {action.appliedDetails && (
           <div className="ml-5 mt-0.5 text-emerald-200/70">
             {formatAppliedDetails(action.appliedDetails)}
           </div>
         )}
+      </>
+    );
+    if (reopenable) {
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() => setProposalSheetOpen(true)}
+            className="group block w-full rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-left text-[11px] text-emerald-200 transition hover:bg-emerald-500/20"
+            title="Click to view what was applied"
+          >
+            {chipBody}
+          </button>
+          {proposalSheetOpen && (
+            <EditProposalSheet
+              chatId={chatId}
+              messageId={messageId}
+              action={action}
+              onClose={() => setProposalSheetOpen(false)}
+              readOnly
+            />
+          )}
+        </>
+      );
+    }
+    return (
+      <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200">
+        {chipBody}
       </div>
     );
   }

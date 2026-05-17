@@ -119,6 +119,12 @@ export interface ParsedAddCardioPlanSlotOp extends ParsedEditOpBase {
    * false to keep the slot permanent.
    */
   linkedToActiveBlock?: boolean;
+  /**
+   * When set, the slot only renders on calendar dates inside these
+   * weeks of the linked block. Apply resolves to effectiveFrom /
+   * effectiveUntil on the CardioPlanSlot.
+   */
+  appliesToWeeks?: Array<'1' | '2' | '3' | 'deload' | '7w'>;
 }
 
 export interface ParsedScheduleDeloadOp extends ParsedEditOpBase {
@@ -791,6 +797,19 @@ function validateOp(
         ...(notes ? { notes } : {}),
         ...(typeof op.linkedToActiveBlock === 'boolean'
           ? { linkedToActiveBlock: op.linkedToActiveBlock }
+          : {}),
+        ...(Array.isArray(op.appliesToWeeks) && op.appliesToWeeks.length > 0
+          ? (() => {
+              const VALID_WEEKS = new Set<string>(['1', '2', '3', 'deload', '7w']);
+              const cleaned: Array<'1' | '2' | '3' | 'deload' | '7w'> = [];
+              for (const w of op.appliesToWeeks as unknown[]) {
+                const s = typeof w === 'number' ? String(w) : (w as string);
+                if (typeof s === 'string' && VALID_WEEKS.has(s) && !cleaned.includes(s as never)) {
+                  cleaned.push(s as '1' | '2' | '3' | 'deload' | '7w');
+                }
+              }
+              return cleaned.length > 0 ? { appliesToWeeks: cleaned } : {};
+            })()
           : {}),
       };
     }

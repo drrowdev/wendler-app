@@ -217,15 +217,38 @@ export default function CalendarPage() {
 
   // Plan → by-day projection. For each non-rest slot, every visible date
   // (today onward) whose ISO day-of-week matches that slot gets an
-  // "upcoming run" pill, unless an actual cardio session already exists
-  // on that date.
+  // "upcoming cardio" pill, unless an actual cardio session already exists
+  // on that date AND the date falls within the slot's effective window
+  // (effectiveFrom..effectiveUntil — both inclusive ISO dates). Slots
+  // without an effective window apply to every matching weekday
+  // (legacy / always-recurring behavior).
+  const planSlots = useMemo(
+    () =>
+      (runPlan?.slots ?? []).filter((s) => s.kind !== 'rest'),
+    [runPlan],
+  );
+  const slotForDate = useMemo(() => {
+    return (dateIso: string, dayOfWeek: number): RunPlannedKind | undefined => {
+      for (const s of planSlots) {
+        if (s.dayOfWeek !== dayOfWeek) continue;
+        if (s.effectiveFrom && dateIso < s.effectiveFrom) continue;
+        if (s.effectiveUntil && dateIso > s.effectiveUntil) continue;
+        return s.kind;
+      }
+      return undefined;
+    };
+  }, [planSlots]);
+  // Back-compat shim: code paths that just need 'is anything planned
+  // on this weekday at any time' still use the planByDayOfWeek map.
+  // For per-date-aware checks (the actual cell rendering), use
+  // slotForDate(iso, dayOfWeek) which respects effective windows.
   const planByDayOfWeek = useMemo(() => {
     const m = new Map<number, RunPlannedKind>();
-    for (const s of runPlan?.slots ?? []) {
-      if (s.kind !== 'rest') m.set(s.dayOfWeek, s.kind);
+    for (const s of planSlots) {
+      if (!m.has(s.dayOfWeek)) m.set(s.dayOfWeek, s.kind);
     }
     return m;
-  }, [runPlan]);
+  }, [planSlots]);
 
   const grid = useMemo(() => {
     const first = new Date(year, month, 1);
@@ -392,7 +415,7 @@ export default function CalendarPage() {
               c.date &&
               c.iso! >= backfillStartIso &&
               !planFulfilledByDay.has(c.iso!)
-                ? planByDayOfWeek.get(isoDayOfWeek(c.date)) ?? null
+                ? slotForDate(c.iso!, isoDayOfWeek(c.date)) ?? null
                 : null;
             const plannedRunIsPast = plannedRun !== null && c.iso! < todayIso;
             const isToday = c.iso === todayIso;
@@ -403,7 +426,7 @@ export default function CalendarPage() {
               showCardio &&
               cs.length === 0 &&
               c.date &&
-              planByDayOfWeek.has(isoDayOfWeek(c.date)) &&
+              slotForDate(c.iso!, isoDayOfWeek(c.date)) !== undefined &&
               planFulfilledByDay.has(c.iso!);
             const hasContent =
               ws.length > 0 ||

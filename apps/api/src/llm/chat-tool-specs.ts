@@ -493,6 +493,12 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
               description:
                 'add_cardio_plan_slot only. When true (default), the slot is auto-removed when the active block completes — use this for taper-week cardio replacements paired with skip_day_in_week. Pass false ONLY when the user explicitly wants the slot to persist beyond the current block.',
             },
+            appliesToWeeks: {
+              type: 'array',
+              items: { type: 'string', enum: ['1', '2', '3', 'deload', '7w'] },
+              description:
+                'add_cardio_plan_slot only. When the cardio slot is replacing a strength day for SPECIFIC weeks of the block (e.g. paired with skip_day_in_week.weeks = ["2", "3", "deload"]), pass the SAME weeks here so the cardio slot only shows on /calendar during those weeks. Apply resolves to a date range bounded by the linked block. Omit when the slot should run every week of the block. MUST match the paired skip op exactly when both are emitted.',
+            },
           },
           required: ['kind', 'label'],
           additionalProperties: false,

@@ -38,6 +38,14 @@ interface Props {
   messageId: string;
   action: ProposeEditChatAction;
   onClose: () => void;
+  /**
+   * When true, the sheet renders in audit / read-only mode: per-op
+   * decisions are pre-filled from `action.appliedDetails`, the
+   * accept/decline/modify controls are hidden, and the Apply button
+   * is replaced by a Close button. Used when the user re-opens an
+   * already-applied proposal to inspect what actually got committed.
+   */
+  readOnly?: boolean;
 }
 
 const OP_LABELS: Record<EditOperation['kind'], string> = {
@@ -66,12 +74,34 @@ const OP_TONE: Record<EditOperation['kind'], string> = {
   skip_day_in_week: 'bg-rose-500/15 text-rose-100 ring-rose-500/40',
 };
 
-export function EditProposalSheet({ chatId, messageId, action, onClose }: Props) {
+export function EditProposalSheet({ chatId, messageId, action, onClose, readOnly }: Props) {
   // Per-op decisions live in component state while the user reviews;
   // committed onto the chip + applied via applyEditProposal on Save.
   // Initial state: every op pending (no defaults — user must decide).
+  // In readOnly mode, hydrate from the chip's persisted appliedDetails
+  // so the historical accept/decline picture is restored.
   const [decisions, setDecisions] = useState<Record<string, EditOperationDecision>>(
-    () => Object.fromEntries(action.operations.map((o) => [o.id, { status: 'pending' }])),
+    () => {
+      const seed: Record<string, EditOperationDecision> = {};
+      const details =
+        action.appliedDetails?.kind === 'propose_edit'
+          ? action.appliedDetails
+          : undefined;
+      for (const op of action.operations) {
+        if (details) {
+          if (details.operationResults[op.id]) {
+            seed[op.id] = { status: 'accepted' };
+          } else if (details.declinedOperationIds.includes(op.id)) {
+            seed[op.id] = { status: 'declined' };
+          } else {
+            seed[op.id] = { status: 'pending' };
+          }
+        } else {
+          seed[op.id] = { status: 'pending' };
+        }
+      }
+      return seed;
+    },
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -81,7 +111,20 @@ export function EditProposalSheet({ chatId, messageId, action, onClose }: Props)
         string,
         { status: 'applied' | 'declined' | 'failed'; error?: string }
       >
-  >(undefined);
+  >(() => {
+    // Pre-fill results in readOnly mode so the per-op outcome banners
+    // render the historical apply status straight away.
+    if (!readOnly || action.appliedDetails?.kind !== 'propose_edit') return undefined;
+    const out: Record<string, { status: 'applied' | 'declined' | 'failed'; error?: string }> = {};
+    for (const op of action.operations) {
+      if (action.appliedDetails.operationResults[op.id]) {
+        out[op.id] = { status: 'applied' };
+      } else if (action.appliedDetails.declinedOperationIds.includes(op.id)) {
+        out[op.id] = { status: 'declined' };
+      }
+    }
+    return out;
+  });
 
   const setDecision = (
     opId: string,
@@ -198,7 +241,9 @@ export function EditProposalSheet({ chatId, messageId, action, onClose }: Props)
       >
         <header className="border-b border-border bg-card/80 p-4 backdrop-blur">
           <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-xl font-semibold">Coach proposal</h2>
+            <h2 className="text-xl font-semibold">
+              Coach proposal{readOnly ? ' (applied — read-only)' : ''}
+            </h2>
             {action.confidence && <ConfidenceChip confidence={action.confidence} />}
           </div>
           <p className="mt-2 text-base font-medium leading-snug text-fg/90">
@@ -874,9 +919,22 @@ function AddCardioPlanSlotDiff({
           {op.notes}
         </div>
       )}
+      {op.appliesToWeeks && op.appliesToWeeks.length > 0 && (
+        <div className="text-xs text-fg/80">
+          <span className="text-muted">Active during:</span>{' '}
+          <span className="font-medium">
+            {op.appliesToWeeks
+              .map((w) => (w === 'deload' ? 'Deload' : w === '7w' ? '7th week' : `Wk ${w}`))
+              .join(' · ')}
+          </span>{' '}
+          <span className="text-muted">of the current block only</span>
+        </div>
+      )}
       <p className="text-[11px] text-muted leading-relaxed">
-        Will be added to your weekly cardio plan and shows up on /calendar every{' '}
-        {dayName}.
+        Will be added to your weekly cardio plan
+        {op.appliesToWeeks && op.appliesToWeeks.length > 0
+          ? ` and shows up on /calendar on the ${dayName}s of those weeks.`
+          : ` and shows up on /calendar every ${dayName}.`}
         {op.linkedToActiveBlock !== false
           ? ' Auto-removed when the current block completes — no manual cleanup.'
           : ' Permanent — stays in the cardio plan until you remove it manually.'}

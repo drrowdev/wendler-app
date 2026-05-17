@@ -618,12 +618,74 @@ async function performAddCardioPlanSlot(
   // opt out by passing linkedToActiveBlock: false when the user wants
   // a permanent slot.
   const linkToActive = op.linkedToActiveBlock !== false;
-  let linkedBlockId: string | undefined;
+  let linkedBlock: ProgramBlock | undefined;
   if (linkToActive) {
     const allBlocks = await db.blocks.toArray();
-    const active = allBlocks.find((b) => !b.completedAt);
-    linkedBlockId = active?.id;
+    linkedBlock = allBlocks.find((b) => !b.completedAt);
   }
+  const linkedBlockId = linkedBlock?.id;
+
+  // Resolve appliesToWeeks → effectiveFrom/Until ISO dates against the
+  // linked block's anchored start. Anchor logic mirrors the timeline:
+  // active block startMonday = today's Monday minus (cursor.week - 1)
+  // weeks; week N spans [startMonday + (N-1)*7, +6 days]. Without a
+  // linked block we can't resolve, so we silently drop the scope.
+  let effectiveFrom: string | undefined;
+  let effectiveUntil: string | undefined;
+  if (op.appliesToWeeks && op.appliesToWeeks.length > 0 && linkedBlock) {
+    const schedule = await db.schedule.get('singleton');
+    const cursorWeek =
+      schedule?.cursor?.blockId === linkedBlock.id ? schedule.cursor.week : 1;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayMondayWd = (today.getDay() + 6) % 7;
+    const todayMonday = new Date(today);
+    todayMonday.setDate(todayMonday.getDate() - todayMondayWd);
+    let weeksAlreadyIn = 0;
+    if (cursorWeek === 'deload') {
+      weeksAlreadyIn = linkedBlock.weeksBeforeDeload;
+    } else if (cursorWeek === '7w') {
+      weeksAlreadyIn = 0;
+    } else {
+      weeksAlreadyIn = Math.max(0, (cursorWeek as 1 | 2 | 3) - 1);
+    }
+    const activeStartMonday = new Date(todayMonday);
+    activeStartMonday.setDate(activeStartMonday.getDate() - weeksAlreadyIn * 7);
+    // Resolve each week label to its (Monday, Sunday) range.
+    const weekRanges: Array<{ start: Date; end: Date }> = [];
+    for (const wk of op.appliesToWeeks) {
+      let weekIndex: number; // 0-based offset from activeStartMonday
+      if (wk === 'deload') {
+        weekIndex = linkedBlock.weeksBeforeDeload;
+      } else if (wk === '7w') {
+        weekIndex = 0;
+      } else {
+        weekIndex = Number(wk) - 1;
+      }
+      const start = new Date(activeStartMonday);
+      start.setDate(start.getDate() + weekIndex * 7);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      weekRanges.push({ start, end });
+    }
+    const minStart = weekRanges.reduce(
+      (acc, r) => (r.start.getTime() < acc.getTime() ? r.start : acc),
+      weekRanges[0]!.start,
+    );
+    const maxEnd = weekRanges.reduce(
+      (acc, r) => (r.end.getTime() > acc.getTime() ? r.end : acc),
+      weekRanges[0]!.end,
+    );
+    const fmt = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const da = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${da}`;
+    };
+    effectiveFrom = fmt(minStart);
+    effectiveUntil = fmt(maxEnd);
+  }
+
   const slots = [...existing.slots];
   // Idempotency: a slot already in place for the same (dayOfWeek,
   // modality) is left untouched (treated as the user's authoritative
@@ -659,6 +721,8 @@ async function performAddCardioPlanSlot(
       ...(op.durationMin !== undefined ? { durationMin: op.durationMin } : {}),
       ...(op.notes ? { notes: op.notes } : {}),
       ...(linkedBlockId ? { linkedBlockId } : {}),
+      ...(effectiveFrom ? { effectiveFrom } : {}),
+      ...(effectiveUntil ? { effectiveUntil } : {}),
     });
     await db.cardioPlan.put({
       ...existing,

@@ -180,6 +180,20 @@ export interface CardioPlanSlot {
    * so the user doesn't have to remember to clean it up.
    */
   linkedBlockId?: string;
+  /**
+   * Inclusive lower bound on calendar dates where the slot renders.
+   * ISO date (YYYY-MM-DD). When set, the slot only shows on /calendar
+   * for dates >= this. Combined with `effectiveUntil` to express
+   * 'recurring weekly slot, but only during Wk 2 / Wk 3 / Deload of
+   * the active block'. Optional — when unset the slot is always
+   * effective (legacy behaviour).
+   */
+  effectiveFrom?: string;
+  /**
+   * Inclusive upper bound on calendar dates where the slot renders.
+   * ISO date (YYYY-MM-DD). Pairs with `effectiveFrom`.
+   */
+  effectiveUntil?: string;
 }
 
 /**

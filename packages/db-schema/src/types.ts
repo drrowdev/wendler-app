@@ -1501,6 +1501,17 @@ export interface AddCardioPlanSlotEditOp extends EditOperationBase {
    * ends — e.g. when the user explicitly wants a permanent change.
    */
   linkedToActiveBlock?: boolean;
+  /**
+   * When set (typical for AI cardio-replacement pairings), the slot
+   * only renders on /calendar for dates inside the specified weeks of
+   * the linked block. Values are the same WendlerWeek labels used by
+   * skip_day_in_week ("1" | "2" | "3" | "deload" | "7w"). Apply
+   * resolves them to absolute `effectiveFrom` / `effectiveUntil` ISO
+   * dates anchored off the linked block's schedule cursor. Requires
+   * `linkedToActiveBlock !== false`. When omitted, the slot is fully
+   * recurring (every matching weekday, no date bounds).
+   */
+  appliesToWeeks?: Array<'1' | '2' | '3' | 'deload' | '7w'>;
 }
 
 export interface RemoveAssistanceEntryEditOp extends EditOperationBase {
