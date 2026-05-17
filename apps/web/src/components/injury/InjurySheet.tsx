@@ -12,6 +12,7 @@ import { getDb } from '@/lib/db';
 import { useMovements } from '@/lib/hooks';
 import { kickSync } from '@/lib/sync';
 import { analyzeInjury, type InjuryAnalysisResult } from '@/lib/injury-workflow';
+import { triggerInjuryCoachReview } from '@/lib/injury-coach';
 
 /**
  * Swap every assistance entry in a block plan that matches `fromId` with
@@ -258,6 +259,15 @@ export function InjurySheet({ injury, origin, onSaved, onCancel }: Props) {
     }
 
     kickSync();
+
+    // Proactive AI hook — fire-and-forget a Coach-review chat with a
+    // primed prompt + notification. The /chat page auto-sends when
+    // the user opens the conversation, so the AI's full plan
+    // (warmups, swaps, rehab guidance, follow-ups) is waiting when
+    // they tap the notification. Failures here are logged but don't
+    // disrupt the injury save path.
+    void triggerInjuryCoachReview(next, movements ?? []);
+
     onSaved(injuryId);
   };
 

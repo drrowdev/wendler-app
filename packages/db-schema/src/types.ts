@@ -1838,6 +1838,22 @@ export interface Chat {
   /** Derived from the first user message (≤80 chars). */
   title: string;
   messages: ChatMessage[];
+  /**
+   * When set, an external trigger (e.g. the injury coach hook) created
+   * this chat with a primed user prompt that hasn't been sent yet.
+   * The /chat page detects this on mount, clears it, and fires the
+   * send so the AI auto-responds without the user having to type or
+   * tap anything. The string IS the message to send. Cleared to
+   * `undefined` after the first send.
+   */
+  pendingAutoSend?: string;
+  /**
+   * Marker that this chat was opened by a proactive AI trigger
+   * (currently only "injury"). Used by the chat header so the
+   * conversation displays "Coach review" framing instead of generic
+   * "New chat". Optional.
+   */
+  triggerKind?: 'injury';
 }
 
 /**

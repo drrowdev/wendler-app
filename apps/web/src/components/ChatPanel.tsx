@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Chat, ChatMessage } from '@wendler/db-schema';
 import { useChat, useChatSender, renameChat } from '@/lib/useChat';
+import { getDb } from '@/lib/db';
 import { ChatActionChips } from './ChatActionChips';
 
 const SUGGESTED_PROMPTS = [
@@ -96,6 +97,40 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
       // Surfaced via sender.error.
     }
   };
+
+  // Proactive auto-send: when an external trigger (e.g. the injury
+  // coach hook in InjurySheet) creates a chat with a primed user
+  // message and `pendingAutoSend` set, fire the send automatically
+  // the first time the chat is opened. Eliminates the "user has to
+  // tap Send on a pre-filled prompt" step.
+  //
+  // Idempotency: the flag is cleared in Dexie BEFORE submit() is
+  // called, so a re-render or remount won't refire. The per-id Set
+  // is a belt-and-suspenders check against the same render firing
+  // twice before the Dexie write settles.
+  const autoSendFiredRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!chat) return;
+    if (!chat.pendingAutoSend) return;
+    if (autoSendFiredRef.current.has(chat.id)) return;
+    if (sender.sending) return;
+    autoSendFiredRef.current.add(chat.id);
+    const text = chat.pendingAutoSend;
+    void (async () => {
+      try {
+        await getDb().chats.put({
+          ...chat,
+          pendingAutoSend: undefined,
+          updatedAt: new Date().toISOString(),
+        });
+        await submit(text);
+      } catch {
+        // Best-effort. If the clear-then-submit fails, the user can
+        // still see the primed prompt and send it manually.
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat?.id, chat?.pendingAutoSend, sender.sending]);
 
   const startRename = () => {
     if (!chat) return;
