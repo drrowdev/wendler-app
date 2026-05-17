@@ -59,6 +59,12 @@ export function PhaseAutoToast({ phase, source, reason }: PhaseAutoToastProps) {
         body,
         deepLink: { href: '/goals', label: 'Open /goals' },
         context: { source, phase, reason },
+        // Idempotent across remounts + multi-device. One row per
+        // (source, phase) ever; collapsed by LWW after sync. Re-entry
+        // into the same phase later in the year won't re-notify —
+        // accept that for v1; user can clear/delete the row to make
+        // room for a refresh.
+        idempotencyKey: `phase-auto:${source}:${phase}`,
       });
     }
   }, [source, phase, reason]);

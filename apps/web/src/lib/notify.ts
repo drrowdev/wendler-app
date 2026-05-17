@@ -41,13 +41,25 @@ export interface NotifyInput {
   context?: Record<string, unknown>;
   /** ISO timestamp; absent ⇒ persists indefinitely (the Phase 1 default). */
   expiresAt?: string;
+  /**
+   * Optional deterministic id used as the notification's primary key.
+   * When set, repeat calls with the same key are no-ops (the existing
+   * row is preserved as-is — neither updatedAt nor readAt change). Use
+   * this for automated events that can fire many times for the same
+   * underlying state transition (phase auto-shift remounting on every
+   * page navigation, sync conflicts hit on every poll, etc.). Multi-
+   * device safe: LWW merge after sync will collapse to the single
+   * earliest createdAt for the id.
+   */
+  idempotencyKey?: string;
 }
 
 async function emit(severity: NotificationSeverity, input: NotifyInput): Promise<string> {
   if (typeof window === 'undefined') return '';
   const now = new Date().toISOString();
+  const id = input.idempotencyKey ?? nanoid();
   const record: Notification = {
-    id: nanoid(),
+    id,
     createdAt: now,
     updatedAt: now,
     channel: input.channel,
@@ -58,6 +70,14 @@ async function emit(severity: NotificationSeverity, input: NotifyInput): Promise
     ...(input.context ? { context: input.context } : {}),
     ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
   };
+  if (input.idempotencyKey) {
+    // Idempotent path: skip the write entirely if a row with this id
+    // already exists (locally OR after a previous sync from another
+    // device). add() would throw on PK collision but we'd rather not
+    // log + recover from a routine no-op, so probe first.
+    const existing = await getDb().notifications.get(id);
+    if (existing) return id;
+  }
   await getDb().notifications.add(record);
   // Sync-channel notifications must NOT kick another sync — they're typically
   // emitted from inside the sync loop itself (conflict warnings, Strava
