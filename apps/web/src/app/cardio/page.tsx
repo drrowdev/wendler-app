@@ -40,7 +40,7 @@ const MODALITIES: { id: CardioSession['modality']; label: string; emoji: string 
 
 function formatDate(iso: string) {
   const d = new Date(iso);
-  const wd = d.toLocaleDateString(undefined, { weekday: 'short' });
+  const wd = d.toLocaleDateString('fi-FI', { weekday: 'short' });
   return `${wd} ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
 }
 
@@ -49,7 +49,7 @@ function formatScheduledDate(ymd: string) {
   const [y, m, d] = ymd.split('-').map(Number);
   if (!y || !m || !d) return ymd;
   const date = new Date(y, m - 1, d, 12, 0, 0);
-  const wd = date.toLocaleDateString(undefined, { weekday: 'short' });
+  const wd = date.toLocaleDateString('fi-FI', { weekday: 'short' });
   return `${wd} ${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.`;
 }
 

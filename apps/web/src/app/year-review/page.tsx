@@ -347,7 +347,7 @@ function computeYearStats(
 }
 
 function monthLabel(d: Date): string {
-  return d.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+  return d.toLocaleString('fi-FI', { month: 'long', year: 'numeric' });
 }
 
 function fmtHrs(min: number): string {

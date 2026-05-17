@@ -38,6 +38,44 @@ export function fmtDate(iso: string): string {
   return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
 }
 
+/**
+ * Full date + time in Finnish convention. "17.5.2026 19.34". Used in
+ * places where the prior code called `Date.toLocaleString()` and got
+ * whatever the browser locale defaulted to — now consistently Finnish.
+ */
+export function fmtDateTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString('fi-FI', {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
+ * Human-friendly Finnish date with weekday + month name. Used by the
+ * daily-brief notification title and similar "Sunday, May 17" style
+ * strings — now "sunnuntai 17. toukokuuta".
+ */
+export function fmtHumanDate(d: Date): string {
+  return d.toLocaleDateString('fi-FI', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+/**
+ * Compact weekday name (e.g. "ma", "ti") in Finnish for axis labels
+ * and short list headers. Replaces ad-hoc
+ * `toLocaleDateString('fi-FI', { weekday: 'short' })` calls.
+ */
+export function fmtShortWeekday(d: Date): string {
+  return d.toLocaleDateString('fi-FI', { weekday: 'short' });
+}
+
 export function fmtDayMonth(iso: string): string {
   // Parse YYYY-MM-DD directly to avoid timezone shifts that can flip the day.
   const [, m, d] = iso.split('-');

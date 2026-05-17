@@ -229,8 +229,13 @@ function formatAppliedDetails(details: ChatActionApplyDetails): string {
       return `${applied}/${total} ops applied${declined > 0 ? ` (${declined} declined)` : ''}`;
     }
     case 'schedule_followup': {
-      const t = new Date(details.dueAt);
-      return `Check-in scheduled for ${t.toLocaleString()}`;
+      return `Check-in scheduled for ${new Date(details.dueAt).toLocaleString('fi-FI', {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`;
     }
     case 'remember':
       return `Remembered (${details.category}): "${details.text.length > 80 ? details.text.slice(0, 79) + '…' : details.text}"`;

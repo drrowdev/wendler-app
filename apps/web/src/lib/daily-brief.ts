@@ -155,9 +155,9 @@ function buildDailyBriefPrompt(now: Date): string {
 }
 
 function formatHumanDate(d: Date): string {
-  return d.toLocaleDateString(undefined, {
+  return d.toLocaleDateString('fi-FI', {
     weekday: 'long',
-    month: 'short',
+    month: 'long',
     day: 'numeric',
   });
 }

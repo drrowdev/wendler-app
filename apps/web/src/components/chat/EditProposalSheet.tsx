@@ -341,7 +341,13 @@ export function EditProposalSheet({ chatId, messageId, action, onClose, readOnly
           {readOnly && alreadyUndone && (
             <p className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
               This proposal was undone on{' '}
-              {new Date(action.undoneAt as string).toLocaleString()}. The
+              {new Date(action.undoneAt as string).toLocaleString('fi-FI', {
+                year: 'numeric',
+                month: 'numeric',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}. The
               affected rows were restored to their state before apply.
             </p>
           )}

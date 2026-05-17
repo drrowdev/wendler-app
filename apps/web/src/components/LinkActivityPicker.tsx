@@ -39,7 +39,7 @@ const MAX_ROWS = 20;
 
 function fmtDate(iso: string) {
   const d = new Date(iso);
-  const wd = d.toLocaleDateString(undefined, { weekday: 'short' });
+  const wd = d.toLocaleDateString('fi-FI', { weekday: 'short' });
   return `${wd} ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.`;
 }
 

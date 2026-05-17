@@ -44,7 +44,7 @@ function fmtPlannedDateBadge(ymd: string): string {
   const [y, m, d] = ymd.split('-').map(Number);
   if (!y || !m || !d) return ymd;
   const date = new Date(y, m - 1, d, 12, 0, 0);
-  const wd = date.toLocaleDateString(undefined, { weekday: 'short' });
+  const wd = date.toLocaleDateString('fi-FI', { weekday: 'short' });
   return `${wd} ${d} ${MONTHS_FI[m - 1] ?? ''}`.trim();
 }
 

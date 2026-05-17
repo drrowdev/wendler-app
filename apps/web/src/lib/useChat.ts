@@ -228,10 +228,29 @@ export async function buildContextBlob(): Promise<string> {
   const blockSessions = sessions.filter((s) => s.blockId === activeBlock.id);
   const days = activeBlock.plan?.days ?? [];
   const dayCount = Math.max(1, days.length);
+  // Weeks the snapshot reports per-day assistance for. CRITICAL:
+  // honor `includesDeload` so the AI never sees a "deload week" for
+  // a block that doesn't have one (e.g. anchor blocks default to
+  // weeksBeforeDeload=3 + includesDeload=false). Without this guard
+  // the AI would invent references to a non-existent week.
   const weekScopes: Array<'1' | '2' | '3' | 'deload' | '7w'> = (() => {
     if (activeBlock.kind === 'seventh-week') return ['7w'];
-    return ['1', '2', '3', 'deload'];
+    const out: Array<'1' | '2' | '3' | 'deload' | '7w'> = ['1', '2', '3'];
+    if (activeBlock.includesDeload) out.push('deload');
+    return out;
   })();
+  // Explicit block-structure statement so the AI can NEVER reference
+  // weeks that don't exist. Reads literally in the prompt as a sentence.
+  const blockWeekLabels = weekScopes
+    .map((w) => (w === 'deload' ? 'deload' : w === '7w' ? '7w' : `Wk ${w}`))
+    .join(', ');
+  lines.push(
+    `- Block weeks: ${blockWeekLabels} (${weekScopes.length} total)${
+      activeBlock.includesDeload
+        ? ''
+        : ' — this block does NOT have a built-in deload week. Do not reference a "deload week" in your response unless you mean a future block.'
+    }`,
+  );
   const weekStatus: string[] = [];
   for (const wk of weekScopes) {
     const target = wk === 'deload' ? 'deload' : wk === '7w' ? '7w' : Number(wk);
@@ -264,7 +283,9 @@ export async function buildContextBlob(): Promise<string> {
     // (Monday after today) or (b) the next block week to be trained.
     // We surface both anchors so the AI can be precise.
     const today = new Date();
-    const weekdayName = today.toLocaleDateString('en-US', { weekday: 'long' });
+    // Finnish locale for the human-readable weekday — matches the
+    // app's app-wide locale. The AI still parses the ISO date.
+    const weekdayName = today.toLocaleDateString('fi-FI', { weekday: 'long' });
     const todayYmd = (() => {
       const y = today.getFullYear();
       const m = String(today.getMonth() + 1).padStart(2, '0');

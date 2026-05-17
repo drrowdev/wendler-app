@@ -605,7 +605,7 @@ function UnmatchedStrengthHr() {
         {orphans.map((o) => {
           const date = new Date(o.performedAt);
           const min = Math.round(o.durationSec / 60);
-          const dateLabel = date.toLocaleDateString(undefined, {
+          const dateLabel = date.toLocaleDateString('fi-FI', {
             weekday: 'short',
             month: 'short',
             day: 'numeric',
