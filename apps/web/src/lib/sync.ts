@@ -654,12 +654,18 @@ async function applyIncoming(doc: IncomingDoc) {
       // Cosmos under that name. The migration in db.ts also fills
       // `modality: 'run'` per-slot when the incoming payload is
       // pre-v20 shaped.
+      //
+      // IMPORTANT: pass through ALL slot fields. Earlier versions of
+      // this branch hand-picked (dayOfWeek, modality, kind) which
+      // silently stripped durationMin, notes, linkedBlockId, and the
+      // effectiveFrom/Until scope bounds set by AI cardio proposals.
+      // The echo of a freshly-pushed scoped slot then wiped the scope
+      // locally on the next pull — slot showed every week again.
       const incoming = doc.payload as RunPlan;
       const slots = Array.isArray(incoming?.slots)
         ? incoming.slots.map((s) => ({
-            dayOfWeek: s.dayOfWeek,
+            ...s,
             modality: s.modality ?? 'run',
-            kind: s.kind,
           }))
         : [];
       await lwwPut(
