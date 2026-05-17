@@ -194,6 +194,14 @@ function autoPhaseFromRace(
 export interface ActivePhaseBlockLike {
   kind: BlockKind;
   seventhWeekKind?: SeventhWeekKind;
+  /**
+   * The visible week the user is currently training in this block. When
+   * `'deload'`, the deload-week within a Leader/Anchor that includes a
+   * built-in deload — phase auto-derives to `'deload'` just like a
+   * standalone 7th-week deload block would. Matches the `WendlerWeek`
+   * shape (numeric 1/2/3 OR the strings 'deload' / '7w').
+   */
+  cursorWeek?: 1 | 2 | 3 | 'deload' | '7w';
 }
 
 /**
@@ -290,16 +298,26 @@ export function effectiveTrainingPhaseInfo(
   }
   if (best) return { phase: best.phase, source: 'race' };
 
-  // 3. Block-derived deload — active block is a 7th-week deload. This is
-  // the structural deload that fires after the Wendler cadence rule has
-  // already gated insertion of the 7th-week block (2 completed Leader
-  // blocks → deload prompt; see `nextSeventhWeekRecommendation`). Lower
-  // priority than race-driven taper/peak by design — if a race is close
-  // enough to taper, that taper should drive the prompt.
+  // 3. Block-derived deload — fires in either of two cases:
+  //   a) The active block IS a standalone 7th-week deload block
+  //      (kind === 'seventh-week', seventhWeekKind === 'deload'). This
+  //      is the structural deload that the Wendler cadence rule
+  //      inserts between Leaders.
+  //   b) The active block is a regular Leader/Anchor whose deload
+  //      week is visible RIGHT NOW (cursorWeek === 'deload'). Without
+  //      this branch the goal-flags layer kept saying `phase: 'normal'`
+  //      during a deload week, which let the suggester compound a
+  //      volume bump on top of the cursor's already-reduced sets.
+  //
+  // Both cases stay LOWER priority than race-driven taper/peak — if a
+  // race is close enough to taper, that wins.
   if (
     activeBlock?.kind === 'seventh-week' &&
     activeBlock.seventhWeekKind === 'deload'
   ) {
+    return { phase: 'deload', source: 'block' };
+  }
+  if (activeBlock?.cursorWeek === 'deload') {
     return { phase: 'deload', source: 'block' };
   }
 

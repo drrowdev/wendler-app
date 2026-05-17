@@ -307,10 +307,19 @@ function BlockDetailPage() {
       upcomingRaces ?? [],
       new Date(),
       isLiveBlock
-        ? { kind: block.kind, seventhWeekKind: block.seventhWeekKind }
+        ? {
+            kind: block.kind,
+            seventhWeekKind: block.seventhWeekKind,
+            // When the cursor's pointing at THIS block, pass the visible
+            // week through so a Leader/Anchor deload week derives
+            // phase='deload' just like a standalone 7th-week block.
+            ...(schedule?.cursor?.blockId === block.id
+              ? { cursorWeek: schedule.cursor.week }
+              : {}),
+          }
         : undefined,
     );
-  }, [settings?.trainingProfile, upcomingRaces, block, schedule?.activeBlockId]);
+  }, [settings?.trainingProfile, upcomingRaces, block, schedule?.activeBlockId, schedule?.cursor?.blockId, schedule?.cursor?.week]);
 
   if (!id) {
     return (

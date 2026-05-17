@@ -104,12 +104,24 @@ export function BlockAssistanceVolumePanel({ block, weekScope }: Props) {
     const anchor = earliest ?? new Date();
     const targetDate =
       weekStartDate(anchor, block.weeksBeforeDeload, weekScope) ?? new Date();
-    return deriveGoalFlags(profile, upcomingRaces ?? [], targetDate).phase;
+    return deriveGoalFlags(profile, upcomingRaces ?? [], targetDate, {
+      kind: block.kind,
+      ...(block.seventhWeekKind ? { seventhWeekKind: block.seventhWeekKind } : {}),
+      // When the user is REVIEWING the deload week of this block in the
+      // volume panel, the phase derivation should account for that —
+      // otherwise the panel keeps saying `phase: 'normal'` for a deload
+      // week and the effectiveAssistanceVolumeForPhase shift never kicks
+      // in. weekScope is the visible scope (1/2/3/deload/7w) the panel
+      // is computing for.
+      cursorWeek: weekScope,
+    }).phase;
   }, [
     settings?.trainingProfile,
     upcomingRaces,
     allSessions,
     block.id,
+    block.kind,
+    block.seventhWeekKind,
     block.weeksBeforeDeload,
     weekScope,
   ]);

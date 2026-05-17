@@ -419,7 +419,14 @@ export function buildSuggesterContext(
       trainingProfile,
       races ?? [],
       targetDate,
-      { kind: block.kind, seventhWeekKind: block.seventhWeekKind },
+      {
+        kind: block.kind,
+        seventhWeekKind: block.seventhWeekKind,
+        // Pass the visible week scope so deload weeks of a Leader /
+        // Anchor with `includesDeload: true` auto-derive phase='deload'
+        // and the suggester sees the right phase signal.
+        cursorWeek: weekScope,
+      },
     );
     goalFlags = derived.flags;
     phase = derived.phase;

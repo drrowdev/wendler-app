@@ -70,7 +70,7 @@ export function useChatList(): Chat[] | undefined {
  */
 export async function buildContextBlob(): Promise<string> {
   const db = getDb();
-  const [sets, cardio, recovery, races, tms, settings, movements, blocks, sessions, schedule] =
+  const [sets, cardio, recovery, races, tms, settings, movements, blocks, sessions, schedule, cardioPlan] =
     await Promise.all([
       db.sets.toArray(),
       db.cardio.toArray(),
@@ -82,6 +82,7 @@ export async function buildContextBlob(): Promise<string> {
       db.blocks.toArray(),
       db.sessions.toArray(),
       db.schedule.get('singleton'),
+      db.cardioPlan.get('singleton'),
     ]);
   const movementName = new Map(movements.map((m) => [m.id, m.name]));
   const summary = buildChatContext({
@@ -101,9 +102,44 @@ export async function buildContextBlob(): Promise<string> {
   // substitute_movement / schedule_deload action chips. Surfaced as a
   // separate section so the existing snapshot rendering stays untouched.
   const activeBlock = blocks.find((b) => !b.completedAt);
-  if (!activeBlock) return baseText;
+  const lines: string[] = [];
 
-  const lines: string[] = ['', '## Active block plan'];
+  // Cardio plan section is independent of having an active block — emit
+  // first so a chat-only flow (Q&A about cardio without an active block)
+  // still gets the data.
+  if (cardioPlan && Array.isArray(cardioPlan.slots) && cardioPlan.slots.length > 0) {
+    lines.push('', '## Cardio plan');
+    lines.push(
+      `(${cardioPlan.slots.length} recurring slot(s). Match key for remove_cardio_plan_slot is (dayOfWeek, modality).)`,
+    );
+    const WEEKDAY_NAMES_FULL = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const blockNameById = new Map<string, string>();
+    for (const b of blocks) blockNameById.set(b.id, b.name);
+    for (const s of cardioPlan.slots) {
+      const day = WEEKDAY_NAMES_FULL[s.dayOfWeek] ?? `Day ${s.dayOfWeek}`;
+      const dur = s.durationMin !== undefined ? ` · ${s.durationMin} min` : '';
+      // Scope: prefer week-semantic appliesToWeeks (the canonical source);
+      // fall back to the static effectiveFrom/Until cache for legacy slots.
+      let scope = 'every week';
+      if (s.appliesToWeeks && s.appliesToWeeks.length > 0 && s.linkedBlockId) {
+        const weekLabels = s.appliesToWeeks
+          .map((w) => (w === 'deload' ? 'Deload' : w === '7w' ? '7w' : `Wk ${w}`))
+          .join('/');
+        const linkName = blockNameById.get(s.linkedBlockId) ?? s.linkedBlockId;
+        scope = `${weekLabels} of ${linkName}`;
+      } else if (s.effectiveFrom || s.effectiveUntil) {
+        scope = `${s.effectiveFrom ?? '…'} → ${s.effectiveUntil ?? '…'}`;
+      }
+      const notes = s.notes ? ` · "${s.notes}"` : '';
+      lines.push(
+        `  - ${day}: ${s.modality} · ${s.kind}${dur} — active during ${scope}${notes}`,
+      );
+    }
+  }
+
+  if (!activeBlock) return baseText + (lines.length > 0 ? '\n' + lines.join('\n') : '');
+
+  lines.push('', '## Active block plan');
   lines.push(`- Block: ${activeBlock.name} (id=\`${activeBlock.id}\`)`);
   lines.push(
     `- Kind: ${activeBlock.kind}${activeBlock.seventhWeekKind ? ` · ${activeBlock.seventhWeekKind}` : ''}`,
@@ -118,7 +154,18 @@ export async function buildContextBlob(): Promise<string> {
         settings.trainingProfile,
         races,
         new Date(),
-        activeBlock,
+        {
+          kind: activeBlock.kind,
+          ...(activeBlock.seventhWeekKind
+            ? { seventhWeekKind: activeBlock.seventhWeekKind }
+            : {}),
+          // Plumb the visible cursor week so the deload-week of a
+          // Leader/Anchor with `includesDeload: true` auto-derives
+          // phase = 'deload' (matches what the user sees in the app).
+          ...(schedule?.cursor?.blockId === activeBlock.id
+            ? { cursorWeek: schedule.cursor.week }
+            : {}),
+        },
       )
     : { phase: 'normal' as const, source: 'manual' as const };
   if (activeBlock.assistanceVolume) {
@@ -232,13 +279,26 @@ export async function buildContextBlob(): Promise<string> {
           : anyHasEntries
             ? ` · accessory-only day (no main lifts, up to ${maxCount} assistance movements per week — listed per-week below)`
             : ' · EMPTY (no main lifts and no assistance scheduled in any week)';
-      // Resolve the day's weekday. Prefer the explicit `weekday` field
-      // on the BlockDay; fall back to parsing the label ("Monday",
-      // "Thu", etc.) via the shared resolveDayWeekday helper. Emit a
-      // human-readable weekday name in the header so the AI never has
-      // to ASK the user which day a given Day N falls on.
+      // Resolve the day's weekday. Source-of-truth priority:
+      //   1. Explicit `block.plan.days[i].weekday` (per-block override).
+      //   2. `schedule.dayGroups[i].weekday` (program-wide default, which
+      //      is where the /program/block setup dropdown saves the user's
+      //      "Day 3 is Friday" choice — see ProgramDefaultsPanel).
+      //   3. Parse the label ("Monday", "Thu" …) via resolveDayWeekday.
+      // Emit a human-readable weekday name in the header so the AI never
+      // has to ASK the user which day a given Day N falls on.
+      const scheduleDayGroups = Array.isArray(schedule?.dayGroups)
+        ? (schedule!.dayGroups as Array<{ weekday?: number } | unknown>)
+        : [];
+      const scheduleDayGroup = scheduleDayGroups[i] as
+        | { weekday?: number }
+        | undefined;
       const weekdayNumeric = resolveDayWeekday({
-        weekday: typeof day.weekday === 'number' ? day.weekday : undefined,
+        weekday:
+          (typeof day.weekday === 'number' ? day.weekday : undefined) ??
+          (typeof scheduleDayGroup?.weekday === 'number'
+            ? scheduleDayGroup.weekday
+            : undefined),
         label: day.label,
       });
       const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
