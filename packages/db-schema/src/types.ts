@@ -1330,6 +1330,7 @@ export type EditOperationKind =
   | 'add_assistance_entry'
   | 'add_movement_to_library'
   | 'add_cardio_plan_slot'
+  | 'remove_cardio_plan_slot'
   | 'remove_assistance_entry'
   | 'schedule_deload'
   | 'skip_day_in_week';
@@ -1514,6 +1515,29 @@ export interface AddCardioPlanSlotEditOp extends EditOperationBase {
   appliesToWeeks?: Array<'1' | '2' | '3' | 'deload' | '7w'>;
 }
 
+/**
+ * Remove a recurring slot from the user's cardio plan. Matched by
+ * (dayOfWeek, modality) — the same composite key the cardio plan
+ * editor uses for de-duplication. The pair (dayOfWeek=4, modality=
+ * 'bike') uniquely identifies the user's 'Friday bike' slot
+ * regardless of kind / duration / scope. Apply is a no-op when no
+ * matching slot exists.
+ *
+ * Pairs naturally with `add_cardio_plan_slot` when the user wants to
+ * replace one slot with another (e.g. delete the existing unscoped
+ * Friday bike and add a new Wk-2/3/Deload-scoped one).
+ */
+export interface RemoveCardioPlanSlotEditOp extends EditOperationBase {
+  kind: 'remove_cardio_plan_slot';
+  /** ISO weekday: 0 = Mon … 6 = Sun. */
+  dayOfWeek: number;
+  /** Modality: run | bike | swim | row | walk | padel | other. */
+  modality: string;
+  /** Display labels for the accept-sheet — echo of what the user sees. */
+  modalityLabel?: string;
+  planKindLabel?: string;
+}
+
 export interface RemoveAssistanceEntryEditOp extends EditOperationBase {
   kind: 'remove_assistance_entry';
   blockId?: string;
@@ -1568,6 +1592,7 @@ export type EditOperation =
   | AddAssistanceEntryEditOp
   | AddMovementToLibraryEditOp
   | AddCardioPlanSlotEditOp
+  | RemoveCardioPlanSlotEditOp
   | RemoveAssistanceEntryEditOp
   | ScheduleDeloadEditOp
   | SkipDayInWeekEditOp;
@@ -1634,6 +1659,16 @@ export type EditOperationAppliedDetail =
        * slot's identity so the audit trail captures the soft-skip.
        */
       reusedExisting?: boolean;
+    }
+  | {
+      kind: 'remove_cardio_plan_slot';
+      dayOfWeek: number;
+      modality: string;
+      /** True when no matching slot existed (apply was a no-op). */
+      noopReason?: 'not-found';
+      /** Captured for audit so the read-only re-view shows what was removed. */
+      removedKind?: string;
+      removedDurationMin?: number;
     }
   | { kind: 'schedule_deload'; newBlockId: string; sequenceIndex: number }
   | {

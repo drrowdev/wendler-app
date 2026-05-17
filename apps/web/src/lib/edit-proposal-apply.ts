@@ -96,12 +96,13 @@ const APPLY_ORDER: Record<EditOperation['kind'], number> = {
   schedule_deload: 1,
   skip_day_in_week: 2,
   remove_assistance_entry: 3,
-  add_movement_to_library: 4,
-  add_assistance_entry: 5,
-  add_cardio_plan_slot: 6,
-  trim_assistance_entry: 7,
-  swap_assistance_movement: 8,
-  set_training_max: 9,
+  remove_cardio_plan_slot: 4,
+  add_movement_to_library: 5,
+  add_assistance_entry: 6,
+  add_cardio_plan_slot: 7,
+  trim_assistance_entry: 8,
+  swap_assistance_movement: 9,
+  set_training_max: 10,
 };
 
 export interface ApplyProposalResult {
@@ -306,6 +307,8 @@ async function performOp(
       return performAddMovementToLibrary(op, tempIdMap);
     case 'add_cardio_plan_slot':
       return performAddCardioPlanSlot(op);
+    case 'remove_cardio_plan_slot':
+      return performRemoveCardioPlanSlot(op);
     case 'remove_assistance_entry':
       return performRemoveAssistanceEntry(op);
     case 'schedule_deload':
@@ -745,6 +748,48 @@ async function performAddCardioPlanSlot(
     ...(op.durationMin !== undefined ? { durationMin: op.durationMin } : {}),
     ...(op.notes ? { notes: op.notes } : {}),
     ...(wasUpdate ? { reusedExisting: true } : {}),
+  };
+}
+
+async function performRemoveCardioPlanSlot(
+  op: EditOperation & { kind: 'remove_cardio_plan_slot' },
+): Promise<EditOperationAppliedDetail> {
+  const db = getDb();
+  const existing = await db.cardioPlan.get('singleton');
+  if (!existing || existing.slots.length === 0) {
+    return {
+      kind: 'remove_cardio_plan_slot',
+      dayOfWeek: op.dayOfWeek,
+      modality: op.modality,
+      noopReason: 'not-found',
+    };
+  }
+  const matchIdx = existing.slots.findIndex(
+    (s) => s.dayOfWeek === op.dayOfWeek && s.modality === op.modality,
+  );
+  if (matchIdx < 0) {
+    return {
+      kind: 'remove_cardio_plan_slot',
+      dayOfWeek: op.dayOfWeek,
+      modality: op.modality,
+      noopReason: 'not-found',
+    };
+  }
+  const removed = existing.slots[matchIdx]!;
+  const slots = existing.slots.filter((_, i) => i !== matchIdx);
+  await db.cardioPlan.put({
+    ...existing,
+    slots,
+    updatedAt: new Date().toISOString(),
+  });
+  return {
+    kind: 'remove_cardio_plan_slot',
+    dayOfWeek: op.dayOfWeek,
+    modality: op.modality,
+    removedKind: removed.kind,
+    ...(removed.durationMin !== undefined
+      ? { removedDurationMin: removed.durationMin }
+      : {}),
   };
 }
 

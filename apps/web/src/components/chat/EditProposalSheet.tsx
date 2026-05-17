@@ -56,6 +56,7 @@ const OP_LABELS: Record<EditOperation['kind'], string> = {
   add_assistance_entry: 'Add entry',
   add_movement_to_library: 'Add to library',
   add_cardio_plan_slot: 'Add cardio slot',
+  remove_cardio_plan_slot: 'Remove cardio slot',
   remove_assistance_entry: 'Remove entry',
   schedule_deload: 'Schedule deload',
   skip_day_in_week: 'Skip day',
@@ -69,6 +70,7 @@ const OP_TONE: Record<EditOperation['kind'], string> = {
   add_assistance_entry: 'bg-emerald-500/15 text-emerald-100 ring-emerald-500/40',
   add_movement_to_library: 'bg-emerald-500/15 text-emerald-100 ring-emerald-500/40',
   add_cardio_plan_slot: 'bg-sky-500/15 text-sky-100 ring-sky-500/40',
+  remove_cardio_plan_slot: 'bg-rose-500/15 text-rose-100 ring-rose-500/40',
   remove_assistance_entry: 'bg-rose-500/15 text-rose-100 ring-rose-500/40',
   schedule_deload: 'bg-sky-500/15 text-sky-100 ring-sky-500/40',
   skip_day_in_week: 'bg-rose-500/15 text-rose-100 ring-rose-500/40',
@@ -504,6 +506,8 @@ function OpDiff({
       );
     case 'add_cardio_plan_slot':
       return <AddCardioPlanSlotDiff op={op} />;
+    case 'remove_cardio_plan_slot':
+      return <RemoveCardioPlanSlotDiff op={op} />;
     case 'remove_assistance_entry':
       return <RemoveAssistanceEntryDiff op={op} />;
     case 'schedule_deload':
@@ -938,6 +942,30 @@ function AddCardioPlanSlotDiff({
         {op.linkedToActiveBlock !== false
           ? ' Auto-removed when the current block completes — no manual cleanup.'
           : ' Permanent — stays in the cardio plan until you remove it manually.'}
+      </p>
+    </div>
+  );
+}
+
+function RemoveCardioPlanSlotDiff({
+  op,
+}: {
+  op: EditOperation & { kind: 'remove_cardio_plan_slot' };
+}) {
+  const dayName = WEEKDAY_NAMES[op.dayOfWeek] ?? `Day ${op.dayOfWeek}`;
+  const emoji = MODALITY_EMOJI[op.modality] ?? '🏃';
+  const modalityShown = op.modalityLabel ?? op.modality;
+  return (
+    <div className="space-y-2 text-sm">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className="font-semibold">
+          {emoji} Remove {dayName}: {modalityShown}
+          {op.planKindLabel ? ` · ${op.planKindLabel}` : ''}
+        </span>
+      </div>
+      <p className="text-[11px] text-muted leading-relaxed">
+        Will remove the matching slot from your cardio plan. Matched by
+        (weekday + modality). If no slot matches, the op is a no-op.
       </p>
     </div>
   );

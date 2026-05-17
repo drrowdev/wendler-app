@@ -11,6 +11,7 @@ export type ParsedEditOperationKind =
   | 'add_assistance_entry'
   | 'add_movement_to_library'
   | 'add_cardio_plan_slot'
+  | 'remove_cardio_plan_slot'
   | 'remove_assistance_entry'
   | 'schedule_deload'
   | 'skip_day_in_week';
@@ -117,6 +118,16 @@ export interface ParsedAddCardioPlanSlotOp extends ParsedEditOpBase {
   appliesToWeeks?: Array<'1' | '2' | '3' | 'deload' | '7w'>;
 }
 
+export interface ParsedRemoveCardioPlanSlotOp extends ParsedEditOpBase {
+  kind: 'remove_cardio_plan_slot';
+  /** ISO weekday: 0 = Mon … 6 = Sun. */
+  dayOfWeek: number;
+  /** Modality: run | bike | swim | row | walk | padel | other. */
+  modality: string;
+  modalityLabel?: string;
+  planKindLabel?: string;
+}
+
 export interface ParsedScheduleDeloadOp extends ParsedEditOpBase {
   kind: 'schedule_deload';
 }
@@ -145,6 +156,7 @@ export type ParsedEditOperation =
   | ParsedAddAssistanceEntryOp
   | ParsedAddMovementToLibraryOp
   | ParsedAddCardioPlanSlotOp
+  | ParsedRemoveCardioPlanSlotOp
   | ParsedRemoveAssistanceEntryOp
   | ParsedScheduleDeloadOp
   | ParsedSkipDayInWeekOp;
@@ -169,6 +181,7 @@ const OP_KINDS = new Set<ParsedEditOperationKind>([
   'add_assistance_entry',
   'add_movement_to_library',
   'add_cardio_plan_slot',
+  'remove_cardio_plan_slot',
   'remove_assistance_entry',
   'schedule_deload',
   'skip_day_in_week',
@@ -805,6 +818,51 @@ function validateOp(
     }
     case 'schedule_deload': {
       return { ...base, kind };
+    }
+    case 'remove_cardio_plan_slot': {
+      const VALID_MODALITIES = new Set<string>([
+        'run',
+        'bike',
+        'swim',
+        'row',
+        'walk',
+        'padel',
+        'other',
+      ]);
+      const rawDow = op.dayOfWeek;
+      let dayOfWeek: number | undefined;
+      if (typeof rawDow === 'number' && Number.isInteger(rawDow) && rawDow >= 0 && rawDow <= 6) {
+        dayOfWeek = rawDow;
+      } else {
+        errors.push(
+          `${where}.dayOfWeek must be an integer 0-6 (0=Mon … 6=Sun). Got ${String(rawDow)}.`,
+        );
+      }
+      const modalityRaw = op.modality;
+      const modalityValid =
+        typeof modalityRaw === 'string' && VALID_MODALITIES.has(modalityRaw);
+      if (!modalityValid) {
+        errors.push(
+          `${where}.modality must be one of ${[...VALID_MODALITIES].join(', ')}.`,
+        );
+      }
+      const modalityLabel =
+        typeof op.modalityLabel === 'string' && op.modalityLabel.trim()
+          ? op.modalityLabel.trim().slice(0, 40)
+          : undefined;
+      const planKindLabel =
+        typeof op.planKindLabel === 'string' && op.planKindLabel.trim()
+          ? op.planKindLabel.trim().slice(0, 40)
+          : undefined;
+      if (dayOfWeek === undefined || !modalityValid) return undefined;
+      return {
+        ...base,
+        kind,
+        dayOfWeek,
+        modality: modalityRaw as string,
+        ...(modalityLabel ? { modalityLabel } : {}),
+        ...(planKindLabel ? { planKindLabel } : {}),
+      };
     }
     case 'skip_day_in_week': {
       const dayId = strField(op.dayId, `${where}.dayId`, errors, 100);

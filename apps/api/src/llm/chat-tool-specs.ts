@@ -204,6 +204,7 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
                 'add_assistance_entry',
                 'add_movement_to_library',
                 'add_cardio_plan_slot',
+                'remove_cardio_plan_slot',
                 'remove_assistance_entry',
                 'schedule_deload',
                 'skip_day_in_week',
@@ -498,6 +499,16 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
               items: { type: 'string', enum: ['1', '2', '3', 'deload', '7w'] },
               description:
                 'add_cardio_plan_slot only. When the cardio slot is replacing a strength day for SPECIFIC weeks of the block (e.g. paired with skip_day_in_week.weeks = ["2", "3", "deload"]), pass the SAME weeks here so the cardio slot only shows on /calendar during those weeks. Apply resolves to a date range bounded by the linked block. Omit when the slot should run every week of the block. MUST match the paired skip op exactly when both are emitted.',
+            },
+            modalityLabel: {
+              type: 'string',
+              description:
+                'remove_cardio_plan_slot only. Display label for the modality (e.g. "Bike"). Used in the accept-sheet preview.',
+            },
+            planKindLabel: {
+              type: 'string',
+              description:
+                'remove_cardio_plan_slot only. Display label for the slot kind (e.g. "Z2"). Used in the accept-sheet preview.',
             },
           },
           required: ['kind', 'label'],
