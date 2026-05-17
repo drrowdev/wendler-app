@@ -84,6 +84,31 @@ function CardioPlanPanel() {
     for (const b of blocks ?? []) m.set(b.id, b.name);
     return m;
   }, [blocks]);
+  const [busyIdx, setBusyIdx] = useState<number | null>(null);
+
+  const deleteSlot = async (idx: number) => {
+    if (!plan) return;
+    const slot = plan.slots[idx];
+    if (!slot) return;
+    const dayName = WEEKDAY_NAMES[slot.dayOfWeek] ?? `Day ${slot.dayOfWeek}`;
+    const ok = window.confirm(
+      `Delete this cardio plan slot?\n\n` +
+        `${dayName} · ${slot.modality} · ${slot.kind}\n\n` +
+        `It will stop appearing on /calendar on every ${dayName}.`,
+    );
+    if (!ok) return;
+    setBusyIdx(idx);
+    try {
+      const next = plan.slots.filter((_, i) => i !== idx);
+      await getDb().cardioPlan.put({
+        ...plan,
+        slots: next,
+        updatedAt: new Date().toISOString(),
+      });
+    } finally {
+      setBusyIdx(null);
+    }
+  };
 
   if (plan === undefined) return <p className="text-sm text-muted">Loading…</p>;
   if (!plan || plan.slots.length === 0) {
@@ -101,19 +126,30 @@ function CardioPlanPanel() {
       <div className="space-y-2">
         {plan.slots.map((s, i) => {
           const linkName = s.linkedBlockId ? blockById.get(s.linkedBlockId) : undefined;
+          const dayName = WEEKDAY_NAMES[s.dayOfWeek] ?? `Day ${s.dayOfWeek}`;
           return (
             <div
               key={i}
               className="rounded-lg border border-border bg-bg/40 px-3 py-2 text-sm space-y-1"
             >
-              <div className="font-semibold">
-                #{i + 1} · {WEEKDAY_NAMES[s.dayOfWeek] ?? `Day ${s.dayOfWeek}`} ·{' '}
-                {s.modality} · {s.kind}
-                {s.durationMin !== undefined && (
-                  <span className="ml-2 rounded bg-bg/60 px-1.5 py-0.5 text-xs">
-                    {s.durationMin} min
-                  </span>
-                )}
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <div className="font-semibold">
+                  #{i + 1} · {dayName} · {s.modality} · {s.kind}
+                  {s.durationMin !== undefined && (
+                    <span className="ml-2 rounded bg-bg/60 px-1.5 py-0.5 text-xs">
+                      {s.durationMin} min
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void deleteSlot(i)}
+                  disabled={busyIdx === i}
+                  className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Permanently delete this slot from your cardio plan. The calendar updates instantly."
+                >
+                  {busyIdx === i ? 'Deleting…' : 'Delete'}
+                </button>
               </div>
               <ul className="ml-3 list-disc text-xs text-fg/80 space-y-0.5">
                 <li>
@@ -147,12 +183,9 @@ function CardioPlanPanel() {
         })}
       </div>
       <p className="text-xs text-muted leading-relaxed">
-        The calendar shows a slot on a given date when (a) the weekday matches{' '}
-        <code className="text-fg/80">dayOfWeek</code>, AND (b) the date is within
-        the slot&apos;s <code className="text-fg/80">effectiveFrom</code> /{' '}
-        <code className="text-fg/80">effectiveUntil</code> window (or both
-        bounds are absent — &quot;every week&quot;). To remove a slot manually,
-        use <Link className="text-link hover:underline" href="/program?tab=cardio">Program → Cardio</Link>.
+        Each row here is <strong>one</strong> recurring slot — deleting it
+        removes it from every matching weekday on the calendar at once.
+        The calendar updates immediately (live query).
       </p>
     </section>
   );
