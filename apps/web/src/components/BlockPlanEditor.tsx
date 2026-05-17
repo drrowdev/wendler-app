@@ -240,15 +240,34 @@ export function BlockPlanEditor({ block, schedule, movements, weekScope }: Block
     const i = rawPlan.days.findIndex((d) => d.id === dayId);
     if (i < 0) return;
     const src = rawPlan.days[i]!;
+    const newDayId = nanoid();
     const clone: BlockDay = {
       ...src,
-      id: nanoid(),
+      id: newDayId,
       label: src.label ? `${src.label} (copy)` : undefined,
-      assistance: src.assistance.map((e) => ({ ...e, id: nanoid() })),
+      // Base is empty post-v21 — kept as [] for sync back-compat with
+      // pre-v21 clients but unused locally. Real assistance lives in
+      // the per-week store, copied below.
+      assistance: [],
     };
     const next = rawPlan.days.slice();
     next.splice(i + 1, 0, clone);
-    applyChange({ ...rawPlan, days: next }, true);
+    // Copy every (week, srcDayId) entries to (week, newDayId) with
+    // fresh entry IDs so the duplicate is independent of the source.
+    const overrides = { ...(rawPlan.assistanceOverrides ?? {}) };
+    for (const key of Object.keys(rawPlan.assistanceOverrides ?? {})) {
+      const [wk, did] = key.split('|');
+      if (did !== dayId || wk === undefined) continue;
+      const srcEntries = rawPlan.assistanceOverrides![key]!;
+      overrides[`${wk}|${newDayId}`] = srcEntries.map((e) => ({
+        ...e,
+        id: nanoid(),
+      }));
+    }
+    applyChange(
+      { ...rawPlan, days: next, assistanceOverrides: overrides },
+      true,
+    );
   };
 
   const moveDay = (fromIndex: number, toIndex: number) => {

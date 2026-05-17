@@ -88,6 +88,8 @@ export function BringMovementsButton({ block, schedule }: Props) {
       const sourceOverrides = sourcePlan.assistanceOverrides ?? {};
 
       // Build per-position dayId remap (source dayId -> target dayId).
+      // After v21 the base `assistance` is empty so we ONLY copy the
+      // per-week store; the target's base also stays empty.
       const remap = new Map<string, string>();
       const nextDays = targetPlan.days.map((d, i) => {
         const src = sourceDays[i];
@@ -95,7 +97,7 @@ export function BringMovementsButton({ block, schedule }: Props) {
         remap.set(src.id, d.id);
         return {
           ...d,
-          assistance: src.assistance.map((e) => ({ ...e, id: nanoid() })),
+          assistance: [],
         };
       });
 
