@@ -433,9 +433,14 @@ export function renderChatContextAsText(ctx: ChatContextSummary): string {
     lines.push(`secondary: ${ctx.profile.secondaryGoals.join(', ') || '(none)'}`);
     lines.push(`phase: ${ctx.profile.phase}`);
     if (ctx.profile.constraints.length > 0) {
+      lines.push('');
+      lines.push('## Movement exclusions (USER FILTERS — NOT in the block plan)');
       lines.push(
-        `HARD EXCLUSIONS (never propose these — user-set filters): ${ctx.profile.constraints.join(' · ')}`,
+        'The user has explicitly EXCLUDED these movement types from being recommended. They are NOT currently in the block plan and the user does NOT want them. **Never claim these movements ARE in the block. Never propose them as additions or swaps. Never tell the user to "swap these out" — they are already excluded.** The list below is what to AVOID, not what to look at.',
       );
+      for (const c of ctx.profile.constraints) {
+        lines.push(`- ${c}`);
+      }
     }
   }
 

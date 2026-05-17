@@ -48,7 +48,7 @@ export function useChatList(): Chat[] | undefined {
 
 async function buildContextBlob(): Promise<string> {
   const db = getDb();
-  const [sets, cardio, recovery, races, tms, settings, movements, blocks, sessions] =
+  const [sets, cardio, recovery, races, tms, settings, movements, blocks, sessions, schedule] =
     await Promise.all([
       db.sets.toArray(),
       db.cardio.toArray(),
@@ -59,6 +59,7 @@ async function buildContextBlob(): Promise<string> {
       db.movements.toArray(),
       db.blocks.toArray(),
       db.sessions.toArray(),
+      db.schedule.get('singleton'),
     ]);
   const movementName = new Map(movements.map((m) => [m.id, m.name]));
   const summary = buildChatContext({
@@ -153,16 +154,56 @@ async function buildContextBlob(): Promise<string> {
     lines.push(
       `  (Suggest assistance only re-generates UPCOMING weeks. Preset / volume chips do nothing for weeks already marked COMPLETE — do not propose them when only complete weeks would be affected.)`,
     );
+
+    // Disambiguate "this week" vs. "next training week". The block's
+    // Week N labels are training-cycle labels, not calendar weeks. A
+    // user asking "next week" might mean (a) the next calendar week
+    // (Monday after today) or (b) the next block week to be trained.
+    // We surface both anchors so the AI can be precise.
+    const today = new Date();
+    const weekdayName = today.toLocaleDateString('en-US', { weekday: 'long' });
+    const todayYmd = (() => {
+      const y = today.getFullYear();
+      const m = String(today.getMonth() + 1).padStart(2, '0');
+      const d = String(today.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    })();
+    const cursorWeek = schedule?.cursor?.blockId === activeBlock.id
+      ? schedule.cursor.week
+      : undefined;
+    const cursorLabel = cursorWeek === 'deload'
+      ? 'Deload week'
+      : cursorWeek === '7w'
+        ? '7th-week block'
+        : cursorWeek !== undefined
+          ? `Week ${cursorWeek}`
+          : undefined;
+    lines.push(
+      `- TODAY: ${todayYmd} (${weekdayName}). The next-scheduled training session sits in ${cursorLabel ?? '(cursor not set — infer from week completion above)'}. When the user says "this week" or "next week" without qualifying it, ASK which one they mean (calendar week vs. block week) before assuming — these often disagree by 1–2 days.`,
+    );
   }
   if (days.length > 0) {
     lines.push('- Days:');
     days.forEach((day, i) => {
+      const assistanceCount = day.assistance.length;
       // User-facing label is 1-based ("Day 1", "Day 2", ...). The
       // 0-based index is exposed only via the `id` field below for tools
       // that need stable references (e.g. substitute_movement chips).
-      const dayHeader = `  - Day ${i + 1}${day.label ? ` "${day.label}"` : ''} (id=\`${day.id}\`)${
-        day.mainLifts.length > 0 ? ` · main lifts: ${day.mainLifts.join(', ')}` : ' · accessory day'
-      }`;
+      //
+      // Day header explicitly distinguishes:
+      //   - "main lifts" days (have 5/3/1 main work) — list which lifts
+      //   - "accessory-only" days (no main lifts but assistance is
+      //     scheduled) — list the count so the AI doesn't mis-read as
+      //     "empty"
+      //   - truly empty days (no main + no assistance) — flagged
+      //     EMPTY so the AI knows there is genuinely nothing scheduled
+      const mainPart =
+        day.mainLifts.length > 0
+          ? ` · main lifts: ${day.mainLifts.join(', ')}`
+          : assistanceCount > 0
+            ? ` · accessory-only day (no main lifts, ${assistanceCount} assistance ${assistanceCount === 1 ? 'movement' : 'movements'} scheduled — listed below)`
+            : ' · EMPTY (no main lifts and no assistance scheduled)';
+      const dayHeader = `  - Day ${i + 1}${day.label ? ` "${day.label}"` : ''} (id=\`${day.id}\`)${mainPart}`;
       lines.push(dayHeader);
       // Per-week skip status for this day. Only emitted when the day is
       // skipped in at least one week, to keep the snapshot lean. The AI
