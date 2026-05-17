@@ -220,6 +220,12 @@ export function SetCard({
       ...(existing && { amendsSetId: existing.amendsSetId ?? existing.id }),
     };
     await getDb().sets.put(record);
+    // Proactive AI: if this is a main-lift AMRAP that smashed the
+    // week's target by 5+ reps, fire a Coach chat with a TM-bump
+    // proposal. Fire-and-forget; failures are logged.
+    void import('@/lib/amrap-trigger').then(({ maybeTriggerAmrapBump }) => {
+      void maybeTriggerAmrapBump(record);
+    });
     setSaving(false);
     onLogged?.();
   };

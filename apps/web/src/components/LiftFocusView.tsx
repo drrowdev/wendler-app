@@ -241,6 +241,10 @@ export function LiftFocusView({
       ...(existing && { amendsSetId: existing.amendsSetId ?? existing.id }),
     };
     await getDb().sets.put(record);
+    // Proactive AI: AMRAP smash detection (see SessionParts).
+    void import('@/lib/amrap-trigger').then(({ maybeTriggerAmrapBump }) => {
+      void maybeTriggerAmrapBump(record);
+    });
 
     // Compute PR badges for confirmation (warm-ups never count as PRs).
     const prs = !isWarmup
