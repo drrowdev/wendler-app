@@ -20,6 +20,7 @@ export type ParsedEditOperationKind =
   | 'swap_assistance_movement'
   | 'add_assistance_entry'
   | 'add_movement_to_library'
+  | 'add_cardio_plan_slot'
   | 'remove_assistance_entry'
   | 'schedule_deload'
   | 'skip_day_in_week';
@@ -102,6 +103,18 @@ export interface ParsedRemoveAssistanceEntryOp extends ParsedEditOpBase {
   movementName: string;
 }
 
+export interface ParsedAddCardioPlanSlotOp extends ParsedEditOpBase {
+  kind: 'add_cardio_plan_slot';
+  /** ISO weekday: 0 = Mon … 6 = Sun. */
+  dayOfWeek: number;
+  /** Modality: run | bike | swim | row | walk | padel | other. */
+  modality: string;
+  /** Planned kind: rest | easy | long | quality | recovery | race-pace | z2 | intervals | cross. */
+  planKind: string;
+  durationMin?: number;
+  notes?: string;
+}
+
 export interface ParsedScheduleDeloadOp extends ParsedEditOpBase {
   kind: 'schedule_deload';
 }
@@ -129,6 +142,7 @@ export type ParsedEditOperation =
   | ParsedSwapAssistanceMovementOp
   | ParsedAddAssistanceEntryOp
   | ParsedAddMovementToLibraryOp
+  | ParsedAddCardioPlanSlotOp
   | ParsedRemoveAssistanceEntryOp
   | ParsedScheduleDeloadOp
   | ParsedSkipDayInWeekOp;
@@ -152,6 +166,7 @@ const OP_KINDS = new Set<ParsedEditOperationKind>([
   'swap_assistance_movement',
   'add_assistance_entry',
   'add_movement_to_library',
+  'add_cardio_plan_slot',
   'remove_assistance_entry',
   'schedule_deload',
   'skip_day_in_week',
@@ -690,6 +705,84 @@ function validateOp(
         entryId,
         movementName,
         ...(blockId ? { blockId } : {}),
+      };
+    }
+    case 'add_cardio_plan_slot': {
+      const VALID_MODALITIES = new Set<string>([
+        'run',
+        'bike',
+        'swim',
+        'row',
+        'walk',
+        'padel',
+        'other',
+      ]);
+      const VALID_PLAN_KINDS = new Set<string>([
+        'rest',
+        'easy',
+        'long',
+        'quality',
+        'recovery',
+        'race-pace',
+        'z2',
+        'intervals',
+        'cross',
+      ]);
+      const rawDow = op.dayOfWeek;
+      let dayOfWeek: number | undefined;
+      if (typeof rawDow === 'number' && Number.isInteger(rawDow) && rawDow >= 0 && rawDow <= 6) {
+        dayOfWeek = rawDow;
+      } else {
+        errors.push(
+          `${where}.dayOfWeek must be an integer 0-6 (0=Mon … 6=Sun). Got ${String(rawDow)}.`,
+        );
+      }
+      const modalityRaw = op.modality;
+      const modalityValid =
+        typeof modalityRaw === 'string' && VALID_MODALITIES.has(modalityRaw);
+      if (!modalityValid) {
+        errors.push(
+          `${where}.modality must be one of ${[...VALID_MODALITIES].join(', ')}.`,
+        );
+      }
+      // The op field is named planKind (not 'kind') so it doesn't shadow
+      // the op-discriminator 'kind' field.
+      const planKindRaw = op.planKind;
+      const planKindValid =
+        typeof planKindRaw === 'string' && VALID_PLAN_KINDS.has(planKindRaw);
+      if (!planKindValid) {
+        errors.push(
+          `${where}.planKind must be one of ${[...VALID_PLAN_KINDS].join(', ')}.`,
+        );
+      }
+      let durationMin: number | undefined;
+      if (op.durationMin !== undefined && op.durationMin !== null) {
+        const n = num(op.durationMin, 'durationMin', errors, where);
+        if (n !== undefined) {
+          if (!Number.isFinite(n) || n <= 0 || n > 600) {
+            errors.push(
+              `${where}.durationMin must be a positive number ≤ 600 minutes.`,
+            );
+          } else {
+            durationMin = Math.round(n);
+          }
+        }
+      }
+      const notes =
+        typeof op.notes === 'string' && op.notes.trim()
+          ? op.notes.trim().slice(0, 200)
+          : undefined;
+      if (dayOfWeek === undefined || !modalityValid || !planKindValid) {
+        return undefined;
+      }
+      return {
+        ...base,
+        kind,
+        dayOfWeek,
+        modality: modalityRaw as string,
+        planKind: planKindRaw as string,
+        ...(durationMin !== undefined ? { durationMin } : {}),
+        ...(notes ? { notes } : {}),
       };
     }
     case 'schedule_deload': {

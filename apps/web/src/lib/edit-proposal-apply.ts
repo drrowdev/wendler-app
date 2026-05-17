@@ -98,9 +98,10 @@ const APPLY_ORDER: Record<EditOperation['kind'], number> = {
   remove_assistance_entry: 3,
   add_movement_to_library: 4,
   add_assistance_entry: 5,
-  trim_assistance_entry: 6,
-  swap_assistance_movement: 7,
-  set_training_max: 8,
+  add_cardio_plan_slot: 6,
+  trim_assistance_entry: 7,
+  swap_assistance_movement: 8,
+  set_training_max: 9,
 };
 
 export interface ApplyProposalResult {
@@ -184,7 +185,7 @@ export async function applyEditProposal(
   try {
     await db.transaction(
       'rw',
-      [db.blocks, db.trainingMaxes, db.settings, db.movements],
+      [db.blocks, db.trainingMaxes, db.settings, db.movements, db.cardioPlan],
       async () => {
         for (const op of accepted) {
           // Re-resolve the target block fresh per op (a previous op in
@@ -303,6 +304,8 @@ async function performOp(
       return performAddAssistanceEntry(op, tempIdMap);
     case 'add_movement_to_library':
       return performAddMovementToLibrary(op, tempIdMap);
+    case 'add_cardio_plan_slot':
+      return performAddCardioPlanSlot(op);
     case 'remove_assistance_entry':
       return performRemoveAssistanceEntry(op);
     case 'schedule_deload':
@@ -597,6 +600,67 @@ async function resolveBlock(blockId?: string): Promise<ProgramBlock> {
   const active = all.find((b) => !b.completedAt);
   if (!active) throw new Error('No active block found.');
   return active;
+}
+
+async function performAddCardioPlanSlot(
+  op: EditOperation & { kind: 'add_cardio_plan_slot' },
+): Promise<EditOperationAppliedDetail> {
+  const db = getDb();
+  const existing = (await db.cardioPlan.get('singleton')) ?? {
+    id: 'singleton' as const,
+    slots: [],
+    updatedAt: new Date().toISOString(),
+  };
+  const slots = [...existing.slots];
+  // Idempotency: a slot already in place for the same (dayOfWeek,
+  // modality) is left untouched (treated as the user's authoritative
+  // version). Surfaced in the audit detail so the user understands
+  // why their kind/duration/notes weren't overwritten.
+  const dupIdx = slots.findIndex(
+    (s) => s.dayOfWeek === op.dayOfWeek && s.modality === op.modality,
+  );
+  let reusedExisting = false;
+  if (dupIdx >= 0) {
+    reusedExisting = true;
+  } else {
+    slots.push({
+      dayOfWeek: op.dayOfWeek,
+      modality: op.modality as
+        | 'run'
+        | 'bike'
+        | 'swim'
+        | 'row'
+        | 'walk'
+        | 'padel'
+        | 'other',
+      kind: op.planKind as
+        | 'rest'
+        | 'easy'
+        | 'long'
+        | 'quality'
+        | 'recovery'
+        | 'race-pace'
+        | 'z2'
+        | 'intervals'
+        | 'cross',
+      ...(op.durationMin !== undefined ? { durationMin: op.durationMin } : {}),
+      ...(op.notes ? { notes: op.notes } : {}),
+    });
+    await db.cardioPlan.put({
+      ...existing,
+      slots,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  return {
+    kind: 'add_cardio_plan_slot',
+    dayOfWeek: op.dayOfWeek,
+    modality: op.modality,
+    planKind: op.planKind,
+    ...(op.durationMin !== undefined ? { durationMin: op.durationMin } : {}),
+    ...(op.notes ? { notes: op.notes } : {}),
+    ...(reusedExisting ? { reusedExisting: true } : {}),
+  };
 }
 
 async function performSkipDayInWeek(

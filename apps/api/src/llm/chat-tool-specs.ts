@@ -203,6 +203,7 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
                 'swap_assistance_movement',
                 'add_assistance_entry',
                 'add_movement_to_library',
+                'add_cardio_plan_slot',
                 'remove_assistance_entry',
                 'schedule_deload',
                 'skip_day_in_week',
@@ -443,6 +444,49 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
               type: 'string',
               description:
                 'add_movement_to_library only. One-line note explaining which existing library entries you considered before proposing this new one (e.g. "Closest existing: Side-lying Clamshell (band, glutes) — different setup so not equivalent."). Builds the user\'s trust in your dedup check. ≤ 300 chars.',
+            },
+
+            // add_cardio_plan_slot
+            dayOfWeek: {
+              type: 'integer',
+              minimum: 0,
+              maximum: 6,
+              description:
+                'add_cardio_plan_slot only. ISO weekday — 0=Mon … 6=Sun.',
+            },
+            modality: {
+              type: 'string',
+              enum: ['run', 'bike', 'swim', 'row', 'walk', 'padel', 'other'],
+              description:
+                'add_cardio_plan_slot only. Modality of the planned cardio session.',
+            },
+            planKind: {
+              type: 'string',
+              enum: [
+                'rest',
+                'easy',
+                'long',
+                'quality',
+                'recovery',
+                'race-pace',
+                'z2',
+                'intervals',
+                'cross',
+              ],
+              description:
+                'add_cardio_plan_slot only. Planned-session kind. Note the field is `planKind` not `kind` to avoid colliding with the op-discriminator `kind`.',
+            },
+            durationMin: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 600,
+              description:
+                'add_cardio_plan_slot only. Optional planned duration in minutes.',
+            },
+            notes: {
+              type: 'string',
+              description:
+                'add_cardio_plan_slot only. Optional free-text note (e.g. "60 min indoor trainer"). ≤ 200 chars.',
             },
           },
           required: ['kind', 'label'],

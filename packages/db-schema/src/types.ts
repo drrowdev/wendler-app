@@ -1329,6 +1329,7 @@ export type EditOperationKind =
   | 'swap_assistance_movement'
   | 'add_assistance_entry'
   | 'add_movement_to_library'
+  | 'add_cardio_plan_slot'
   | 'remove_assistance_entry'
   | 'schedule_deload'
   | 'skip_day_in_week';
@@ -1464,6 +1465,35 @@ export interface AddMovementToLibraryEditOp extends EditOperationBase {
   dedupHint?: string;
 }
 
+/**
+ * Add a recurring weekly slot to the user's cardio plan. Pairs
+ * naturally with `skip_day_in_week` when the AI is replacing a
+ * strength day with cardio — the user can review and accept/decline
+ * each side independently in the same accept-sheet.
+ *
+ * The cardio plan is a weekly template (one entry per weekday +
+ * modality combination). After accept the slot persists in the plan
+ * indefinitely; the user removes it manually via /program?tab=cardio
+ * when the racing block ends.
+ */
+export interface AddCardioPlanSlotEditOp extends EditOperationBase {
+  kind: 'add_cardio_plan_slot';
+  /** ISO weekday: 0 = Mon … 6 = Sun. */
+  dayOfWeek: number;
+  /** Modality: run | bike | swim | row | walk | padel | other. */
+  modality: string;
+  /**
+   * Planned kind: rest | easy | long | quality | recovery | race-pace
+   * | z2 | intervals | cross. Named `planKind` so it doesn't shadow
+   * the op-discriminator `kind` field.
+   */
+  planKind: string;
+  /** Optional planned duration in minutes. */
+  durationMin?: number;
+  /** Free-text note (e.g. "60 min indoor trainer"). */
+  notes?: string;
+}
+
 export interface RemoveAssistanceEntryEditOp extends EditOperationBase {
   kind: 'remove_assistance_entry';
   blockId?: string;
@@ -1517,6 +1547,7 @@ export type EditOperation =
   | SwapAssistanceMovementEditOp
   | AddAssistanceEntryEditOp
   | AddMovementToLibraryEditOp
+  | AddCardioPlanSlotEditOp
   | RemoveAssistanceEntryEditOp
   | ScheduleDeloadEditOp
   | SkipDayInWeekEditOp;
@@ -1570,6 +1601,20 @@ export type EditOperationAppliedDetail =
       reusedExistingMovementId?: string;
     }
   | { kind: 'remove_assistance_entry'; removedMovementName: string }
+  | {
+      kind: 'add_cardio_plan_slot';
+      dayOfWeek: number;
+      modality: string;
+      planKind: string;
+      durationMin?: number;
+      notes?: string;
+      /**
+       * When the slot already existed (same dayOfWeek + modality
+       * combo), apply is a no-op and this is set to the existing
+       * slot's identity so the audit trail captures the soft-skip.
+       */
+      reusedExisting?: boolean;
+    }
   | { kind: 'schedule_deload'; newBlockId: string; sequenceIndex: number }
   | {
       kind: 'skip_day_in_week';
