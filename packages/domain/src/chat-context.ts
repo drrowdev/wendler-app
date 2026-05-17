@@ -100,6 +100,14 @@ export interface ChatContextSummary {
     primaryGoal: string;
     secondaryGoals: string[];
     phase: string;
+    /**
+     * User-defined hard exclusions ("no skull crushers", "no machines",
+     * "no overhead pressing"). Surfaced verbatim from
+     * TrainingProfile.constraints so the chat AI can honour them when
+     * proposing edits — same contract as the assistance suggester.
+     * Only ACTIVE constraints are included (active !== false).
+     */
+    constraints: string[];
   };
   currentTms: Array<{ lift: string; kg: number }>;
   /** Last 90 days, daily resolution. */
@@ -391,6 +399,9 @@ export function buildChatContext(input: ChatContextInput): ChatContextSummary {
           primaryGoal: input.profile.primaryGoal,
           secondaryGoals: [...input.profile.secondaryGoals],
           phase: input.profile.trainingPhase,
+          constraints: (input.profile.constraints ?? [])
+            .filter((c) => c.active !== false)
+            .map((c) => c.label),
         }
       : undefined,
     currentTms,
@@ -421,6 +432,11 @@ export function renderChatContextAsText(ctx: ChatContextSummary): string {
     lines.push(`primary: ${ctx.profile.primaryGoal}`);
     lines.push(`secondary: ${ctx.profile.secondaryGoals.join(', ') || '(none)'}`);
     lines.push(`phase: ${ctx.profile.phase}`);
+    if (ctx.profile.constraints.length > 0) {
+      lines.push(
+        `HARD EXCLUSIONS (never propose these — user-set filters): ${ctx.profile.constraints.join(' · ')}`,
+      );
+    }
   }
 
   lines.push('');
