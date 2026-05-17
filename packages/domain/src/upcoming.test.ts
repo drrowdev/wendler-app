@@ -8,7 +8,6 @@ function makeBlock(overrides: Partial<ProgramBlock> = {}): ProgramBlock {
     name: 'Block 1',
     kind: 'leader',
     weeksBeforeDeload: 3,
-    includesDeload: false,
     supplementalTemplate: 'fsl',
     createdAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -152,16 +151,16 @@ describe('projectUpcomingWorkouts', () => {
   });
 
   it('honours horizonDays and stops at end of block', () => {
-    const block = makeBlock({ weeksBeforeDeload: 3, includesDeload: true });
+    const block = makeBlock({ weeksBeforeDeload: 3 });
     const schedule = makeSchedule({
       dayGroups: [{ mainLifts: ['press'], weekday: 0 }],
       cursor: { blockId: 'b1', week: 1, groupIndex: 0 },
     });
     const from = new Date(2026, 3, 26);
     const all = projectUpcomingWorkouts(block, schedule, from, { maxItems: 99 });
-    // 3 weeks + deload = 4 Mondays.
-    expect(all).toHaveLength(4);
-    expect(all[3]?.week).toBe('deload');
+    // 3 weeks → 3 Mondays (no built-in deload).
+    expect(all).toHaveLength(3);
+    expect(all[2]?.week).toBe(3);
     const horizon = projectUpcomingWorkouts(block, schedule, from, {
       horizonDays: 10,
     });
@@ -259,7 +258,6 @@ describe('projectUpcomingWorkouts', () => {
 
   it('suppresses days flagged skipped via plan.dayOverridesByWeek', () => {
     const block: ProgramBlock = makeBlock({
-      includesDeload: true,
       // Pre-built plan with an explicit dayOverridesByWeek that skips
       // Day 3 (groupIndex 2) for weeks 2, 3, and deload — the
       // taper-week / cardio-replacement pattern.

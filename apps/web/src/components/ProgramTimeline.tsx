@@ -155,13 +155,10 @@ export function ProgramTimeline({
       const wendlerWeeks: WendlerWeek[] =
         seg.kind === 'seventh-week'
           ? ['7w']
-          : [
-              ...Array.from(
-                { length: seg.source.weeksBeforeDeload },
-                (_, i) => (i + 1) as 1 | 2 | 3,
-              ),
-              ...(seg.includesDeload ? (['deload'] as const) : []),
-            ];
+          : Array.from(
+              { length: seg.source.weeksBeforeDeload },
+              (_, i) => (i + 1) as 1 | 2 | 3,
+            );
       const entries: Array<{ weekIndex: number; count: number }> = [];
       wendlerWeeks.forEach((wk, offset) => {
         let count = 0;

@@ -9,7 +9,6 @@ function makeBlock(over: Partial<ProgramBlock> = {}): ProgramBlock {
     name: 'Anchor 1',
     kind: 'anchor',
     weeksBeforeDeload: 3,
-    includesDeload: false,
     supplementalTemplate: 'fsl',
     createdAt: '2026-05-11T00:00:00.000Z',
     startedAt: '2026-05-11', // Monday of Wk 1

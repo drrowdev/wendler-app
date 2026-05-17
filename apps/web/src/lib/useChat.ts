@@ -193,9 +193,10 @@ export async function buildContextBlob(): Promise<string> {
           ...(activeBlock.seventhWeekKind
             ? { seventhWeekKind: activeBlock.seventhWeekKind }
             : {}),
-          // Plumb the visible cursor week so the deload-week of a
-          // Leader/Anchor with `includesDeload: true` auto-derives
-          // phase = 'deload' (matches what the user sees in the app).
+          // Plumb the visible cursor week so a standalone seventh-week
+          // deload block auto-derives phase = 'deload' (and Leader/Anchor
+          // blocks always derive 'normal' since they no longer carry a
+          // built-in deload week).
           ...(schedule?.cursor?.blockId === activeBlock.id
             ? { cursorWeek: schedule.cursor.week }
             : {}),
@@ -228,27 +229,24 @@ export async function buildContextBlob(): Promise<string> {
   const blockSessions = sessions.filter((s) => s.blockId === activeBlock.id);
   const days = activeBlock.plan?.days ?? [];
   const dayCount = Math.max(1, days.length);
-  // Weeks the snapshot reports per-day assistance for. CRITICAL:
-  // honor `includesDeload` so the AI never sees a "deload week" for
-  // a block that doesn't have one (e.g. anchor blocks default to
-  // weeksBeforeDeload=3 + includesDeload=false). Without this guard
-  // the AI would invent references to a non-existent week.
-  const weekScopes: Array<'1' | '2' | '3' | 'deload' | '7w'> = (() => {
-    if (activeBlock.kind === 'seventh-week') return ['7w'];
-    const out: Array<'1' | '2' | '3' | 'deload' | '7w'> = ['1', '2', '3'];
-    if (activeBlock.includesDeload) out.push('deload');
-    return out;
-  })();
+  // Weeks the snapshot reports per-day assistance for. 7th-week
+  // blocks have only '7w'; Leader/Anchor/standalone have weeks 1, 2,
+  // 3. (Built-in deload weeks have been deprecated — deloads are
+  // scheduled as standalone seventh-week blocks via the 7th-Week
+  // prompt logic.)
+  const weekScopes: Array<'1' | '2' | '3' | 'deload' | '7w'> =
+    activeBlock.kind === 'seventh-week' ? ['7w'] : ['1', '2', '3'];
   // Explicit block-structure statement so the AI can NEVER reference
-  // weeks that don't exist. Reads literally in the prompt as a sentence.
+  // a week that doesn't exist. Reads literally in the prompt as a
+  // sentence.
   const blockWeekLabels = weekScopes
     .map((w) => (w === 'deload' ? 'deload' : w === '7w' ? '7w' : `Wk ${w}`))
     .join(', ');
   lines.push(
     `- Block weeks: ${blockWeekLabels} (${weekScopes.length} total)${
-      activeBlock.includesDeload
+      activeBlock.kind === 'seventh-week'
         ? ''
-        : ' — this block does NOT have a built-in deload week. Do not reference a "deload week" in your response unless you mean a future block.'
+        : ' — deloads are scheduled as separate 7th-week blocks, never as a fourth week inside this one.'
     }`,
   );
   const weekStatus: string[] = [];

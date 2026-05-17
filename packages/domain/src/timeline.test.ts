@@ -8,7 +8,6 @@ function block(over: Partial<ProgramBlock>): ProgramBlock {
     name: 'Leader 1',
     kind: 'leader',
     weeksBeforeDeload: 3,
-    includesDeload: true,
     supplementalTemplate: 'fsl',
     createdAt: '2026-04-01T00:00:00.000Z',
     ...over,
@@ -28,15 +27,15 @@ describe('buildTimelineModel', () => {
     expect(m.weekHeaders[m.currentWeekIndex]!.isCurrent).toBe(true);
   });
 
-  it('places a started 4-week leader block (3 + deload) at its real start monday', () => {
+  it('places a started 3-week leader block at its real start monday', () => {
     const b = block({ startedAt: '2026-04-27T00:00:00.000Z' }); // Mon
     const m = buildTimelineModel([b], [], { today });
     expect(m.blockSegments).toHaveLength(1);
     const seg = m.blockSegments[0]!;
-    expect(seg.weeks).toBe(4); // 3 + 1 deload
+    expect(seg.weeks).toBe(3); // no built-in deload
     expect(seg.isStarted).toBe(true);
     expect(seg.isActive).toBe(true);
-    expect(seg.endWeekIndex - seg.startWeekIndex).toBe(3);
+    expect(seg.endWeekIndex - seg.startWeekIndex).toBe(2); // weeks 0, 1, 2 → diff = 2
   });
 
   it('chains an unstarted anchor block off the end of a started leader', () => {
@@ -45,20 +44,18 @@ describe('buildTimelineModel', () => {
       kind: 'leader',
       startedAt: '2026-04-27T00:00:00.000Z',
       weeksBeforeDeload: 3,
-      includesDeload: true,
     });
     const anchor = block({
       id: 'b2',
       name: 'Anchor 1',
       kind: 'anchor',
       weeksBeforeDeload: 3,
-      includesDeload: false,
       sequenceIndex: 1,
     });
     const m = buildTimelineModel([leader, anchor], [], { today });
     expect(m.blockSegments).toHaveLength(2);
     const [l, a] = m.blockSegments;
-    expect(l!.weeks).toBe(4);
+    expect(l!.weeks).toBe(3);
     expect(a!.weeks).toBe(3);
     expect(a!.isStarted).toBe(false);
     // Anchor starts the week AFTER the leader ends.
@@ -144,7 +141,6 @@ describe('buildTimelineModel', () => {
       name: 'Leader 1',
       kind: 'leader',
       weeksBeforeDeload: 3,
-      includesDeload: true,
       // 4 weeks total, ended 2026-05-04 → should be placed roughly
       // 2026-04-06 → 2026-05-04.
       completedAt: '2026-05-04T00:00:00.000Z',
@@ -154,7 +150,6 @@ describe('buildTimelineModel', () => {
       name: 'Anchor 1',
       kind: 'anchor',
       weeksBeforeDeload: 3,
-      includesDeload: false,
       startedAt: '2026-05-11T00:00:00.000Z',
     });
     const m = buildTimelineModel([leader, anchor], [], { today, paddingWeeks: 1 });
@@ -183,7 +178,6 @@ describe('buildTimelineModel', () => {
       programId,
       sequenceIndex: 0,
       weeksBeforeDeload: 3,
-      includesDeload: false,
       startedAt: '2026-04-30T00:00:00.000Z', // wrong/stale
       completedAt: '2026-05-04T00:00:00.000Z', // also doesn't match weeks
     });
@@ -194,7 +188,6 @@ describe('buildTimelineModel', () => {
       programId,
       sequenceIndex: 1,
       weeksBeforeDeload: 3,
-      includesDeload: false,
       completedAt: '2026-05-04T00:00:00.000Z',
     });
     const seventhWeek = block({
@@ -205,7 +198,6 @@ describe('buildTimelineModel', () => {
       programId,
       sequenceIndex: 2,
       weeksBeforeDeload: 1,
-      includesDeload: false,
       completedAt: '2026-05-09T00:00:00.000Z',
     });
     const anchor1 = block({
@@ -215,7 +207,6 @@ describe('buildTimelineModel', () => {
       programId,
       sequenceIndex: 3,
       weeksBeforeDeload: 3,
-      includesDeload: false,
       // No startedAt or completedAt — anchor purely off the cursor.
     });
     const m = buildTimelineModel(

@@ -45,12 +45,9 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
 };
 
 function blockWeeks(b: ProgramBlock) {
-  // Deload weeks are no longer authored inline on a block — the 7th-Week
-  // prompt logic schedules them as standalone seventh-week blocks. We
-  // intentionally ignore the legacy `includesDeload` flag here so the
-  // program timeline reflects the new model. A one-shot data migration
-  // (LegacyDeloadMigrator) flips any pre-existing flag to false on first
-  // load so block records line up with this calculation.
+  // Deload weeks are scheduled as standalone seventh-week blocks via the
+  // 7th-Week prompt logic — they're never authored inline on a Leader /
+  // Anchor block. So total weeks == weeksBeforeDeload.
   return b.weeksBeforeDeload ?? 3;
 }
 

@@ -69,7 +69,6 @@ export async function insertSeventhWeekBlock(opts: {
     kind: 'seventh-week',
     seventhWeekKind: kind,
     weeksBeforeDeload: 1,
-    includesDeload: false,
     supplementalTemplate: 'none',
     mainScheme: lastNormal?.mainScheme ?? '5s-pro',
     createdAt: now,

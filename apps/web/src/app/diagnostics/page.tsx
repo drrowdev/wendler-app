@@ -519,10 +519,7 @@ function BlocksPanel() {
               <li>
                 kind: <span className="font-medium">{b.kind}</span> · seq:{' '}
                 <span className="font-medium">{b.sequenceIndex ?? '—'}</span> ·
-                wks before deload:{' '}
-                <span className="font-medium">{b.weeksBeforeDeload}</span> ·
-                deload?{' '}
-                <span className="font-medium">{b.includesDeload ? 'yes' : 'no'}</span>
+                weeks: <span className="font-medium">{b.weeksBeforeDeload}</span>
               </li>
               <li>
                 createdAt:{' '}

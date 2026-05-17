@@ -161,10 +161,12 @@ export interface ProgramBlock {
    * seventh-week blocks; ignored for other kinds.
    */
   seventhWeekKind?: SeventhWeekKind;
-  /** Number of training weeks before deload. Wendler standard: 3. */
+  /** Number of training weeks before deload. Wendler standard: 3.
+   *  Note: deload weeks are no longer built into Leader/Anchor blocks.
+   *  Deloads are scheduled as standalone seventh-week blocks via the
+   *  7th-Week prompt logic. So this field equals the total week count
+   *  of a non-seventh-week block. */
   weeksBeforeDeload: number;
-  /** Whether the block ends with a deload week. Anchors usually have no deload. */
-  includesDeload: boolean;
   supplementalTemplate: SupplementalTemplateId;
   /**
    * Main-work scheme. Default 'classic-531' (5/3/1+ with AMRAP top set).
@@ -424,11 +426,12 @@ export function initialCursorWeek(
 }
 
 /**
- * Total sessions in a block: dayOrder × (weeksBeforeDeload + (includesDeload ? 1 : 0)).
+ * Total sessions in a block: dayOrder × weeksBeforeDeload.
+ * (Deload weeks are no longer built into Leader/Anchor blocks — see
+ * the field doc on `weeksBeforeDeload`.)
  */
 export function totalSessionsInBlock(block: ProgramBlock, dayOrder: MainLift[]): number {
-  const weeks = block.weeksBeforeDeload + (block.includesDeload ? 1 : 0);
-  return weeks * dayOrder.length;
+  return block.weeksBeforeDeload * dayOrder.length;
 }
 
 /**
@@ -448,12 +451,11 @@ export function totalSessionsInBlock(block: ProgramBlock, dayOrder: MainLift[]):
  *   - week 1   → +0 days
  *   - week 2   → +7 days
  *   - week 3   → +14 days
- *   - 'deload' → +(weeksBeforeDeload * 7) days
- *   - '7w'     → undefined (a 7th-week block is a separate one-week block;
- *                its own `startedAt` is the right reference, not this helper)
- *
- * Returns undefined when the anchor is missing/unparseable or the scope is
- * '7w'.
+ *   - 'deload' → +(weeksBeforeDeload * 7) days (kept for legacy callers; a
+ *                regular Leader/Anchor no longer has a built-in deload, but
+ *                some scope-resolving callers still pass this label for
+ *                cardio-plan windows — they get a sensible date back)
+ *   - '7w'     → undefined
  */
 export function weekStartDate(
   anchor: Date | string | null | undefined,
@@ -475,20 +477,18 @@ export function weekStartDate(
  */
 export function advanceCursor(
   cursor: { week: WendlerWeek; groupIndex: number },
-  block: Pick<ProgramBlock, 'includesDeload'>,
+  block: Pick<ProgramBlock, 'kind'>,
   numGroups: number,
 ): { week: WendlerWeek; groupIndex: number } | null {
   const nextGroup = cursor.groupIndex + 1;
   if (nextGroup < numGroups) {
     return { week: cursor.week, groupIndex: nextGroup };
   }
-  // Wrap to next week
+  // Wrap to next week. 7th-week blocks have only '7w'; Leader/Anchor go
+  // 1 → 2 → 3 (no built-in deload anymore).
+  void block;
   const weekOrder: WendlerWeek[] = [1, 2, 3];
-  if (block.includesDeload) weekOrder.push('deload');
   const idx = weekOrder.indexOf(cursor.week);
-  // Unrecognized weeks (e.g. '7w' on a seventh-week block) have no successor —
-  // a 7th-week block contains only the '7w' week, so completing the last day
-  // group ends the block.
   if (idx === -1 || idx === weekOrder.length - 1) return null;
   const nextWeek = weekOrder[idx + 1]!;
   return { week: nextWeek, groupIndex: 0 };

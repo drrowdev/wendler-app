@@ -21,15 +21,13 @@ const block: ProgramBlock = {
   name: 'Leader 1',
   kind: 'leader',
   weeksBeforeDeload: 3,
-  includesDeload: true,
   supplementalTemplate: 'fsl',
   createdAt: '2026-01-01T00:00:00Z',
 };
 
 describe('blocks', () => {
   it('totalSessionsInBlock counts weeks × days', () => {
-    expect(totalSessionsInBlock(block, DEFAULT_DAY_ORDER)).toBe(16); // 4 weeks × 4 days
-    expect(totalSessionsInBlock({ ...block, includesDeload: false }, DEFAULT_DAY_ORDER)).toBe(12);
+    expect(totalSessionsInBlock(block, DEFAULT_DAY_ORDER)).toBe(12); // 3 weeks × 4 days
   });
 
   it('advanceCursor walks group → week → null', () => {
@@ -40,15 +38,16 @@ describe('blocks', () => {
       c = advanceCursor(c, block, DEFAULT_DAY_ORDER.length);
       if (seen.length > 20) break;
     }
-    expect(seen).toHaveLength(16);
+    // 3 weeks × 4 day-groups = 12 sessions, no built-in deload.
+    expect(seen).toHaveLength(12);
     expect(seen[0]).toBe('1-0');
     expect(seen[3]).toBe('1-3');
     expect(seen[4]).toBe('2-0');
-    expect(seen[15]).toBe('deload-3');
+    expect(seen[seen.length - 1]).toBe('3-3');
   });
 
   it('advanceCursor walks paired-day groups (2 lifts/day → 2 groups/week)', () => {
-    // 4 lifts split across 2 paired days = 2 groups/week. 3 work weeks + deload = 4 weeks → 8 sessions.
+    // 4 lifts split across 2 paired days = 2 groups/week. 3 work weeks → 6 sessions.
     let c: { week: import('./types').WendlerWeek; groupIndex: number } | null = { week: 1, groupIndex: 0 };
     const seen: string[] = [];
     while (c) {
@@ -56,13 +55,12 @@ describe('blocks', () => {
       c = advanceCursor(c, block, 2);
       if (seen.length > 12) break;
     }
-    expect(seen).toEqual(['1-0', '1-1', '2-0', '2-1', '3-0', '3-1', 'deload-0', 'deload-1']);
+    expect(seen).toEqual(['1-0', '1-1', '2-0', '2-1', '3-0', '3-1']);
   });
 
-  it('advanceCursor stops before deload if block has none', () => {
-    const noDeload = { ...block, includesDeload: false };
+  it('advanceCursor returns null at the end of the last work week', () => {
     const c: { week: import('./types').WendlerWeek; groupIndex: number } = { week: 3, groupIndex: 3 };
-    expect(advanceCursor(c, noDeload, DEFAULT_DAY_ORDER.length)).toBeNull();
+    expect(advanceCursor(c, block, DEFAULT_DAY_ORDER.length)).toBeNull();
   });
 
   it('tmPercentForLift uses override or default', () => {

@@ -16,7 +16,6 @@ const baseBlock: ProgramBlock = {
   name: 'Leader 1',
   kind: 'leader',
   weeksBeforeDeload: 3,
-  includesDeload: true,
   supplementalTemplate: 'fsl',
   createdAt: '2026-01-01T00:00:00Z',
 };

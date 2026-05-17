@@ -823,7 +823,6 @@ function BlockWeekTabs({
 }: BlockWeekTabsProps) {
   const weeks: WendlerWeek[] = [];
   for (let w = 1; w <= block.weeksBeforeDeload; w++) weeks.push(w as WendlerWeek);
-  if (block.includesDeload) weeks.push('deload');
 
   return (
     <section className="rounded-xl border border-border bg-card p-3">

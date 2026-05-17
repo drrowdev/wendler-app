@@ -5,7 +5,6 @@ import { Nav } from '@/components/Nav';
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
 import { SeedBootstrap } from '@/components/SeedBootstrap';
 import { ScheduleCursorHealer } from '@/components/ScheduleCursorHealer';
-import { LegacyDeloadMigrator } from '@/components/LegacyDeloadMigrator';
 import { LegacyDefaultAssistanceMigrator } from '@/components/LegacyDefaultAssistanceMigrator';
 import { SyncConflictFloodCleanup } from '@/components/SyncConflictFloodCleanup';
 import { MondayDigest } from '@/components/MondayDigest';
@@ -61,7 +60,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ServiceWorkerRegister />
         <SeedBootstrap />
         <ScheduleCursorHealer />
-        <LegacyDeloadMigrator />
         <LegacyDefaultAssistanceMigrator />
         <SyncConflictFloodCleanup />
         <MondayDigest />

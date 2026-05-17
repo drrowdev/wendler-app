@@ -4,11 +4,11 @@
 // the renderer can lay out without any further date math.
 //
 // Domain rules baked in:
-//   - Each block spans `weeksBeforeDeload + (includesDeload ? 1 : 0)`
-//     weeks. The kind chip ('leader' / 'anchor' / 'standalone' /
-//     'seventh-week') drives the colour; for seventh-week blocks we
-//     surface the variant ('tm-test' / 'pr-test' / 'deload') in the
-//     label.
+//   - Each block spans `weeksBeforeDeload` weeks (seventh-week blocks
+//     are always 1 week). The kind chip ('leader' / 'anchor' /
+//     'standalone' / 'seventh-week') drives the colour; for
+//     seventh-week blocks we surface the variant ('tm-test' /
+//     'pr-test' / 'deload') in the label.
 //   - Blocks with `startedAt` are anchored to real dates. Blocks
 //     without `startedAt` (planned-but-not-started, materialised by
 //     /program/new + chain ahead-of-time) project forward by chaining
@@ -103,8 +103,6 @@ export interface TimelineBlockSegment {
   isCompleted: boolean;
   /** True iff this block contains `today`. */
   isActive: boolean;
-  /** Whether the block includes a deload week. UI uses this to mark the last week with a deload hatch. */
-  includesDeload: boolean;
   /** Total weeks in the segment (= endWeekIndex - startWeekIndex + 1). */
   weeks: number;
   /** Same source ProgramBlock — UI passes it back on click for navigation. */
@@ -162,9 +160,9 @@ function isoWeekOf(d: Date): number {
   return 1 + Math.round((t.getTime() - yearStart.getTime()) / MS_PER_WEEK);
 }
 
-function blockWeekCount(block: Pick<ProgramBlock, 'weeksBeforeDeload' | 'includesDeload' | 'kind'>): number {
+function blockWeekCount(block: Pick<ProgramBlock, 'weeksBeforeDeload' | 'kind'>): number {
   if (block.kind === 'seventh-week') return 1;
-  return block.weeksBeforeDeload + (block.includesDeload ? 1 : 0);
+  return block.weeksBeforeDeload;
 }
 
 /**
@@ -437,7 +435,6 @@ export function buildTimelineModel(
       isStarted: p.isStarted,
       isCompleted: !!p.block.completedAt,
       isActive,
-      includesDeload: p.block.includesDeload,
       weeks: p.weeks,
       source: p.block,
     });

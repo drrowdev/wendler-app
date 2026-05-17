@@ -568,14 +568,12 @@ class WendlerDb extends Dexie {
         for (const block of blocks) {
           const plan = block.plan;
           if (!plan || !Array.isArray(plan.days)) continue;
-          // Week set depends on block kind. 7th-week blocks have only '7w';
-          // every other kind has weeks 1, 2, 3 plus deload if includesDeload.
+          // Week set depends on block kind. 7th-week blocks have only
+          // '7w'; Leader/Anchor/standalone have weeks 1, 2, 3. (Built-in
+          // deload weeks have been deprecated — deloads are now scheduled
+          // as standalone seventh-week blocks.)
           const weeks: Array<'1' | '2' | '3' | 'deload' | '7w'> =
-            block.kind === 'seventh-week'
-              ? ['7w']
-              : block.includesDeload
-                ? ['1', '2', '3', 'deload']
-                : ['1', '2', '3'];
+            block.kind === 'seventh-week' ? ['7w'] : ['1', '2', '3'];
           const overrides = plan.assistanceOverrides ?? {};
           let anyWritten = false;
           for (const day of plan.days) {
@@ -629,8 +627,29 @@ class WendlerDb extends Dexie {
     // preferences about the user. Synced (LWW) so the trainer's
     // memory follows the user across devices. Soft-delete via
     // tombstones (kind: 'aiMemory').
-    this.version(SCHEMA_VERSION).stores({
+    this.version(23).stores({
       aiMemories: 'id, category, createdAt, updatedAt',
+    });
+
+    // v24: strip the deprecated `includesDeload` field from every
+    // ProgramBlock. The in-block deload concept was removed in
+    // favour of the 7th-Week prompt logic (deloads are scheduled as
+    // standalone seventh-week blocks). LegacyDeloadMigrator was
+    // flipping the flag to false; this migration removes it
+    // entirely. No schema/store-map change — just a data cleanup.
+    this.version(SCHEMA_VERSION).upgrade(async (tx) => {
+      try {
+        const blocks = await tx.table('blocks').toArray();
+        for (const b of blocks) {
+          if ('includesDeload' in b) {
+            delete (b as Record<string, unknown>).includesDeload;
+            b.updatedAt = new Date().toISOString();
+            await tx.table('blocks').put(b);
+          }
+        }
+      } catch (err) {
+        console.warn('[v24 upgrade] includesDeload strip failed:', err);
+      }
     });
   }
 }

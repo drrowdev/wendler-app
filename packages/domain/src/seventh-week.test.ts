@@ -18,7 +18,6 @@ function block(
     name: `Block ${i}`,
     kind,
     weeksBeforeDeload: kind === 'seventh-week' ? 1 : 3,
-    includesDeload: false,
     supplementalTemplate: 'fsl',
     mainScheme: opts.scheme ?? 'classic-531',
     seventhWeekKind: opts.seventhWeekKind,

@@ -22,8 +22,6 @@ import { ActiveGoalsCard } from '@/components/ActiveGoalsCard';
 import { FatigueSorenessCard } from '@/components/Readiness';
 
 function blockWeeks(b: { weeksBeforeDeload: number }): number {
-  // See note in /program/detail: legacy `includesDeload` is intentionally
-  // ignored. Deloads come from the 7th-Week prompt only.
   return b.weeksBeforeDeload;
 }
 

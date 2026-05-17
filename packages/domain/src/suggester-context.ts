@@ -422,9 +422,10 @@ export function buildSuggesterContext(
       {
         kind: block.kind,
         seventhWeekKind: block.seventhWeekKind,
-        // Pass the visible week scope so deload weeks of a Leader /
-        // Anchor with `includesDeload: true` auto-derive phase='deload'
-        // and the suggester sees the right phase signal.
+        // Pass the visible week scope so a standalone seventh-week
+        // deload block auto-derives phase='deload' and the suggester
+        // sees the right phase signal. (Leader/Anchor blocks no longer
+        // have a built-in deload — derives phase='normal'.)
         cursorWeek: weekScope,
       },
     );

@@ -63,9 +63,10 @@ import { updateActionStatus } from './chat-actions';
 
 function weeksOfBlock(block: ProgramBlock): Array<'1' | '2' | '3' | 'deload' | '7w'> {
   if (block.kind === 'seventh-week') return ['7w'];
-  const weeks: Array<'1' | '2' | '3' | 'deload' | '7w'> = ['1', '2', '3'];
-  if (block.includesDeload) weeks.push('deload');
-  return weeks;
+  // Leader / Anchor / standalone always have weeks 1, 2, 3. The legacy
+  // in-block deload has been removed — deloads are scheduled as
+  // standalone seventh-week blocks.
+  return ['1', '2', '3'];
 }
 
 function clonePerWeekStore(plan: BlockPlan): Record<string, AssistanceEntry[]> {
@@ -742,7 +743,6 @@ async function performScheduleDeload(): Promise<EditOperationAppliedDetail> {
     kind: 'seventh-week',
     seventhWeekKind: 'deload',
     weeksBeforeDeload: 1,
-    includesDeload: true,
     supplementalTemplate: activeBlock.supplementalTemplate,
     mainScheme: activeBlock.mainScheme,
     createdAt: now,

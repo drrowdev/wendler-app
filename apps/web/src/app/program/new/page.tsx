@@ -26,7 +26,6 @@ type DraftBlock = {
   supplemental: SupplementalTemplateId;
   /** Override on supplemental set count. Undefined = use template default. */
   supplementalSets?: number;
-  includesDeload: boolean;
 };
 
 type Preset = {
@@ -45,9 +44,9 @@ const PRESETS: Preset[] = [
       '2 Leaders with 5s PRO + FSL, then an Anchor of Original 5/3/1 + FSL AMRAP. The app will prompt for a 7th-week block (deload) after the Leader pair and a TM/PR test after the Anchor.',
     defaultProgramName: 'Spinal Tap HS',
     blocks: [
-      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl', includesDeload: false },
-      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl', includesDeload: false },
-      { kind: 'anchor', scheme: 'classic-531', supplemental: 'fsl-amrap', includesDeload: false },
+      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl' },
+      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl' },
+      { kind: 'anchor', scheme: 'classic-531', supplemental: 'fsl-amrap' },
     ],
   },
   {
@@ -57,9 +56,9 @@ const PRESETS: Preset[] = [
       '2 Leaders of 5s PRO + Boring But Big (volume), then an Anchor of Original 5/3/1 + FSL AMRAP. The app will prompt for a 7th-week block (deload) after the Leader pair and a TM/PR test after the Anchor.',
     defaultProgramName: 'Forever BBB',
     blocks: [
-      { kind: 'leader', scheme: '5s-pro', supplemental: 'bbb', includesDeload: false },
-      { kind: 'leader', scheme: '5s-pro', supplemental: 'bbb', includesDeload: false },
-      { kind: 'anchor', scheme: 'classic-531', supplemental: 'fsl-amrap', includesDeload: false },
+      { kind: 'leader', scheme: '5s-pro', supplemental: 'bbb' },
+      { kind: 'leader', scheme: '5s-pro', supplemental: 'bbb' },
+      { kind: 'anchor', scheme: 'classic-531', supplemental: 'fsl-amrap' },
     ],
   },
   {
@@ -69,9 +68,9 @@ const PRESETS: Preset[] = [
       '2 Leaders of 3/5/1 + FSL — heavier-day-first ordering Wendler recommends in Forever — then an Anchor of Original 5/3/1 + FSL AMRAP. Lower volume than BBB; good when running cardio alongside.',
     defaultProgramName: '3/5/1 + FSL',
     blocks: [
-      { kind: 'leader', scheme: '351', supplemental: 'fsl', includesDeload: false },
-      { kind: 'leader', scheme: '351', supplemental: 'fsl', includesDeload: false },
-      { kind: 'anchor', scheme: 'classic-531', supplemental: 'fsl-amrap', includesDeload: false },
+      { kind: 'leader', scheme: '351', supplemental: 'fsl' },
+      { kind: 'leader', scheme: '351', supplemental: 'fsl' },
+      { kind: 'anchor', scheme: 'classic-531', supplemental: 'fsl-amrap' },
     ],
   },
   {
@@ -81,9 +80,9 @@ const PRESETS: Preset[] = [
       '2 Leaders of 5s PRO + FSL, Anchor of Original 5/3/1 + FSL AMRAP. The lightest Forever template — pair with running, BJJ, or any conditioning-heavy phase.',
     defaultProgramName: '5s PRO + FSL',
     blocks: [
-      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl', includesDeload: false },
-      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl', includesDeload: false },
-      { kind: 'anchor', scheme: 'classic-531', supplemental: 'fsl-amrap', includesDeload: false },
+      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl' },
+      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl' },
+      { kind: 'anchor', scheme: 'classic-531', supplemental: 'fsl-amrap' },
     ],
   },
   {
@@ -93,9 +92,9 @@ const PRESETS: Preset[] = [
       '2 Leaders of 5s PRO + Second Set Last (heavier supplemental than FSL), Anchor of Original 5/3/1 + FSL AMRAP. Strong-lifter template — only run when recovery is solid.',
     defaultProgramName: 'SSL + Anchor',
     blocks: [
-      { kind: 'leader', scheme: '5s-pro', supplemental: 'ssl', includesDeload: false },
-      { kind: 'leader', scheme: '5s-pro', supplemental: 'ssl', includesDeload: false },
-      { kind: 'anchor', scheme: 'classic-531', supplemental: 'fsl-amrap', includesDeload: false },
+      { kind: 'leader', scheme: '5s-pro', supplemental: 'ssl' },
+      { kind: 'leader', scheme: '5s-pro', supplemental: 'ssl' },
+      { kind: 'anchor', scheme: 'classic-531', supplemental: 'fsl-amrap' },
     ],
   },
   {
@@ -105,9 +104,9 @@ const PRESETS: Preset[] = [
       '2 Leaders of 5s PRO + FSL, then an Anchor of Original 5/3/1 + Widowmaker (1×20 at FSL%). The 20-rep set is squat or DL only — keep press/bench on FSL AMRAP. Brutal Anchor.',
     defaultProgramName: 'Widowmaker',
     blocks: [
-      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl', includesDeload: false },
-      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl', includesDeload: false },
-      { kind: 'anchor', scheme: 'classic-531', supplemental: 'widowmaker', includesDeload: false },
+      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl' },
+      { kind: 'leader', scheme: '5s-pro', supplemental: 'fsl' },
+      { kind: 'anchor', scheme: 'classic-531', supplemental: 'widowmaker' },
     ],
   },
   {
@@ -117,7 +116,7 @@ const PRESETS: Preset[] = [
       'Just the original program: 3 weeks of 5/3/1+ AMRAP top sets. The app will prompt for a 7th-Week deload/TM-test/PR-test at the right point in the cycle. No fixed supplemental — pick what you like.',
     defaultProgramName: 'Original 5/3/1',
     blocks: [
-      { kind: 'standalone', scheme: 'classic-531', supplemental: 'fsl', includesDeload: false },
+      { kind: 'standalone', scheme: 'classic-531', supplemental: 'fsl' },
     ],
   },
   {
@@ -125,7 +124,7 @@ const PRESETS: Preset[] = [
     name: 'Custom (start blank)',
     description: 'Build from scratch.',
     defaultProgramName: '',
-    blocks: [{ kind: 'leader', scheme: '5s-pro', supplemental: 'fsl', includesDeload: false }],
+    blocks: [{ kind: 'leader', scheme: '5s-pro', supplemental: 'fsl' }],
   },
 ];
 
@@ -216,7 +215,7 @@ export default function NewProgramPage() {
       const next = d.filter((_, idx) => idx !== i);
       return next.length > 0
         ? next
-        : [{ kind: 'leader', scheme: '5s-pro', supplemental: 'fsl', includesDeload: false }];
+        : [{ kind: 'leader', scheme: '5s-pro', supplemental: 'fsl' }];
     });
     setStartIndex((s) => Math.max(0, Math.min(s, draft.length - 2)));
   }
@@ -227,7 +226,6 @@ export default function NewProgramPage() {
         kind,
         scheme: kind === 'anchor' ? 'classic-531' : '5s-pro',
         supplemental: kind === 'anchor' ? 'fsl-amrap' : 'fsl',
-        includesDeload: false,
       },
     ]);
   }
@@ -253,7 +251,6 @@ export default function NewProgramPage() {
           name: defaultBlockName(b.kind, counters[b.kind]),
           kind: b.kind,
           weeksBeforeDeload: 3,
-          includesDeload: b.includesDeload,
           supplementalTemplate: b.supplemental,
           mainScheme: b.scheme,
           ...(b.supplementalSets !== undefined && {
