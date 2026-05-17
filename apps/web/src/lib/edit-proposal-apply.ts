@@ -687,49 +687,56 @@ async function performAddCardioPlanSlot(
   }
 
   const slots = [...existing.slots];
-  // Idempotency: a slot already in place for the same (dayOfWeek,
-  // modality) is left untouched (treated as the user's authoritative
-  // version). Surfaced in the audit detail so the user understands
-  // why their kind/duration/notes weren't overwritten.
+  // Match an existing slot by (dayOfWeek, modality). When found we
+  // UPDATE its fields with whatever the new op specifies — the user's
+  // intent on a re-accept is 'apply the new proposal to this slot',
+  // not 'preserve the old version'. Fields the new op doesn't specify
+  // are left untouched (durationMin / notes / etc fall back to the
+  // existing values when omitted).
   const dupIdx = slots.findIndex(
     (s) => s.dayOfWeek === op.dayOfWeek && s.modality === op.modality,
   );
-  let reusedExisting = false;
+  const newSlotBase = {
+    dayOfWeek: op.dayOfWeek,
+    modality: op.modality as
+      | 'run'
+      | 'bike'
+      | 'swim'
+      | 'row'
+      | 'walk'
+      | 'padel'
+      | 'other',
+    kind: op.planKind as
+      | 'rest'
+      | 'easy'
+      | 'long'
+      | 'quality'
+      | 'recovery'
+      | 'race-pace'
+      | 'z2'
+      | 'intervals'
+      | 'cross',
+    ...(op.durationMin !== undefined ? { durationMin: op.durationMin } : {}),
+    ...(op.notes ? { notes: op.notes } : {}),
+    ...(linkedBlockId ? { linkedBlockId } : {}),
+    ...(effectiveFrom ? { effectiveFrom } : {}),
+    ...(effectiveUntil ? { effectiveUntil } : {}),
+  };
+  let wasUpdate = false;
   if (dupIdx >= 0) {
-    reusedExisting = true;
+    const prev = slots[dupIdx]!;
+    // Merge: new op's explicit fields win; prev fields fill the gaps
+    // for anything the new op didn't specify.
+    slots[dupIdx] = { ...prev, ...newSlotBase };
+    wasUpdate = true;
   } else {
-    slots.push({
-      dayOfWeek: op.dayOfWeek,
-      modality: op.modality as
-        | 'run'
-        | 'bike'
-        | 'swim'
-        | 'row'
-        | 'walk'
-        | 'padel'
-        | 'other',
-      kind: op.planKind as
-        | 'rest'
-        | 'easy'
-        | 'long'
-        | 'quality'
-        | 'recovery'
-        | 'race-pace'
-        | 'z2'
-        | 'intervals'
-        | 'cross',
-      ...(op.durationMin !== undefined ? { durationMin: op.durationMin } : {}),
-      ...(op.notes ? { notes: op.notes } : {}),
-      ...(linkedBlockId ? { linkedBlockId } : {}),
-      ...(effectiveFrom ? { effectiveFrom } : {}),
-      ...(effectiveUntil ? { effectiveUntil } : {}),
-    });
-    await db.cardioPlan.put({
-      ...existing,
-      slots,
-      updatedAt: new Date().toISOString(),
-    });
+    slots.push(newSlotBase);
   }
+  await db.cardioPlan.put({
+    ...existing,
+    slots,
+    updatedAt: new Date().toISOString(),
+  });
   return {
     kind: 'add_cardio_plan_slot',
     dayOfWeek: op.dayOfWeek,
@@ -737,7 +744,7 @@ async function performAddCardioPlanSlot(
     planKind: op.planKind,
     ...(op.durationMin !== undefined ? { durationMin: op.durationMin } : {}),
     ...(op.notes ? { notes: op.notes } : {}),
-    ...(reusedExisting ? { reusedExisting: true } : {}),
+    ...(wasUpdate ? { reusedExisting: true } : {}),
   };
 }
 
