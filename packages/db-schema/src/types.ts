@@ -1659,6 +1659,27 @@ export type EditOperationAppliedDetail =
        * slot's identity so the audit trail captures the soft-skip.
        */
       reusedExisting?: boolean;
+      /** Echo of the op's appliesToWeeks input — for audit / debug. */
+      appliesToWeeks?: Array<'1' | '2' | '3' | 'deload' | '7w'>;
+      /** Resolved linked-block id (when linkedToActiveBlock !== false). */
+      linkedBlockId?: string;
+      /**
+       * Resolved scope dates (when both `appliesToWeeks` was supplied
+       * AND a linked block was found). Stored on the slot itself; also
+       * captured here for the audit / diagnostics page.
+       */
+      effectiveFrom?: string;
+      effectiveUntil?: string;
+      /**
+       * Diagnostic: explains why scope resolution was skipped when the
+       * op asked for scoping. `no-applies-to-weeks` = op didn't carry
+       * the list. `no-linked-block` = no uncompleted block found (or
+       * `linkedToActiveBlock: false` was set).
+       */
+      scopeSkippedReason?:
+        | 'no-applies-to-weeks'
+        | 'no-linked-block'
+        | 'opted-out';
     }
   | {
       kind: 'remove_cardio_plan_slot';

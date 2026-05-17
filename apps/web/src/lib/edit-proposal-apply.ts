@@ -905,6 +905,22 @@ async function performAddCardioPlanSlot(
     slots,
     updatedAt: new Date().toISOString(),
   });
+
+  // Diagnostic: explain WHY scope resolution was skipped (when the op
+  // asked for scope but we didn't write effectiveFrom/Until). Surfaces
+  // in the audit + diagnostics page so silent scope-drop is debuggable.
+  let scopeSkippedReason:
+    | 'no-applies-to-weeks'
+    | 'no-linked-block'
+    | 'opted-out'
+    | undefined;
+  if (!effectiveFrom) {
+    if (!linkToActive) scopeSkippedReason = 'opted-out';
+    else if (!op.appliesToWeeks || op.appliesToWeeks.length === 0)
+      scopeSkippedReason = 'no-applies-to-weeks';
+    else if (!linkedBlock) scopeSkippedReason = 'no-linked-block';
+  }
+
   return {
     kind: 'add_cardio_plan_slot',
     dayOfWeek: op.dayOfWeek,
@@ -913,6 +929,13 @@ async function performAddCardioPlanSlot(
     ...(op.durationMin !== undefined ? { durationMin: op.durationMin } : {}),
     ...(op.notes ? { notes: op.notes } : {}),
     ...(wasUpdate ? { reusedExisting: true } : {}),
+    ...(op.appliesToWeeks && op.appliesToWeeks.length > 0
+      ? { appliesToWeeks: op.appliesToWeeks }
+      : {}),
+    ...(linkedBlockId ? { linkedBlockId } : {}),
+    ...(effectiveFrom ? { effectiveFrom } : {}),
+    ...(effectiveUntil ? { effectiveUntil } : {}),
+    ...(scopeSkippedReason ? { scopeSkippedReason } : {}),
   };
 }
 
