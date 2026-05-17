@@ -21,6 +21,7 @@ export * from './pace';
 export * from './rpe-zones';
 export * from './runPlan';
 export * from './cardio-slot-resolve';
+export * from './chat-prompt-hints';
 export * from './cardio-analytics';
 export * from './cardio-muscle-load';
 export * from './strength-hr-match';

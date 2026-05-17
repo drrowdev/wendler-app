@@ -4,37 +4,20 @@
 // the FAB drawer and the full-screen /chat route. Owns the user-input box,
 // message rendering (with markdown), suggested-prompt chips on empty state,
 // the streaming/loading indicator, and inline title rename.
+//
+// Suggested prompts on the empty state are page-aware via
+// `suggestedPromptsForPath(contextPath)` — opening the chat from
+// /program/block surfaces block-specific starters, /calendar gets
+// week-planning starters, etc.
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Chat, ChatMessage } from '@wendler/db-schema';
+import { suggestedPromptsForPath } from '@wendler/domain';
 import { useChat, useChatSender, renameChat } from '@/lib/useChat';
 import { getDb } from '@/lib/db';
 import { ChatActionChips } from './ChatActionChips';
-
-const SUGGESTED_PROMPTS = [
-  {
-    title: 'Half-marathon readiness',
-    body: 'Analyze my running history. Can I run my upcoming half-marathon under 2 hours, or do I need to increase my volume — and what kind of running given my overall load?',
-    icon: '🏃',
-  },
-  {
-    title: 'Race target check',
-    body: 'Given my upcoming A-race, am I on track for the target time? What should I change in the next 4 weeks?',
-    icon: '🎯',
-  },
-  {
-    title: 'Where am I stalling?',
-    body: 'Where are my strength gains stalling on the four main lifts? What should I change?',
-    icon: '🪨',
-  },
-  {
-    title: 'Plan next block',
-    body: 'Plan my next training block given my current TMs, recent fatigue, race calendar, and Training Profile.',
-    icon: '🧭',
-  },
-];
 
 interface ChatPanelProps {
   chatId: string | null;
@@ -144,6 +127,15 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
     setEditingTitle(false);
   };
 
+  // Page-aware suggested prompts on the empty state. Resolved from
+  // `contextPath` (the route the user was on when opening the chat).
+  // Falls back to the global set when the path doesn't match any
+  // page rule.
+  const suggestedPrompts = useMemo(
+    () => suggestedPromptsForPath(contextPath),
+    [contextPath],
+  );
+
   const isEmpty = !chat || chat.messages.length === 0;
 
   return (
@@ -186,7 +178,7 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
 
       <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
         {isEmpty ? (
-          <EmptyState onPick={(p) => void submit(p)} />
+          <EmptyState onPick={(p) => void submit(p)} prompts={suggestedPrompts} />
         ) : (
           <ul className="space-y-3">
             {chat!.messages.map((m) => (
@@ -218,7 +210,13 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
   );
 }
 
-function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
+function EmptyState({
+  onPick,
+  prompts,
+}: {
+  onPick: (prompt: string) => void;
+  prompts: ReadonlyArray<{ title: string; body: string; icon: string }>;
+}) {
   return (
     <div className="mx-auto max-w-md space-y-4 px-1 py-2 text-sm">
       <div className="space-y-1 text-center">
@@ -229,7 +227,7 @@ function EmptyState({ onPick }: { onPick: (prompt: string) => void }) {
         </p>
       </div>
       <ul className="space-y-2">
-        {SUGGESTED_PROMPTS.map((p) => (
+        {prompts.map((p) => (
           <li key={p.title}>
             <button
               type="button"
