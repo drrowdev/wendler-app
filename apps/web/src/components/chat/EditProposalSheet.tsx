@@ -1013,17 +1013,121 @@ function RemoveCardioPlanSlotDiff({
   const dayName = WEEKDAY_NAMES[op.dayOfWeek] ?? `Day ${op.dayOfWeek}`;
   const emoji = MODALITY_EMOJI[op.modality] ?? '🏃';
   const modalityShown = op.modalityLabel ?? op.modality;
+
+  // Look up the actual slot live so the user sees EXACTLY what will
+  // be removed (kind, duration, notes, week scoping, block link) — not
+  // just an abstract "matching slot" description. Live-query so a
+  // background change to the cardio plan in another tab is reflected.
+  const matchingSlot = useLiveQuery(async () => {
+    const plan = await getDb().cardioPlan.get('singleton');
+    if (!plan) return null;
+    return (
+      plan.slots.find(
+        (s) => s.dayOfWeek === op.dayOfWeek && s.modality === op.modality,
+      ) ?? null
+    );
+  }, [op.dayOfWeek, op.modality]);
+
+  // Linked-block name resolution is hoisted out of the conditional so
+  // the hook order stays stable across re-renders. Falls through to
+  // null when there's no matching slot or no link.
+  const linkedBlock = useLiveQuery(async () => {
+    if (!matchingSlot?.linkedBlockId) return null;
+    const b = await getDb().blocks.get(matchingSlot.linkedBlockId);
+    return b ?? null;
+  }, [matchingSlot?.linkedBlockId]);
+
+  if (matchingSlot === undefined) {
+    return (
+      <div className="space-y-2 text-sm">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="font-semibold">
+            {emoji} Remove {dayName}: {modalityShown}
+            {op.planKindLabel ? ` · ${op.planKindLabel}` : ''}
+          </span>
+        </div>
+        <p className="text-[11px] text-muted leading-relaxed">Loading current slot details…</p>
+      </div>
+    );
+  }
+
+  if (matchingSlot === null) {
+    return (
+      <div className="space-y-2 text-sm">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="font-semibold">
+            {emoji} Remove {dayName}: {modalityShown}
+            {op.planKindLabel ? ` · ${op.planKindLabel}` : ''}
+          </span>
+        </div>
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+          ⚠️ No matching slot in your current cardio plan ({dayName} ·{' '}
+          {modalityShown}). This op will be a <strong>no-op</strong> when
+          applied — nothing will change.
+        </div>
+      </div>
+    );
+  }
+
+  const hasWeekScope =
+    !!matchingSlot.effectiveFrom || !!matchingSlot.effectiveUntil;
+
   return (
     <div className="space-y-2 text-sm">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className="font-semibold">
-          {emoji} Remove {dayName}: {modalityShown}
-          {op.planKindLabel ? ` · ${op.planKindLabel}` : ''}
+        <span className="font-semibold text-rose-100">
+          {emoji} Remove {dayName}: {matchingSlot.modality} · {matchingSlot.kind}
         </span>
+        {matchingSlot.durationMin !== undefined && (
+          <span className="rounded bg-bg/40 px-1.5 py-0.5 text-xs text-fg/80">
+            {matchingSlot.durationMin} min
+          </span>
+        )}
+      </div>
+      {matchingSlot.notes && (
+        <div className="rounded-lg border border-border bg-bg/40 px-3 py-2 text-xs text-fg/80">
+          <span className="text-muted">Notes:</span> {matchingSlot.notes}
+        </div>
+      )}
+      <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-fg/80 space-y-1">
+        <div className="font-semibold text-rose-100">Currently in your cardio plan:</div>
+        <ul className="ml-3 list-disc space-y-0.5 text-fg/80">
+          <li>
+            Weekday: <span className="font-medium">{dayName}</span>
+          </li>
+          <li>
+            Modality: <span className="font-medium">{matchingSlot.modality}</span>
+          </li>
+          <li>
+            Kind: <span className="font-medium">{matchingSlot.kind}</span>
+          </li>
+          {matchingSlot.durationMin !== undefined && (
+            <li>
+              Duration: <span className="font-medium">{matchingSlot.durationMin} min</span>
+            </li>
+          )}
+          <li>
+            Scope:{' '}
+            <span className="font-medium">
+              {hasWeekScope
+                ? `${matchingSlot.effectiveFrom ?? '…'} → ${matchingSlot.effectiveUntil ?? '…'}`
+                : 'every week (no scope)'}
+            </span>
+          </li>
+          {matchingSlot.linkedBlockId && (
+            <li>
+              Linked block:{' '}
+              <span className="font-medium">
+                {linkedBlock?.name ?? matchingSlot.linkedBlockId}
+              </span>{' '}
+              <span className="text-muted">(auto-removes on block complete)</span>
+            </li>
+          )}
+        </ul>
       </div>
       <p className="text-[11px] text-muted leading-relaxed">
-        Will remove the matching slot from your cardio plan. Matched by
-        (weekday + modality). If no slot matches, the op is a no-op.
+        This exact slot will be removed from your weekly cardio plan and
+        will stop appearing on /calendar.
       </p>
     </div>
   );
