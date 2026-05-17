@@ -8,6 +8,7 @@ import {
   type CardioPlan,
   type CardioSession,
   type Chat,
+  type ChatActionSnapshot,
   type Goal,
   type Movement,
   type Notification,
@@ -66,6 +67,7 @@ class WendlerDb extends Dexie {
   userProfile!: Table<UserProfile, 'singleton'>;
   injuries!: Table<Injury, string>;
   weeklyReviews!: Table<WeeklyReview, string>;
+  chatActionSnapshots!: Table<ChatActionSnapshot, string>;
 
   constructor() {
     super('wendler-app');
@@ -558,7 +560,7 @@ class WendlerDb extends Dexie {
     // field name `assistanceOverrides` is kept on disk to avoid sync-
     // wire churn — its semantics now mean "the per-week assistance
     // store", not "overrides on a base".
-    this.version(SCHEMA_VERSION).upgrade(async (tx) => {
+    this.version(21).upgrade(async (tx) => {
       try {
         const blocks = await tx.table('blocks').toArray();
         for (const block of blocks) {
@@ -609,6 +611,16 @@ class WendlerDb extends Dexie {
         // are preserved during the migration window).
         console.warn('[v21 upgrade] BlockPlan flatten failed:', err);
       }
+    });
+
+    // v22: add chatActionSnapshots table — local-only undo log for
+    // applied propose_edit ChatActions. Each row is keyed by the
+    // ChatAction.id and stores the before-state of every table the
+    // apply touched, so the user can roll back a proposal from the
+    // read-only sheet. NOT synced — peer devices each maintain their
+    // own undo log against their own apply history.
+    this.version(SCHEMA_VERSION).stores({
+      chatActionSnapshots: 'chatActionId, createdAt',
     });
   }
 }

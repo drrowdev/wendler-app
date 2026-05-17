@@ -32,6 +32,7 @@ import type {
 import { getDb } from '@/lib/db';
 import { useMovements } from '@/lib/hooks';
 import { applyEditProposal } from '@/lib/edit-proposal-apply';
+import { undoChatAction } from '@/lib/edit-proposal-undo';
 
 interface Props {
   chatId: string;
@@ -127,6 +128,40 @@ export function EditProposalSheet({ chatId, messageId, action, onClose, readOnly
     }
     return out;
   });
+
+  // Snapshot existence drives whether the Undo button renders. Live
+  // query so the button auto-hides after a successful undo (which
+  // deletes the snapshot row).
+  const hasSnapshot = useLiveQuery(
+    async () => {
+      if (!readOnly) return false;
+      const row = await getDb().chatActionSnapshots.get(action.id);
+      return Boolean(row);
+    },
+    [action.id, readOnly],
+    false,
+  );
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoError, setUndoError] = useState<string | undefined>();
+  const alreadyUndone = Boolean(action.undoneAt);
+
+  const onUndo = async () => {
+    if (undoBusy || alreadyUndone) return;
+    setUndoBusy(true);
+    setUndoError(undefined);
+    try {
+      const res = await undoChatAction(chatId, messageId, action.id);
+      if (!res.ok) {
+        setUndoError(res.error ?? 'Undo failed.');
+        return;
+      }
+      onClose();
+    } catch (e) {
+      setUndoError((e as Error).message);
+    } finally {
+      setUndoBusy(false);
+    }
+  };
 
   const setDecision = (
     opId: string,
@@ -298,16 +333,39 @@ export function EditProposalSheet({ chatId, messageId, action, onClose, readOnly
               {error}
             </p>
           )}
+          {undoError && (
+            <p className="mb-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+              Undo failed: {undoError}
+            </p>
+          )}
+          {readOnly && alreadyUndone && (
+            <p className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+              This proposal was undone on{' '}
+              {new Date(action.undoneAt as string).toLocaleString()}. The
+              affected rows were restored to their state before apply.
+            </p>
+          )}
           {!allDecided && !results && (
             <p className="mb-2 text-xs text-amber-200">
               Decide every operation before applying. {decidedCount} of {total} decided.
             </p>
           )}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {readOnly && hasSnapshot && !alreadyUndone && (
+              <button
+                type="button"
+                onClick={() => void onUndo()}
+                disabled={undoBusy}
+                className="mr-auto rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                title="Roll back every change this proposal made. Restores blocks, movements, cardio plan, and training maxes to the state they were in before this proposal was applied."
+              >
+                {undoBusy ? 'Undoing…' : 'Undo this proposal'}
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
-              disabled={busy}
+              disabled={busy || undoBusy}
               className="rounded-lg border border-border bg-bg/40 px-4 py-2 text-sm font-medium hover:bg-bg/60 disabled:opacity-50"
             >
               {results ? 'Close' : 'Cancel'}

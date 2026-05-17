@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 /** Local marker that a record was deleted; pushed to the server so peers also delete. */
 export interface Tombstone {

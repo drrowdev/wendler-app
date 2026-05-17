@@ -35,10 +35,10 @@ export async function updateActionStatus(
   chatId: string,
   messageId: string,
   actionId: string,
-  patch: Pick<
+  patch: Partial<Pick<
     ChatAction,
-    'status' | 'appliedAt' | 'dismissedAt' | 'appliedDetails' | 'applyError'
-  >,
+    'status' | 'appliedAt' | 'dismissedAt' | 'undoneAt' | 'appliedDetails' | 'applyError'
+  >>,
 ): Promise<ChatAction | undefined> {
   const db = getDb();
   const chat = await db.chats.get(chatId);

@@ -28,6 +28,8 @@
 import { nanoid } from 'nanoid';
 import type {
   ChatAction,
+  ChatActionSnapshot,
+  ChatActionSnapshotTables,
   EditOperation,
   EditOperationAppliedDetail,
   EditOperationDecision,
@@ -176,6 +178,13 @@ export async function applyEditProposal(
   const db = getDb();
   const now = new Date().toISOString();
 
+  // Capture before-state snapshot OUTSIDE the apply tx. Single-user
+  // app + the chat UI doesn't race with itself on a single apply, so
+  // a separate read pass is safe and keeps the apply tx scope small.
+  // Stored only on success — a rolled-back apply leaves nothing
+  // behind to undo.
+  const snapshotTables = await captureSnapshotTables(accepted);
+
   // Atomic transaction. If any op throws, the whole tx rolls back.
   //
   // tempIdMap is mutated as the loop runs — when an add_movement_to_library
@@ -236,6 +245,16 @@ export async function applyEditProposal(
       declinedOperationIds: declinedIds,
     },
   });
+  // Persist the before-state snapshot so the user can undo this
+  // proposal later. Done AFTER updateActionStatus so a failure here
+  // doesn't leave the chip in an inconsistent state — worst case the
+  // snapshot is missing and the Undo button hides itself. Failures
+  // here are logged but not thrown.
+  try {
+    await persistSnapshot(action.id, snapshotTables, now);
+  } catch (err) {
+    console.warn('[applyEditProposal] snapshot persist failed:', err);
+  }
   await writeProposalNotification(chatId, action, appliedCount, accepted.length);
   kickSync();
   return { ok: true, perOp };
@@ -278,6 +297,152 @@ async function writeProposalNotification(
   };
   try {
     await getDb().notifications.put(notification);
+  } catch {
+    // Best-effort.
+  }
+}
+
+// === Snapshot capture (undo log) ===
+//
+// Before the apply tx runs, we capture the current state of every
+// table the apply will touch. After tx success the snapshot is
+// persisted to db.chatActionSnapshots, keyed by the action.id.
+// The user can then roll back the proposal from the read-only sheet.
+//
+// Strategy: per touched multi-row table (blocks / movements /
+// trainingMaxes) we record EVERY row's full state + the full id set.
+// On undo, restored rows get a fresh `updatedAt` so LWW sync wins;
+// rows present now but absent in `presentIds` were created by this
+// apply and get deleted (with tombstone). Singletons (cardioPlan,
+// schedule) capture the singleton row as-is, or null if it didn't
+// exist yet.
+//
+// We always capture per-op blockId targets PLUS, when an op might
+// touch the active block by fallback, ALL blocks (covers the
+// `op.blockId` undefined path + `schedule_deload` which creates a
+// new block in the program sequence).
+async function captureSnapshotTables(
+  accepted: EditOperation[],
+): Promise<ChatActionSnapshotTables> {
+  const db = getDb();
+  let touchesBlocks = false;
+  let touchesAllBlocks = false; // any op that could create a block or fallback to active
+  let touchesCardio = false;
+  let touchesSchedule = false; // schedule_deload writes to schedule cursor
+  let touchesTm = false;
+  let touchesMovements = false;
+
+  for (const op of accepted) {
+    switch (op.kind) {
+      case 'set_block_volume_preset':
+      case 'trim_assistance_entry':
+      case 'swap_assistance_movement':
+      case 'add_assistance_entry':
+      case 'remove_assistance_entry':
+      case 'skip_day_in_week':
+        touchesBlocks = true;
+        if (!('blockId' in op) || !op.blockId) touchesAllBlocks = true;
+        break;
+      case 'schedule_deload':
+        touchesBlocks = true;
+        touchesAllBlocks = true;
+        break;
+      case 'add_cardio_plan_slot':
+      case 'remove_cardio_plan_slot':
+        touchesCardio = true;
+        break;
+      case 'set_training_max':
+        touchesTm = true;
+        break;
+      case 'add_movement_to_library':
+        touchesMovements = true;
+        break;
+    }
+  }
+
+  const out: ChatActionSnapshotTables = {};
+
+  if (touchesBlocks) {
+    // Always snapshot the full blocks table — `touchesAllBlocks` is
+    // common (any op that resolves the active block as a fallback
+    // needs all blocks). Cost is small (typically <20 blocks).
+    void touchesAllBlocks;
+    const all = await db.blocks.toArray();
+    const rowsById: Record<string, unknown> = {};
+    const presentIds: string[] = [];
+    for (const b of all) {
+      rowsById[b.id] = b;
+      presentIds.push(b.id);
+    }
+    out.blocks = { presentIds, rowsById };
+  }
+
+  if (touchesCardio) {
+    const row = (await db.cardioPlan.get('singleton')) ?? null;
+    out.cardioPlan = { singletonRow: row };
+  }
+
+  if (touchesSchedule) {
+    const row = (await db.schedule.get('singleton')) ?? null;
+    out.schedule = { singletonRow: row };
+  }
+
+  if (touchesTm) {
+    const all = await db.trainingMaxes.toArray();
+    const rowsById: Record<string, unknown> = {};
+    const presentIds: string[] = [];
+    for (const r of all) {
+      rowsById[r.id] = r;
+      presentIds.push(r.id);
+    }
+    out.trainingMaxes = { presentIds, rowsById };
+  }
+
+  if (touchesMovements) {
+    const all = await db.movements.toArray();
+    const rowsById: Record<string, unknown> = {};
+    const presentIds: string[] = [];
+    for (const m of all) {
+      rowsById[m.id] = m;
+      presentIds.push(m.id);
+    }
+    out.movements = { presentIds, rowsById };
+  }
+
+  return out;
+}
+
+const SNAPSHOT_RETENTION_CAP = 50;
+
+async function persistSnapshot(
+  chatActionId: string,
+  tables: ChatActionSnapshotTables,
+  createdAt: string,
+): Promise<void> {
+  if (Object.keys(tables).length === 0) return; // nothing touched — nothing to undo
+  const db = getDb();
+  const snapshot: ChatActionSnapshot = {
+    chatActionId,
+    createdAt,
+    version: 1,
+    tables,
+  };
+  await db.chatActionSnapshots.put(snapshot);
+  // Prune oldest snapshots when over the retention cap. Local-only
+  // table so a sloppy delete is fine — worst case the user loses
+  // the ability to undo a very-old proposal.
+  try {
+    const count = await db.chatActionSnapshots.count();
+    if (count > SNAPSHOT_RETENTION_CAP) {
+      const toDelete = count - SNAPSHOT_RETENTION_CAP;
+      const oldest = await db.chatActionSnapshots
+        .orderBy('createdAt')
+        .limit(toDelete)
+        .primaryKeys();
+      for (const k of oldest) {
+        await db.chatActionSnapshots.delete(k as string);
+      }
+    }
   } catch {
     // Best-effort.
   }

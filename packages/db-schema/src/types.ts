@@ -1696,6 +1696,14 @@ interface ChatActionBase {
   appliedAt?: string;
   dismissedAt?: string;
   /**
+   * Set when the user undid this action via the read-only sheet's
+   * "Undo" button. Implies the matching `ChatActionSnapshot` (keyed by
+   * action id) was successfully restored. The chip stays `status:
+   * 'applied'` so it remains visible / re-openable, but rendering paths
+   * grey it out and hide the Undo button.
+   */
+  undoneAt?: string;
+  /**
    * Audit trail set when the user applied the chip. Captures the before /
    * after state of the mutation so troubleshooting "what did the AI
    * actually do?" later is precise. Each kind records its own shape via
@@ -1801,4 +1809,53 @@ export interface Chat {
   /** Derived from the first user message (≤80 chars). */
   title: string;
   messages: ChatMessage[];
+}
+
+/**
+ * Before-state snapshot captured at apply-time for a `propose_edit`
+ * ChatAction. One row per applied proposal, keyed by `chatActionId`.
+ * Powers the "Undo this proposal" affordance in the read-only sheet.
+ *
+ * Storage strategy is per-table:
+ *   - For each table the apply touched, we record EVERY row of that
+ *     table as it existed before the transaction ran (via `rowsById`),
+ *     plus the full set of row ids that existed (`presentIds`).
+ *   - On undo, we put each `rowsById` entry back (bumping `updatedAt`
+ *     so LWW sync wins), then delete any current rows whose id is
+ *     NOT in `presentIds` (they were created by the apply — undo
+ *     deletes them and writes a tombstone).
+ *   - Singleton tables (cardioPlan, schedule) use `singletonRow`:
+ *     `null` means the singleton didn't exist before (undo deletes
+ *     it); an object means restore that exact state.
+ *
+ * Retention is capped at 50 most-recent snapshots; older snapshots
+ * are pruned on insert. Local-only — NOT synced to peers (a peer
+ * device has its own apply history).
+ */
+export interface ChatActionSnapshot {
+  /** Matches `ChatAction.id` — one snapshot per applied proposal. */
+  chatActionId: string;
+  /** ISO of the apply that this snapshot precedes. */
+  createdAt: string;
+  /** Snapshot blob schema version, for future safe migration. */
+  version: 1;
+  /** Captured before-state per touched table. Tables not touched are absent. */
+  tables: ChatActionSnapshotTables;
+}
+
+export interface ChatActionSnapshotTables {
+  blocks?: ChatActionSnapshotTableMulti;
+  movements?: ChatActionSnapshotTableMulti;
+  trainingMaxes?: ChatActionSnapshotTableMulti;
+  /** Singleton — `null` row means it didn't exist before apply. */
+  cardioPlan?: { singletonRow: unknown | null };
+  /** Singleton — `null` row means it didn't exist before apply. */
+  schedule?: { singletonRow: unknown | null };
+}
+
+export interface ChatActionSnapshotTableMulti {
+  /** All ids that existed in this table before apply. */
+  presentIds: string[];
+  /** Full rows keyed by id. */
+  rowsById: Record<string, unknown>;
 }
