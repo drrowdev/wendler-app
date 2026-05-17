@@ -185,7 +185,7 @@ export async function applyEditProposal(
   try {
     await db.transaction(
       'rw',
-      [db.blocks, db.trainingMaxes, db.settings, db.movements, db.cardioPlan],
+      [db.blocks, db.trainingMaxes, db.settings, db.movements, db.cardioPlan, db.schedule],
       async () => {
         for (const op of accepted) {
           // Re-resolve the target block fresh per op (a previous op in
