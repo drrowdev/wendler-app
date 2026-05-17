@@ -25,6 +25,20 @@ import { getDb } from './db';
 import { kickSync } from './sync';
 import { authFetch } from './auth';
 
+/**
+ * Read the user's active movement-exclusion labels — same values the
+ * chat send-path pushes to the API. Exposed so the snapshot inspector
+ * can show them alongside the snapshot text.
+ */
+export async function readActiveExclusions(): Promise<string[]> {
+  const settings = await getDb().settings.get('singleton');
+  const constraints = settings?.trainingProfile?.constraints ?? [];
+  return constraints
+    .filter((c) => c.active !== false)
+    .map((c) => c.label.trim())
+    .filter((s) => s.length > 0);
+}
+
 export interface SendOptions {
   /** Path the user was on when invoking the chat (for context). */
   contextPath?: string;
@@ -46,7 +60,12 @@ export function useChatList(): Chat[] | undefined {
   });
 }
 
-async function buildContextBlob(): Promise<string> {
+/**
+ * Build the exact text snapshot the chat orchestrator receives on
+ * every send. Exposed (not just private) so the snapshot-inspector
+ * debug UI can render it verbatim — what the AI sees is what we show.
+ */
+export async function buildContextBlob(): Promise<string> {
   const db = getDb();
   const [sets, cardio, recovery, races, tms, settings, movements, blocks, sessions, schedule] =
     await Promise.all([
@@ -409,14 +428,7 @@ export function useChatSender(externalId: string | null): UseChatSender {
         // snapshot also lists them inline so the model SEES them, but
         // this is the durable backstop in case the model anchors on a
         // prior turn's reply.
-        const activeExclusions: string[] = await (async () => {
-          const settings = await getDb().settings.get('singleton');
-          const constraints = settings?.trainingProfile?.constraints ?? [];
-          return constraints
-            .filter((c) => c.active !== false)
-            .map((c) => c.label.trim())
-            .filter((s) => s.length > 0);
-        })();
+        const activeExclusions = await readActiveExclusions();
 
         // Today's date in the user's local timezone (YYYY-MM-DD). The API
         // injects this verbatim into the system prompt so the model can

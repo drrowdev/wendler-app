@@ -9,12 +9,14 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { ChatConversationList, ChatPanel } from '@/components/ChatPanel';
+import { SnapshotInspector } from '@/components/SnapshotInspector';
 import { useChatList } from '@/lib/useChat';
 
 export default function ChatPage() {
   const router = useRouter();
   const params = useSearchParams();
   const id = params.get('id');
+  const debugSnapshot = params.get('debug') === 'snapshot';
   const conversations = useChatList();
   const [mobileListOpen, setMobileListOpen] = useState(false);
 
@@ -82,23 +84,26 @@ export default function ChatPage() {
   );
 
   return (
-    <div className="grid h-[calc(100dvh-9rem)] gap-3 md:grid-cols-[16rem_1fr]">
-      <aside className="hidden overflow-hidden rounded-lg border border-border bg-card md:block">
-        <ChatConversationList
-          selectedId={id}
-          conversations={conversations}
-          onSelect={(nid) => select(nid)}
-          onNew={() => select(null)}
-        />
-      </aside>
-      <section className="overflow-hidden rounded-lg border border-border bg-card">
-        <ChatPanel
-          chatId={id}
-          contextPath="/chat"
-          headerSlot={headerSlot}
-          onChatIdChange={(nid) => select(nid)}
-        />
-      </section>
+    <div className="flex h-[calc(100dvh-9rem)] flex-col gap-3">
+      {debugSnapshot && <SnapshotInspector />}
+      <div className="grid min-h-0 flex-1 gap-3 md:grid-cols-[16rem_1fr]">
+        <aside className="hidden overflow-hidden rounded-lg border border-border bg-card md:block">
+          <ChatConversationList
+            selectedId={id}
+            conversations={conversations}
+            onSelect={(nid) => select(nid)}
+            onNew={() => select(null)}
+          />
+        </aside>
+        <section className="overflow-hidden rounded-lg border border-border bg-card">
+          <ChatPanel
+            chatId={id}
+            contextPath="/chat"
+            headerSlot={headerSlot}
+            onChatIdChange={(nid) => select(nid)}
+          />
+        </section>
+      </div>
       {mobileListOpen && (
         <div
           className="fixed inset-0 z-40 flex items-end bg-black/40 md:hidden"
