@@ -2,7 +2,7 @@
 // Bump CACHE on each meaningful change to evict stale assets.
 // Strategy: network-first for HTML navigations (so deploys land immediately),
 // stale-while-revalidate for everything else.
-const CACHE = 'wendler-shell-v438';
+const CACHE = 'wendler-shell-v439';
 const SHELL = ['/', '/program', '/movements', '/history', '/settings', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
