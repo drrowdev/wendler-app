@@ -30,7 +30,9 @@ import type {
 const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export default function DiagnosticsPage() {
-  const [tab, setTab] = useState<'cardio' | 'actions' | 'snapshots'>('cardio');
+  const [tab, setTab] = useState<'cardio' | 'blocks' | 'actions' | 'snapshots'>(
+    'cardio',
+  );
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-6 space-y-6">
@@ -51,6 +53,7 @@ export default function DiagnosticsPage() {
         {(
           [
             ['cardio', 'Cardio plan'],
+            ['blocks', 'Blocks & schedule'],
             ['actions', 'Applied AI actions'],
             ['snapshots', 'Undo log'],
           ] as const
@@ -70,6 +73,7 @@ export default function DiagnosticsPage() {
         ))}
       </nav>
       {tab === 'cardio' && <CardioPlanPanel />}
+      {tab === 'blocks' && <BlocksPanel />}
       {tab === 'actions' && <ActionsPanel />}
       {tab === 'snapshots' && <SnapshotsPanel />}
     </main>
@@ -316,6 +320,157 @@ function ActionsPanel() {
           </div>
         );
       })}
+    </section>
+  );
+}
+
+function BlocksPanel() {
+  const blocks = useLiveQuery(() => getDb().blocks.toArray(), [], []);
+  const schedule = useLiveQuery(() => getDb().schedule.get('singleton'), [], undefined);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Record<string, string>>({});
+
+  const saveStartedAt = async (blockId: string, value: string) => {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      window.alert('Enter a YYYY-MM-DD date.');
+      return;
+    }
+    setBusyId(blockId);
+    try {
+      const b = await getDb().blocks.get(blockId);
+      if (!b) return;
+      await getDb().blocks.put({
+        ...b,
+        startedAt: value,
+        updatedAt: new Date().toISOString(),
+      });
+      setEditing((s) => {
+        const n = { ...s };
+        delete n[blockId];
+        return n;
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (!blocks || blocks.length === 0)
+    return <p className="text-sm text-muted">No blocks.</p>;
+
+  const sorted = [...blocks].sort((a, b) =>
+    (a.sequenceIndex ?? 0) - (b.sequenceIndex ?? 0) ||
+    (a.createdAt ?? '').localeCompare(b.createdAt ?? ''),
+  );
+  const cursor = schedule?.cursor;
+  const cursorBlock = cursor?.blockId
+    ? sorted.find((b) => b.id === cursor.blockId)
+    : undefined;
+
+  return (
+    <section className="space-y-3">
+      <div className="rounded-lg border border-border bg-bg/40 px-3 py-2 text-xs space-y-1">
+        <div className="font-semibold text-fg/90">Schedule cursor</div>
+        <ul className="ml-3 list-disc text-fg/80 space-y-0.5">
+          <li>
+            blockId: <code className="text-fg/90">{cursor?.blockId ?? '(none)'}</code>
+          </li>
+          <li>
+            week: <code className="text-fg/90">{cursor?.week ?? '(none)'}</code>
+          </li>
+          <li>
+            Resolves to:{' '}
+            <span className="font-medium">{cursorBlock?.name ?? '(no block matches)'}</span>
+          </li>
+        </ul>
+      </div>
+      {sorted.map((b) => {
+        const isCursor = cursor?.blockId === b.id;
+        const isActive = !b.completedAt;
+        const editValue =
+          editing[b.id] ?? b.startedAt ?? '';
+        return (
+          <div
+            key={b.id}
+            className={`rounded-lg border px-3 py-2 text-sm space-y-1 ${
+              isCursor ? 'border-accent/50 bg-accent/5' : 'border-border bg-bg/40'
+            }`}
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div className="font-semibold">
+                {b.name}
+                {isCursor && (
+                  <span className="ml-2 rounded bg-accent/30 px-1.5 py-0.5 text-xs">
+                    cursor
+                  </span>
+                )}
+                {isActive && (
+                  <span className="ml-2 rounded bg-emerald-500/20 px-1.5 py-0.5 text-xs text-emerald-100">
+                    active
+                  </span>
+                )}
+                {b.completedAt && (
+                  <span className="ml-2 rounded bg-bg/60 px-1.5 py-0.5 text-xs text-muted">
+                    completed
+                  </span>
+                )}
+              </div>
+              <span className="text-xs font-mono text-muted">
+                {b.id.slice(0, 12)}
+              </span>
+            </div>
+            <ul className="ml-3 list-disc text-xs text-fg/80 space-y-0.5">
+              <li>
+                kind: <span className="font-medium">{b.kind}</span> · seq:{' '}
+                <span className="font-medium">{b.sequenceIndex ?? '—'}</span> ·
+                wks before deload:{' '}
+                <span className="font-medium">{b.weeksBeforeDeload}</span> ·
+                deload?{' '}
+                <span className="font-medium">{b.includesDeload ? 'yes' : 'no'}</span>
+              </li>
+              <li>
+                createdAt:{' '}
+                <span className="font-medium">{fmtDate(b.createdAt)}</span>
+              </li>
+              <li>
+                completedAt:{' '}
+                <span className="font-medium">
+                  {b.completedAt ? fmtDate(b.completedAt) : '—'}
+                </span>
+              </li>
+              <li className="flex flex-wrap items-center gap-2">
+                <span>
+                  startedAt:{' '}
+                  <span className="font-medium">{b.startedAt ?? '(unset)'}</span>
+                </span>
+                <input
+                  type="date"
+                  value={editValue}
+                  onChange={(e) =>
+                    setEditing((s) => ({ ...s, [b.id]: e.target.value }))
+                  }
+                  className="rounded border border-border bg-bg px-2 py-0.5 text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveStartedAt(b.id, editValue)}
+                  disabled={busyId === b.id || editValue === (b.startedAt ?? '')}
+                  className="rounded border border-accent/50 bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent hover:bg-accent/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {busyId === b.id ? 'Saving…' : 'Set startedAt'}
+                </button>
+              </li>
+            </ul>
+          </div>
+        );
+      })}
+      <p className="text-xs text-muted leading-relaxed">
+        The AI&apos;s cardio scope resolution anchors on{' '}
+        <code className="text-fg/80">block.startedAt</code> (the Monday of that
+        date is treated as Wk 1 Monday). If a block&apos;s startedAt is wrong
+        by a week, the AI&apos;s &quot;Wk 2/3/Deload&quot; resolves to the
+        wrong calendar dates. Fix it here, then re-ask the chat to re-add the
+        scoped slot.
+      </p>
     </section>
   );
 }
