@@ -133,4 +133,39 @@ describe('buildTimelineModel', () => {
     // At minimum we span from Mar (with padding) to mid-May; expect ≥ 2 month transitions.
     expect(monthStarts.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('places historical completed blocks (no startedAt) in the past via completedAt', () => {
+    // Legacy data: Leader 1 has completedAt but no startedAt. Without
+    // this branch the block would chain into the future after the
+    // active anchor — historically completed work showing up as if
+    // it were upcoming.
+    const leader = block({
+      id: 'leader-1',
+      name: 'Leader 1',
+      kind: 'leader',
+      weeksBeforeDeload: 3,
+      includesDeload: true,
+      // 4 weeks total, ended 2026-05-04 → should be placed roughly
+      // 2026-04-06 → 2026-05-04.
+      completedAt: '2026-05-04T00:00:00.000Z',
+    });
+    const anchor = block({
+      id: 'anchor-1',
+      name: 'Anchor 1',
+      kind: 'anchor',
+      weeksBeforeDeload: 3,
+      includesDeload: false,
+      startedAt: '2026-05-11T00:00:00.000Z',
+    });
+    const m = buildTimelineModel([leader, anchor], [], { today, paddingWeeks: 1 });
+    const leaderSeg = m.blockSegments.find((s) => s.blockId === 'leader-1')!;
+    const anchorSeg = m.blockSegments.find((s) => s.blockId === 'anchor-1')!;
+    // Leader should be entirely BEFORE the anchor (its endWeekIndex
+    // must be < the anchor's startWeekIndex).
+    expect(leaderSeg.endWeekIndex).toBeLessThan(anchorSeg.startWeekIndex);
+    // And it must not overlap today (it's a past block).
+    expect(leaderSeg.isActive).toBe(false);
+    // Anchor SHOULD be the active block today.
+    expect(anchorSeg.isActive).toBe(true);
+  });
 });

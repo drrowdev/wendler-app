@@ -154,9 +154,15 @@ function blockWeekCount(block: Pick<ProgramBlock, 'weeksBeforeDeload' | 'include
  *
  * Block-ordering rules:
  *   - Started blocks (have `startedAt`) anchor to their real Monday.
- *   - Unstarted blocks chain in `sequenceIndex` order off the END of
- *     the most-recent block (started OR previously-chained). Falls
- *     back to today's Monday when no started block exists.
+ *   - Completed blocks without `startedAt` (legacy data — older
+ *     records were stamped with only `completedAt`) anchor BACKWARDS
+ *     from `completedAt` by their week count, placing them in the
+ *     historical past where they belong rather than chained into the
+ *     future.
+ *   - Truly unstarted/planned blocks (no startedAt AND no completedAt)
+ *     chain in `sequenceIndex` order off the END of the most-recent
+ *     placed block. Falls back to today's Monday when no started
+ *     block exists.
  *   - When two STARTED blocks overlap (rare — usually a sync edge case)
  *     we keep both segments at their real ranges; the renderer can
  *     stack lanes if needed. For now this model returns one flat
@@ -170,21 +176,35 @@ export function buildTimelineModel(
   const paddingWeeks = config.paddingWeeks ?? 2;
   const todayMonday = isoMondayOf(config.today);
 
-  // 1. Sort blocks: started-first by startedAt, then unstarted by
-  // sequenceIndex (falling back to createdAt for tie-break).
+  // 1. Bucket blocks by what date anchor we can use.
+  //   - `started`: have startedAt → anchor forward from there.
+  //   - `historicalCompleted`: missing startedAt but have completedAt
+  //     → anchor backward from completedAt by week count. These are
+  //     historical blocks that were stamped only with completedAt at
+  //     migration time (sequenceIndex hints at order but is not a
+  //     date).
+  //   - `planned`: no startedAt and no completedAt → chain into the
+  //     future off the last placed block.
   const started = blocks.filter((b) => !!b.startedAt);
-  const unstarted = blocks.filter((b) => !b.startedAt);
+  const historicalCompleted = blocks.filter((b) => !b.startedAt && !!b.completedAt);
+  const planned = blocks.filter((b) => !b.startedAt && !b.completedAt);
+
   started.sort((a, b) => (a.startedAt! < b.startedAt! ? -1 : 1));
-  unstarted.sort((a, b) => {
+  historicalCompleted.sort((a, b) => {
+    // Most-completed-recently last so they line up chronologically with
+    // started blocks. If completedAt ties, fall back to sequenceIndex.
+    if (a.completedAt !== b.completedAt) {
+      return (a.completedAt ?? '') < (b.completedAt ?? '') ? -1 : 1;
+    }
+    return (a.sequenceIndex ?? 0) - (b.sequenceIndex ?? 0);
+  });
+  planned.sort((a, b) => {
     const ai = a.sequenceIndex ?? Number.MAX_SAFE_INTEGER;
     const bi = b.sequenceIndex ?? Number.MAX_SAFE_INTEGER;
     if (ai !== bi) return ai - bi;
     return (a.createdAt ?? '') < (b.createdAt ?? '') ? -1 : 1;
   });
 
-  // 2. Place every block on the timeline. For unstarted blocks, chain
-  // off the last cursor position (initially today's Monday OR the end
-  // of the last started block — whichever is later).
   interface Placed {
     block: ProgramBlock;
     startMonday: Date;
@@ -192,6 +212,18 @@ export function buildTimelineModel(
     isStarted: boolean;
   }
   const placed: Placed[] = [];
+
+  // 2a. Historical completed blocks — anchor each backward from
+  // completedAt. End up in the past where they actually were trained.
+  for (const b of historicalCompleted) {
+    const weeks = blockWeekCount(b);
+    const endMonday = isoMondayOf(new Date(b.completedAt!));
+    const startMonday = new Date(endMonday);
+    startMonday.setDate(startMonday.getDate() - weeks * 7);
+    placed.push({ block: b, startMonday, weeks, isStarted: false });
+  }
+
+  // 2b. Started blocks — anchor forward from startedAt.
   for (const b of started) {
     placed.push({
       block: b,
@@ -200,16 +232,22 @@ export function buildTimelineModel(
       isStarted: true,
     });
   }
+
+  // 2c. Planned blocks — chain after the latest-ending placed block,
+  // or today's Monday if no anchored block exists. Process in
+  // sequenceIndex order.
   let chainCursor: Date | null = null;
-  if (placed.length > 0) {
-    const last = placed[placed.length - 1]!;
-    chainCursor = new Date(last.startMonday);
-    chainCursor.setDate(chainCursor.getDate() + last.weeks * 7);
+  for (const p of placed) {
+    const end = new Date(p.startMonday);
+    end.setDate(end.getDate() + p.weeks * 7);
+    if (!chainCursor || end.getTime() > chainCursor.getTime()) {
+      chainCursor = end;
+    }
   }
   if (!chainCursor || chainCursor.getTime() < todayMonday.getTime()) {
     chainCursor = todayMonday;
   }
-  for (const b of unstarted) {
+  for (const b of planned) {
     const startMonday: Date = new Date(chainCursor);
     const weeks = blockWeekCount(b);
     placed.push({ block: b, startMonday, weeks, isStarted: false });
