@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { ChatDrawer } from './ChatDrawer';
 import { ensureDailyBrief } from '@/lib/daily-brief';
+import { maybeTriggerWelcomeBack } from '@/lib/returning-user-trigger';
 
 // Routes where the FAB is hidden because:
 // - /day, /session: active workout, don't distract mid-set
@@ -31,13 +32,12 @@ export function ChatFab() {
     setOpen(false);
   }, [pathname]);
 
-  // Idempotently ensure today's daily brief on mount. Safe to call
-  // every mount — date-keyed gating in the helper prevents dupes,
-  // and it short-circuits with 'exists' / 'disabled' / 'too-early'
-  // when a brief shouldn't be created. Fire-and-forget; failures
-  // are logged inside the helper.
+  // Idempotently ensure today's daily brief + maybe-welcome-back on
+  // mount. Both helpers are safe to call on every mount — date- and
+  // gap-based gating prevents duplicates. Fire-and-forget.
   useEffect(() => {
     void ensureDailyBrief();
+    void maybeTriggerWelcomeBack();
   }, []);
 
   if (shouldHide(pathname)) return null;

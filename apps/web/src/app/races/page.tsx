@@ -161,6 +161,11 @@ export default function RacesPage() {
         updatedAt: now,
       };
       await getDb().races.add(created);
+      // Proactive AI: if the race is A/B priority within 12 weeks,
+      // fire a Coach chat with a primed taper/race-prep plan.
+      void import('@/lib/race-trigger').then(({ maybeTriggerRaceTaper }) => {
+        void maybeTriggerRaceTaper(created);
+      });
     }
     kickSync();
     setOpen(false);

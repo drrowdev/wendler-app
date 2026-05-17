@@ -87,6 +87,14 @@ function BlockDetailPage() {
       await dbi.blocks.update(block.id, { completedAt: now, updatedAt: now });
       await onBlockCompleted(block.id);
 
+      // Proactive AI: fire a debrief + next-block proposal chat.
+      // Fire-and-forget; failures logged inside the helper.
+      void import('@/lib/block-completion-trigger').then(
+        ({ maybeTriggerBlockCompleted }) => {
+          void maybeTriggerBlockCompleted({ ...block, completedAt: now });
+        },
+      );
+
       // Advance the schedule's active block to the next non-completed block in
       // the same program (sorted by sequenceIndex), if this block is currently
       // active. Without this the program detail view keeps showing the
