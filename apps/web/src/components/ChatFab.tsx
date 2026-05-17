@@ -3,10 +3,15 @@
 // ChatFab — global floating action button. Mounted in layout.tsx so it
 // appears on every page (with a hide list for routes where it would
 // interfere). Tap opens the slide-up ChatDrawer.
+//
+// Also the host for daily-brief auto-trigger: on mount, idempotently
+// ensure today's brief chat exists (creates a "Daily brief" chat
+// with pendingAutoSend + notification if none exists for today).
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { ChatDrawer } from './ChatDrawer';
+import { ensureDailyBrief } from '@/lib/daily-brief';
 
 // Routes where the FAB is hidden because:
 // - /day, /session: active workout, don't distract mid-set
@@ -25,6 +30,15 @@ export function ChatFab() {
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
+
+  // Idempotently ensure today's daily brief on mount. Safe to call
+  // every mount — date-keyed gating in the helper prevents dupes,
+  // and it short-circuits with 'exists' / 'disabled' / 'too-early'
+  // when a brief shouldn't be created. Fire-and-forget; failures
+  // are logged inside the helper.
+  useEffect(() => {
+    void ensureDailyBrief();
+  }, []);
 
   if (shouldHide(pathname)) return null;
 

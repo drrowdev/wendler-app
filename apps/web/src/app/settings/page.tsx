@@ -83,6 +83,7 @@ export default function SettingsPage() {
   const [trapBar, setTrapBar] = useState('25');
   const [keepScreenOn, setKeepScreenOn] = useState(false);
   const [strengthHrEnrichment, setStrengthHrEnrichment] = useState(true);
+  const [dailyBriefEnabled, setDailyBriefEnabled] = useState(true);
   const [preferredMaxPlate, setPreferredMaxPlate] = useState<string>('auto');
   const [rounding, setRounding] = useState('2.5');
   const [defaultTm, setDefaultTm] = useState('85');
@@ -153,6 +154,7 @@ export default function SettingsPage() {
     setTrapBar(String(settings.trapBarWeightKg ?? 25));
     setKeepScreenOn(settings.keepScreenOn ?? false);
     setStrengthHrEnrichment(settings.strengthHrEnrichment ?? true);
+    setDailyBriefEnabled(settings.dailyBriefEnabled ?? true);
     setPreferredMaxPlate(
       typeof settings.preferredMaxPlateKg === 'number'
         ? String(settings.preferredMaxPlateKg)
@@ -217,6 +219,7 @@ export default function SettingsPage() {
       trapBarWeightKg: Number(trapBar),
       keepScreenOn,
       strengthHrEnrichment,
+      dailyBriefEnabled,
       preferredMaxPlateKg:
         preferredMaxPlate === 'auto' ? undefined : Number(preferredMaxPlate),
       roundingKg: Number(rounding),
@@ -507,6 +510,26 @@ export default function SettingsPage() {
               cardiovascular cost. The strength activities are NOT imported as
               cardio; only the HR signal is captured. Excluded from the
               polarized 80/10/10 distribution (cardio-only).
+            </p>
+          </div>
+          <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted">
+              AI Coach
+            </h3>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={dailyBriefEnabled}
+                onChange={(e) => setDailyBriefEnabled(e.target.checked)}
+              />
+              Daily training brief
+            </label>
+            <p className="text-xs leading-snug text-muted">
+              On first app open each day, the AI composes a short
+              brief — today&apos;s session, recent load, what to
+              focus on, anything to adjust — delivered as a
+              notification. Tap to open the chat and continue the
+              conversation. Off = no daily notification.
             </p>
           </div>
           <div className="flex gap-2">

@@ -422,6 +422,14 @@ export interface UserSettings {
    * fallback — only the LLM path reads this.
    */
   goalNotes?: string;
+  /**
+   * Daily proactive-brief opt-in. When true, the app generates a
+   * daily AI brief on first open of each calendar day — a "good
+   * morning, here's today's plan" Coach summary delivered as a
+   * notification. Defaults to true; users can turn it off if they
+   * find the notifications noisy.
+   */
+  dailyBriefEnabled?: boolean;
   updatedAt: string;
 }
 
@@ -1888,12 +1896,14 @@ export interface Chat {
    */
   pendingAutoSend?: string;
   /**
-   * Marker that this chat was opened by a proactive AI trigger
-   * (currently only "injury"). Used by the chat header so the
-   * conversation displays "Coach review" framing instead of generic
-   * "New chat". Optional.
+   * Marker that this chat was opened by a proactive AI trigger.
+   * `'injury'` — injury-coach review on injury log (v447).
+   * `'daily-brief'` — daily proactive brief (v449+).
+   * Used by the chat header so the conversation displays a contextual
+   * label and by ensure-once gating in the trigger code (avoid double-
+   * triggering the same kind on the same day).
    */
-  triggerKind?: 'injury';
+  triggerKind?: 'injury' | 'daily-brief';
 }
 
 /**
