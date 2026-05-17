@@ -5,6 +5,7 @@ import {
   SCHEMA_VERSION,
   SEED_MOVEMENTS,
   type AiGeneration,
+  type AiMemory,
   type CardioPlan,
   type CardioSession,
   type Chat,
@@ -68,6 +69,7 @@ class WendlerDb extends Dexie {
   injuries!: Table<Injury, string>;
   weeklyReviews!: Table<WeeklyReview, string>;
   chatActionSnapshots!: Table<ChatActionSnapshot, string>;
+  aiMemories!: Table<AiMemory, string>;
 
   constructor() {
     super('wendler-app');
@@ -619,8 +621,16 @@ class WendlerDb extends Dexie {
     // apply touched, so the user can roll back a proposal from the
     // read-only sheet. NOT synced — peer devices each maintain their
     // own undo log against their own apply history.
-    this.version(SCHEMA_VERSION).stores({
+    this.version(22).stores({
       chatActionSnapshots: 'chatActionId, createdAt',
+    });
+
+    // v23: add aiMemories table — persistent AI-curated facts /
+    // preferences about the user. Synced (LWW) so the trainer's
+    // memory follows the user across devices. Soft-delete via
+    // tombstones (kind: 'aiMemory').
+    this.version(SCHEMA_VERSION).stores({
+      aiMemories: 'id, category, createdAt, updatedAt',
     });
   }
 }

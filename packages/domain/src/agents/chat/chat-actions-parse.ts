@@ -6,7 +6,7 @@
 // `schedule_followup` chips. Every other AI-driven write goes through
 // the `propose_edit` tool-use path; see edit-proposal-parse.ts.
 
-export type ParsedChatActionKind = 'log_injury' | 'schedule_followup';
+export type ParsedChatActionKind = 'log_injury' | 'schedule_followup' | 'remember';
 
 interface ParsedActionBase {
   id: string;
@@ -45,7 +45,23 @@ export interface ParsedScheduleFollowupAction extends ParsedActionBase {
   prompt: string;
 }
 
-export type ParsedChatAction = ParsedLogInjuryAction | ParsedScheduleFollowupAction;
+/**
+ * Commit a durable fact / preference / constraint about the user to
+ * the persistent memory store. Accepted memories surface in every
+ * future chat snapshot under "## Your trainer remembers" so the AI
+ * has continuous personal context.
+ */
+export interface ParsedRememberAction extends ParsedActionBase {
+  kind: 'remember';
+  /** ≤200 chars trimmed. */
+  text: string;
+  category: 'preference' | 'fact' | 'goal' | 'constraint' | 'context';
+}
+
+export type ParsedChatAction =
+  | ParsedLogInjuryAction
+  | ParsedScheduleFollowupAction
+  | ParsedRememberAction;
 
 const ACTIONS_OPEN = '<actions>';
 const ACTIONS_CLOSE = '</actions>';
@@ -150,6 +166,35 @@ function validateOne(raw: unknown, getId: () => string): ParsedChatAction | null
       inHours,
       topic,
       prompt,
+    };
+  }
+
+  if (kind === 'remember') {
+    if (typeof r.text !== 'string') return null;
+    const text = r.text.trim().slice(0, 200);
+    if (!text) return null;
+    const VALID_CATEGORIES = new Set([
+      'preference',
+      'fact',
+      'goal',
+      'constraint',
+      'context',
+    ]);
+    const cat = typeof r.category === 'string' ? r.category.trim() : '';
+    const category = (VALID_CATEGORIES.has(cat) ? cat : 'context') as
+      | 'preference'
+      | 'fact'
+      | 'goal'
+      | 'constraint'
+      | 'context';
+    return {
+      id: getId(),
+      label,
+      ...(rationale ? { rationale } : {}),
+      status: 'pending' as const,
+      kind: 'remember',
+      text,
+      category,
     };
   }
 

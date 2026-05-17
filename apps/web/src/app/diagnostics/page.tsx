@@ -30,9 +30,9 @@ import type {
 const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export default function DiagnosticsPage() {
-  const [tab, setTab] = useState<'cardio' | 'blocks' | 'actions' | 'snapshots'>(
-    'cardio',
-  );
+  const [tab, setTab] = useState<
+    'cardio' | 'blocks' | 'actions' | 'snapshots' | 'memories'
+  >('cardio');
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-6 space-y-6">
@@ -54,6 +54,7 @@ export default function DiagnosticsPage() {
           [
             ['cardio', 'Cardio plan'],
             ['blocks', 'Blocks & schedule'],
+            ['memories', 'AI memories'],
             ['actions', 'Applied AI actions'],
             ['snapshots', 'Undo log'],
           ] as const
@@ -74,6 +75,7 @@ export default function DiagnosticsPage() {
       </nav>
       {tab === 'cardio' && <CardioPlanPanel />}
       {tab === 'blocks' && <BlocksPanel />}
+      {tab === 'memories' && <MemoriesPanel />}
       {tab === 'actions' && <ActionsPanel />}
       {tab === 'snapshots' && <SnapshotsPanel />}
     </main>
@@ -317,6 +319,101 @@ function ActionsPanel() {
                 </Link>
               </div>
             )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+function MemoriesPanel() {
+  const memories = useLiveQuery(
+    () => getDb().aiMemories.orderBy('createdAt').reverse().toArray(),
+    [],
+    [],
+  );
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const deleteMemory = async (id: string) => {
+    const m = memories?.find((x) => x.id === id);
+    if (!m) return;
+    if (!window.confirm(`Delete this memory?\n\n"${m.text}"`)) return;
+    setBusyId(id);
+    try {
+      const now = new Date().toISOString();
+      await getDb().aiMemories.delete(id);
+      await getDb().tombstones.put({
+        id: `aiMemory:${id}`,
+        kind: 'aiMemory',
+        recordId: id,
+        deletedAt: now,
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (!memories) return <p className="text-sm text-muted">Loading…</p>;
+  if (memories.length === 0)
+    return (
+      <p className="rounded-lg border border-border bg-bg/40 px-4 py-6 text-sm text-muted">
+        No memories saved yet. When the AI learns something durable about you
+        in chat (a preference, constraint, or training philosophy) it will
+        propose a <code className="text-fg/80">remember</code> chip — tap
+        Accept and it lands here.
+      </p>
+    );
+  const ORDER: Array<'preference' | 'fact' | 'goal' | 'constraint' | 'context'> = [
+    'preference',
+    'fact',
+    'goal',
+    'constraint',
+    'context',
+  ];
+  const byCategory = new Map<string, typeof memories>();
+  for (const m of memories) {
+    const arr = byCategory.get(m.category) ?? [];
+    arr.push(m);
+    byCategory.set(m.category, arr);
+  }
+  return (
+    <section className="space-y-3">
+      <div className="text-xs text-muted">
+        {memories.length} memory row{memories.length === 1 ? '' : 's'}. These are
+        surfaced to EVERY chat snapshot under &quot;## Your trainer
+        remembers&quot;.
+      </div>
+      {ORDER.map((cat) => {
+        const rows = byCategory.get(cat);
+        if (!rows || rows.length === 0) return null;
+        return (
+          <div key={cat} className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+              {cat}
+            </h3>
+            {rows.map((m) => (
+              <div
+                key={m.id}
+                className="rounded-lg border border-border bg-bg/40 px-3 py-2 text-sm space-y-1"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="flex-1 text-fg/90">{m.text}</p>
+                  <button
+                    type="button"
+                    onClick={() => void deleteMemory(m.id)}
+                    disabled={busyId === m.id}
+                    className="shrink-0 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-100 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {busyId === m.id ? '…' : 'Delete'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-muted">
+                  Added {fmtDate(m.createdAt)}
+                  {m.userEdited ? ' · user-edited' : ''}
+                  {m.sourceChatId ? ` · from chat ${m.sourceChatId.slice(0, 8)}…` : ''}
+                </p>
+              </div>
+            ))}
           </div>
         );
       })}

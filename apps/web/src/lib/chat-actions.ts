@@ -229,3 +229,48 @@ function truncate(s: string, n: number): string {
   return s.slice(0, n - 1).trimEnd() + '…';
 }
 
+/**
+ * Commit a `remember` ChatAction's text + category to the
+ * persistent memory store. The accepted memory is then surfaced to
+ * every future chat snapshot under "## Your trainer remembers" so
+ * the AI has continuous personal context across conversations.
+ *
+ * `editedText` (optional) lets the chip UI pass the user-edited
+ * value when they tweak the AI's proposed phrasing before accepting.
+ */
+export async function applyRemember(
+  chatId: string,
+  messageId: string,
+  action: ChatAction & { kind: 'remember' },
+  editedText?: string,
+): Promise<void> {
+  try {
+    const finalText = (editedText ?? action.text).trim().slice(0, 200);
+    if (!finalText) {
+      await markFailed(chatId, messageId, action, 'Memory text is empty.');
+      return;
+    }
+    const userEdited = !!editedText && editedText.trim() !== action.text.trim();
+    const memoryId = nanoid();
+    const nowIso = new Date().toISOString();
+    await getDb().aiMemories.put({
+      id: memoryId,
+      text: finalText,
+      category: action.category,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      sourceChatId: chatId,
+      ...(userEdited ? { userEdited: true } : {}),
+    });
+    await markApplied(
+      chatId,
+      messageId,
+      action,
+      { kind: 'remember', memoryId, text: finalText, category: action.category },
+      `Remembered: "${truncate(finalText, 80)}"`,
+    );
+  } catch (err) {
+    await markFailed(chatId, messageId, action, (err as Error).message);
+  }
+}
+

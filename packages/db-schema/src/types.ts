@@ -1726,7 +1726,11 @@ export type EditOperationAppliedDetail =
       skipNote?: string;
     };
 
-export type ChatActionKind = 'log_injury' | 'propose_edit' | 'schedule_followup';
+export type ChatActionKind =
+  | 'log_injury'
+  | 'propose_edit'
+  | 'schedule_followup'
+  | 'remember';
 
 export type ChatActionStatus = 'pending' | 'applied' | 'dismissed';
 
@@ -1784,6 +1788,14 @@ export type ChatActionApplyDetails =
       dueAt: string;
       /** Notification id that was created. */
       notificationId: string;
+    }
+  | {
+      kind: 'remember';
+      /** The aiMemories.id the memory was stored under. */
+      memoryId: string;
+      /** Captured for audit so re-opening the chip shows what was committed. */
+      text: string;
+      category: 'preference' | 'fact' | 'goal' | 'constraint' | 'context';
     };
 
 export interface LogInjuryChatAction extends ChatActionBase {
@@ -1853,7 +1865,42 @@ export interface ProposeEditChatAction extends ChatActionBase {
   userDecisions?: Record<string, EditOperationDecision>;
 }
 
-export type ChatAction = LogInjuryChatAction | ProposeEditChatAction | ScheduleFollowupChatAction;
+/**
+ * `remember` — the AI commits a durable fact / preference / constraint
+ * about the user to the persistent memory store. Surfaced as a chip
+ * the user accepts (writes to `aiMemories`) or dismisses (memory
+ * never persists). Once accepted, the memory is included in EVERY
+ * future chat snapshot under "## Your trainer remembers" so the AI
+ * has continuous context across conversations.
+ *
+ * Examples of what to remember:
+ *  - "User prefers Z2 over interval cardio sessions."
+ *  - "Lower back twinges on conventional deadlifts; uses trap-bar."
+ *  - "Races aggressively — A-race targets are stretch, not safe."
+ *  - "Trains 4x/week — Mon/Thu/Fri (incl. accessory)."
+ *
+ * What NOT to remember:
+ *  - Anything transient ("user said they were tired yesterday").
+ *  - Anything already captured in the schema (active block, races).
+ *  - Anything the user can change themselves (they edit it in
+ *    TrainingProfile / GoalNotes already).
+ */
+export interface RememberChatAction extends ChatActionBase {
+  kind: 'remember';
+  /** The fact/preference text, ≤ 200 chars. Surfaced to every prompt. */
+  text: string;
+  /**
+   * Coarse category for grouping in the memory review UI. The AI
+   * picks one; the user can re-classify on accept.
+   */
+  category: 'preference' | 'fact' | 'goal' | 'constraint' | 'context';
+}
+
+export type ChatAction =
+  | LogInjuryChatAction
+  | ProposeEditChatAction
+  | ScheduleFollowupChatAction
+  | RememberChatAction;
 
 export interface ChatMessage {
   id: string;
@@ -1953,4 +2000,53 @@ export interface ChatActionSnapshotTableMulti {
   presentIds: string[];
   /** Full rows keyed by id. */
   rowsById: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// AI Memories (v23) — persistent facts/preferences the AI remembers
+// ---------------------------------------------------------------------------
+//
+// Each row is one durable thing the chat AI learned about the user.
+// Surfaced to EVERY chat snapshot under "## Your trainer remembers"
+// so the assistant has continuous personal context across
+// conversations. Created via the `remember` ChatAction kind;
+// reviewed + deleted from /diagnostics → Memories.
+//
+// Synced across devices (LWW on updatedAt). Soft-delete via
+// tombstones so a delete on one device propagates.
+//
+// Intentionally simple: just text + category + timestamps. No
+// embedding / similarity / dedup — the AI is expected to check the
+// current memory list (provided in the snapshot) before proposing a
+// new `remember` op to avoid duplicates.
+
+export type AiMemoryCategory =
+  | 'preference'
+  | 'fact'
+  | 'goal'
+  | 'constraint'
+  | 'context';
+
+export interface AiMemory {
+  /** Stable id (nanoid). */
+  id: string;
+  /** The fact/preference text, ≤200 chars after trim. */
+  text: string;
+  category: AiMemoryCategory;
+  /** ISO timestamp the memory was first committed. */
+  createdAt: string;
+  /** LWW sync timestamp. Bumped on text/category edits. */
+  updatedAt: string;
+  /**
+   * Chat id that proposed this memory (the `remember` chip
+   * originated there). Optional — manual additions via the
+   * diagnostics UI omit it.
+   */
+  sourceChatId?: string;
+  /**
+   * True when the user edited the AI's proposed text before
+   * accepting. Lets the audit distinguish "AI got it right" from
+   * "AI got close, user fixed it".
+   */
+  userEdited?: boolean;
 }

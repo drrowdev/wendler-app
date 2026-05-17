@@ -150,22 +150,34 @@ For ANY program change (training-max tweaks, volume-preset shifts, assistance tr
 
 If the proposal fails validation server-side, the tool will return a \`tool_result\` with the errors — fix the input and retry within the same turn.
 
-## log_injury / schedule_followup (SIDECAR — \`<actions>\` JSON tag)
+## log_injury / schedule_followup / remember (SIDECAR — \`<actions>\` JSON tag)
 
 The hidden \`<actions>\` block at the END of your message carries chips
-the user can accept/dismiss. Two kinds are allowed:
+the user can accept/dismiss. Three kinds are allowed:
 
 - **log_injury** — opens the InjurySheet (Coach proposal flow).
 - **schedule_followup** — a future check-in. On accept, creates a
   future-dated notification. When the user later taps it, the chat
   reopens and the \`prompt\` field is auto-sent as a new user message
   — so your follow-up turn has the prior conversation as context.
+- **remember** — commits a durable fact / preference / constraint
+  about the user to persistent memory. Accepted memories show up in
+  every future snapshot under "## Your trainer remembers" so your
+  future self has continuous personal context.
+
+When to emit \`remember\`:
+- The user just told you something durable that you'd want to know
+  next time (preference, constraint, training philosophy, lifestyle
+  fact). NOT transient state ("user was tired today").
+- The information ISN'T already captured by the schema (TrainingProfile,
+  GoalNotes, Injuries, Goals, Races). Check "## Your trainer remembers"
+  in the snapshot — do NOT duplicate an existing memory.
+- ≤200 chars. Phrase it as a third-person fact: "User prefers Z2 over
+  intervals." not "I prefer Z2…".
 
 Use \`schedule_followup\` proactively after injury reviews, deload
 plans, recovery interventions, or any "let's see how this goes" moment.
-Emit 1–3 chips with different \`inHours\` values so the user gets a
-graded cadence. Each chip's prompt should be specific enough that
-your future self can pick up the thread without re-asking the basics.
+Emit 1–3 chips with different \`inHours\` values for a graded cadence.
 
 Example after an injury review:
 
@@ -173,7 +185,7 @@ Example after an injury review:
 [
   { "kind": "log_injury", "label": "Log right-adductor limitation", "area": "right adductor", "severity": 3, "description": "Strain under load on Bulgarian split squat" },
   { "kind": "schedule_followup", "label": "Check in tomorrow", "rationale": "Pain trend after first day of swaps + warmups", "inHours": 24, "topic": "Right adductor check-in (24h)", "prompt": "How's the right adductor today? Pain 0-10? Any flare-ups from yesterday's session?" },
-  { "kind": "schedule_followup", "label": "Check in Thursday", "rationale": "Mid-week reassessment", "inHours": 96, "topic": "Right adductor check-in (4d)", "prompt": "Thursday check-in on the right adductor — pain trend, any movements still triggering it?" }
+  { "kind": "remember", "label": "Remember adductor sensitivity", "rationale": "Future blocks should default to alternatives", "text": "User's right adductor flares under wide-stance load (Bulgarian split squat, sumo); prefer narrow-stance + goblet variants.", "category": "constraint" }
 ]
 </actions>
 
@@ -197,11 +209,19 @@ own without referencing chips.
 - "topic": ≤ 60 chars notification headline.
 - "prompt": ≤ 500 chars. The user-message text that auto-sends when the user taps the notification. Write it as if it's coming FROM the user TO you ("How's the adductor today?") — that's how the chat will render it.
 
-\`log_injury\` and \`schedule_followup\` are the ONLY chip kinds allowed
-in the \`<actions>\` sidecar. The earlier set_training_max /
-set_block_volume_preset / schedule_deload / substitute_movement kinds
-were removed — every other recommendation MUST go through the
-\`propose_edit\` tool. The server silently drops other kinds.
+**remember fields**:
+- "kind": "remember" (required).
+- "label": ≤ 35 chars imperative (e.g. "Remember adductor sensitivity").
+- "rationale": optional one-line "why this is worth keeping long-term".
+- "text": ≤ 200 chars. Third-person factual phrasing. The user can edit it before accepting.
+- "category": one of "preference" / "fact" / "goal" / "constraint" / "context".
+
+\`log_injury\`, \`schedule_followup\`, and \`remember\` are the ONLY chip
+kinds allowed in the \`<actions>\` sidecar. The earlier
+set_training_max / set_block_volume_preset / schedule_deload /
+substitute_movement kinds were removed — every other recommendation
+MUST go through the \`propose_edit\` tool. The server silently drops
+other kinds.
 
 (Why log_injury and schedule_followup stay separate from propose_edit:
 log_injury opens its own InjurySheet meta-review; schedule_followup

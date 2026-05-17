@@ -130,6 +130,18 @@ function ChatActionChip({
       }
       return;
     }
+    if (action.kind === 'remember') {
+      setBusy(true);
+      try {
+        const { applyRemember } = await import('@/lib/chat-actions');
+        await applyRemember(chatId, messageId, action);
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
   };
 
   const onDismiss = async () => {
@@ -220,6 +232,8 @@ function formatAppliedDetails(details: ChatActionApplyDetails): string {
       const t = new Date(details.dueAt);
       return `Check-in scheduled for ${t.toLocaleString()}`;
     }
+    case 'remember':
+      return `Remembered (${details.category}): "${details.text.length > 80 ? details.text.slice(0, 79) + '…' : details.text}"`;
     default:
       return '';
   }

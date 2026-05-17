@@ -70,7 +70,7 @@ export function useChatList(): Chat[] | undefined {
  */
 export async function buildContextBlob(): Promise<string> {
   const db = getDb();
-  const [sets, cardio, recovery, races, tms, settings, movements, blocks, sessions, schedule, cardioPlan] =
+  const [sets, cardio, recovery, races, tms, settings, movements, blocks, sessions, schedule, cardioPlan, memories] =
     await Promise.all([
       db.sets.toArray(),
       db.cardio.toArray(),
@@ -83,6 +83,7 @@ export async function buildContextBlob(): Promise<string> {
       db.sessions.toArray(),
       db.schedule.get('singleton'),
       db.cardioPlan.get('singleton'),
+      db.aiMemories.toArray(),
     ]);
   const movementName = new Map(movements.map((m) => [m.id, m.name]));
   const summary = buildChatContext({
@@ -103,6 +104,39 @@ export async function buildContextBlob(): Promise<string> {
   // separate section so the existing snapshot rendering stays untouched.
   const activeBlock = blocks.find((b) => !b.completedAt);
   const lines: string[] = [];
+
+  // "## Your trainer remembers" — persistent AI-curated memories.
+  // Emitted FIRST so the AI sees its own prior conclusions about the
+  // user before reasoning about anything else. Helps prevent the
+  // assistant from re-proposing the same `remember` op every chat
+  // (it has the existing memory list to check against).
+  if (memories.length > 0) {
+    lines.push('', '## Your trainer remembers');
+    lines.push(
+      `(${memories.length} memory rows. DO NOT propose a \`remember\` op duplicating any item here. Reference these in your reasoning when relevant.)`,
+    );
+    const byCategory = new Map<string, typeof memories>();
+    for (const m of memories) {
+      const arr = byCategory.get(m.category) ?? [];
+      arr.push(m);
+      byCategory.set(m.category, arr);
+    }
+    const ORDER: Array<'preference' | 'fact' | 'goal' | 'constraint' | 'context'> = [
+      'preference',
+      'fact',
+      'goal',
+      'constraint',
+      'context',
+    ];
+    for (const cat of ORDER) {
+      const rows = byCategory.get(cat);
+      if (!rows || rows.length === 0) continue;
+      lines.push(`- **${cat}**:`);
+      for (const m of rows) {
+        lines.push(`  - ${m.text} (id=\`${m.id.slice(0, 8)}\`)`);
+      }
+    }
+  }
 
   // Cardio plan section is independent of having an active block — emit
   // first so a chat-only flow (Q&A about cardio without an active block)

@@ -46,7 +46,8 @@ export type SyncKind =
   | 'chat'
   | 'userProfile'
   | 'injury'
-  | 'weeklyReview';
+  | 'weeklyReview'
+  | 'aiMemory';
 
 export interface OutboundDoc {
   kind: SyncKind;
@@ -461,6 +462,15 @@ async function collectOutbound(sinceIso: string): Promise<OutboundDoc[]> {
     }
   }
 
+  // AI Memories (v23) — persistent AI-curated facts about the user.
+  // LWW on updatedAt; soft-deleted via tombstones (kind: 'aiMemory').
+  const aiMemories = await db.aiMemories.toArray();
+  for (const m of aiMemories) {
+    if (m.updatedAt > since) {
+      out.push({ kind: 'aiMemory', recordId: m.id, updatedAt: m.updatedAt, payload: m });
+    }
+  }
+
   // Tombstones — propagate deletes. Push every tombstone touched since lastPushedAt.
   const tombstones = await db.tombstones.toArray();
   for (const t of tombstones) {
@@ -506,6 +516,7 @@ async function applyIncoming(doc: IncomingDoc) {
       case 'chat': await db.chats.delete(doc.recordId); break;
       case 'injury': await db.injuries.delete(doc.recordId); break;
       case 'weeklyReview': await db.weeklyReviews.delete(doc.recordId); break;
+      case 'aiMemory': await db.aiMemories.delete(doc.recordId); break;
       // settings/schedule/userProfile are singletons — never deleted.
     }
     if (
@@ -535,7 +546,7 @@ async function applyIncoming(doc: IncomingDoc) {
     doc.kind === 'goal' || doc.kind === 'cardio' || doc.kind === 'recovery' ||
     doc.kind === 'race' || doc.kind === 'strengthHr' || doc.kind === 'wellness' ||
     doc.kind === 'notification' || doc.kind === 'aiGeneration' ||
-    doc.kind === 'chat' || doc.kind === 'injury' || doc.kind === 'weeklyReview'
+    doc.kind === 'chat' || doc.kind === 'injury' || doc.kind === 'weeklyReview' || doc.kind === 'aiMemory'
   ) {
     const tomb = await db.tombstones.get(`${doc.kind}:${doc.recordId}`);
     if (tomb && tomb.deletedAt >= doc.updatedAt) {
@@ -719,6 +730,11 @@ async function applyIncoming(doc: IncomingDoc) {
     case 'weeklyReview': {
       const incoming = doc.payload as { id: string; updatedAt: string };
       await lwwPut(db.weeklyReviews, incoming, incoming.id);
+      break;
+    }
+    case 'aiMemory': {
+      const incoming = doc.payload as { id: string; updatedAt: string };
+      await lwwPut(db.aiMemories, incoming, incoming.id);
       break;
     }
   }
