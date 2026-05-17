@@ -1669,6 +1669,14 @@ export type EditOperationAppliedDetail =
       /** Captured for audit so the read-only re-view shows what was removed. */
       removedKind?: string;
       removedDurationMin?: number;
+      /**
+       * How many matching slots were removed. >1 means duplicate
+       * (dayOfWeek, modality) slots existed (pre-v434 add was
+       * silently skipping rather than merging — leftover state can
+       * have duplicates). Apply now removes ALL matches; this field
+       * surfaces that explicitly in the audit.
+       */
+      removedCount?: number;
     }
   | { kind: 'schedule_deload'; newBlockId: string; sequenceIndex: number }
   | {

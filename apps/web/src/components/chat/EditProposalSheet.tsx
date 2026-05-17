@@ -1014,30 +1014,39 @@ function RemoveCardioPlanSlotDiff({
   const emoji = MODALITY_EMOJI[op.modality] ?? '🏃';
   const modalityShown = op.modalityLabel ?? op.modality;
 
-  // Look up the actual slot live so the user sees EXACTLY what will
-  // be removed (kind, duration, notes, week scoping, block link) — not
-  // just an abstract "matching slot" description. Live-query so a
-  // background change to the cardio plan in another tab is reflected.
-  const matchingSlot = useLiveQuery(async () => {
+  // Look up the actual slot(s) live so the user sees EXACTLY what
+  // will be removed. Apply now removes ALL slots matching
+  // (dayOfWeek, modality), so we render every match — duplicates can
+  // exist from pre-v434 state and surfacing them up-front makes the
+  // intent clear before the user accepts.
+  const matchingSlots = useLiveQuery(async () => {
     const plan = await getDb().cardioPlan.get('singleton');
-    if (!plan) return null;
-    return (
-      plan.slots.find(
-        (s) => s.dayOfWeek === op.dayOfWeek && s.modality === op.modality,
-      ) ?? null
+    if (!plan) return [];
+    return plan.slots.filter(
+      (s) => s.dayOfWeek === op.dayOfWeek && s.modality === op.modality,
     );
   }, [op.dayOfWeek, op.modality]);
 
-  // Linked-block name resolution is hoisted out of the conditional so
-  // the hook order stays stable across re-renders. Falls through to
-  // null when there's no matching slot or no link.
-  const linkedBlock = useLiveQuery(async () => {
-    if (!matchingSlot?.linkedBlockId) return null;
-    const b = await getDb().blocks.get(matchingSlot.linkedBlockId);
-    return b ?? null;
-  }, [matchingSlot?.linkedBlockId]);
+  // Resolve linked-block names for any matching slot's linkedBlockId.
+  const linkedBlocksById = useLiveQuery(async () => {
+    if (!matchingSlots || matchingSlots.length === 0) return {};
+    const ids = Array.from(
+      new Set(
+        matchingSlots
+          .map((s) => s.linkedBlockId)
+          .filter((x): x is string => typeof x === 'string'),
+      ),
+    );
+    if (ids.length === 0) return {};
+    const blocks = await getDb().blocks.bulkGet(ids);
+    const out: Record<string, ProgramBlock> = {};
+    for (const b of blocks) {
+      if (b) out[b.id] = b;
+    }
+    return out;
+  }, [matchingSlots]);
 
-  if (matchingSlot === undefined) {
+  if (matchingSlots === undefined) {
     return (
       <div className="space-y-2 text-sm">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -1051,7 +1060,7 @@ function RemoveCardioPlanSlotDiff({
     );
   }
 
-  if (matchingSlot === null) {
+  if (matchingSlots.length === 0) {
     return (
       <div className="space-y-2 text-sm">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -1069,65 +1078,79 @@ function RemoveCardioPlanSlotDiff({
     );
   }
 
-  const hasWeekScope =
-    !!matchingSlot.effectiveFrom || !!matchingSlot.effectiveUntil;
-
   return (
     <div className="space-y-2 text-sm">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <span className="font-semibold text-rose-100">
-          {emoji} Remove {dayName}: {matchingSlot.modality} · {matchingSlot.kind}
+          {emoji} Remove {dayName}: {modalityShown}
+          {matchingSlots.length > 1 && (
+            <span className="ml-2 rounded bg-rose-500/20 px-1.5 py-0.5 text-xs font-semibold text-rose-100">
+              {matchingSlots.length} matching slots
+            </span>
+          )}
         </span>
-        {matchingSlot.durationMin !== undefined && (
-          <span className="rounded bg-bg/40 px-1.5 py-0.5 text-xs text-fg/80">
-            {matchingSlot.durationMin} min
-          </span>
-        )}
       </div>
-      {matchingSlot.notes && (
-        <div className="rounded-lg border border-border bg-bg/40 px-3 py-2 text-xs text-fg/80">
-          <span className="text-muted">Notes:</span> {matchingSlot.notes}
+      {matchingSlots.length > 1 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+          ⚠️ Your cardio plan has {matchingSlots.length} slots matching
+          ({dayName}, {modalityShown}). This op will remove <strong>all</strong>{' '}
+          of them — duplicates are typically leftover state from earlier
+          accept cycles. If you want to keep one, decline this and clean
+          up manually in <strong>Program → Cardio</strong>.
         </div>
       )}
-      <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-fg/80 space-y-1">
-        <div className="font-semibold text-rose-100">Currently in your cardio plan:</div>
-        <ul className="ml-3 list-disc space-y-0.5 text-fg/80">
-          <li>
-            Weekday: <span className="font-medium">{dayName}</span>
-          </li>
-          <li>
-            Modality: <span className="font-medium">{matchingSlot.modality}</span>
-          </li>
-          <li>
-            Kind: <span className="font-medium">{matchingSlot.kind}</span>
-          </li>
-          {matchingSlot.durationMin !== undefined && (
-            <li>
-              Duration: <span className="font-medium">{matchingSlot.durationMin} min</span>
-            </li>
-          )}
-          <li>
-            Scope:{' '}
-            <span className="font-medium">
-              {hasWeekScope
-                ? `${matchingSlot.effectiveFrom ?? '…'} → ${matchingSlot.effectiveUntil ?? '…'}`
-                : 'every week (no scope)'}
-            </span>
-          </li>
-          {matchingSlot.linkedBlockId && (
-            <li>
-              Linked block:{' '}
-              <span className="font-medium">
-                {linkedBlock?.name ?? matchingSlot.linkedBlockId}
-              </span>{' '}
-              <span className="text-muted">(auto-removes on block complete)</span>
-            </li>
-          )}
-        </ul>
+      <div className="space-y-2">
+        {matchingSlots.map((slot, i) => {
+          const hasWeekScope = !!slot.effectiveFrom || !!slot.effectiveUntil;
+          const linkedBlock = slot.linkedBlockId
+            ? linkedBlocksById?.[slot.linkedBlockId]
+            : undefined;
+          return (
+            <div
+              key={i}
+              className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-fg/80 space-y-1"
+            >
+              <div className="font-semibold text-rose-100">
+                {matchingSlots.length > 1 ? `Slot #${i + 1}` : 'Currently in your cardio plan'}
+                : {slot.modality} · {slot.kind}
+                {slot.durationMin !== undefined && (
+                  <span className="ml-2 rounded bg-bg/40 px-1.5 py-0.5 text-[11px] text-fg/80">
+                    {slot.durationMin} min
+                  </span>
+                )}
+              </div>
+              <ul className="ml-3 list-disc space-y-0.5 text-fg/80">
+                <li>
+                  Scope:{' '}
+                  <span className="font-medium">
+                    {hasWeekScope
+                      ? `${slot.effectiveFrom ?? '…'} → ${slot.effectiveUntil ?? '…'}`
+                      : 'every week (no scope)'}
+                  </span>
+                </li>
+                {slot.notes && (
+                  <li>
+                    Notes: <span className="font-medium">{slot.notes}</span>
+                  </li>
+                )}
+                {slot.linkedBlockId && (
+                  <li>
+                    Linked block:{' '}
+                    <span className="font-medium">
+                      {linkedBlock?.name ?? slot.linkedBlockId}
+                    </span>{' '}
+                    <span className="text-muted">(auto-removes on block complete)</span>
+                  </li>
+                )}
+              </ul>
+            </div>
+          );
+        })}
       </div>
       <p className="text-[11px] text-muted leading-relaxed">
-        This exact slot will be removed from your weekly cardio plan and
-        will stop appearing on /calendar.
+        {matchingSlots.length > 1 ? 'These slots' : 'This slot'} will be
+        removed from your weekly cardio plan and will stop appearing on
+        /calendar.
       </p>
     </div>
   );

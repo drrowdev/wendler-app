@@ -929,10 +929,17 @@ async function performRemoveCardioPlanSlot(
       noopReason: 'not-found',
     };
   }
-  const matchIdx = existing.slots.findIndex(
+  // Remove ALL matching slots, not just the first. Duplicates can
+  // exist from pre-v434 state when add_cardio_plan_slot was silently
+  // skipping on a (dayOfWeek, modality) collision rather than
+  // merging — re-accept cycles before v434 could leave the cardio
+  // plan with multiple Friday-bike rows. The user's intent on
+  // "delete the Friday bike" is always 'leave nothing matching that
+  // key', so taking out every duplicate is the correct semantics.
+  const matches = existing.slots.filter(
     (s) => s.dayOfWeek === op.dayOfWeek && s.modality === op.modality,
   );
-  if (matchIdx < 0) {
+  if (matches.length === 0) {
     return {
       kind: 'remove_cardio_plan_slot',
       dayOfWeek: op.dayOfWeek,
@@ -940,13 +947,19 @@ async function performRemoveCardioPlanSlot(
       noopReason: 'not-found',
     };
   }
-  const removed = existing.slots[matchIdx]!;
-  const slots = existing.slots.filter((_, i) => i !== matchIdx);
+  const slots = existing.slots.filter(
+    (s) => !(s.dayOfWeek === op.dayOfWeek && s.modality === op.modality),
+  );
   await db.cardioPlan.put({
     ...existing,
     slots,
     updatedAt: new Date().toISOString(),
   });
+  // Surface the FIRST match's metadata in the audit detail — the
+  // duplicates were almost certainly stale leftovers, and the AI's
+  // semantic "what did I just remove?" reasoning works best with the
+  // canonical / most-recent row's fields.
+  const removed = matches[0]!;
   return {
     kind: 'remove_cardio_plan_slot',
     dayOfWeek: op.dayOfWeek,
@@ -955,6 +968,7 @@ async function performRemoveCardioPlanSlot(
     ...(removed.durationMin !== undefined
       ? { removedDurationMin: removed.durationMin }
       : {}),
+    removedCount: matches.length,
   };
 }
 
