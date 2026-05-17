@@ -168,4 +168,85 @@ describe('buildTimelineModel', () => {
     // Anchor SHOULD be the active block today.
     expect(anchorSeg.isActive).toBe(true);
   });
+
+  it('anchor-driven placement: chains program peers by sequenceIndex relative to active block + cursor week', () => {
+    // Reproduces the user's situation: 4-block program (Leader 1, Leader 2,
+    // 7th Week Deload, Anchor 1) where the AI cursor says we're in
+    // Week 1 of Anchor 1 (the user's actual state). startedAt is only
+    // set on Leader 1 with the wrong date; without anchoring the
+    // older code chained everything wrong.
+    const programId = 'prog-1';
+    const leader1 = block({
+      id: 'l1',
+      name: 'Leader 1',
+      kind: 'leader',
+      programId,
+      sequenceIndex: 0,
+      weeksBeforeDeload: 3,
+      includesDeload: false,
+      startedAt: '2026-04-30T00:00:00.000Z', // wrong/stale
+      completedAt: '2026-05-04T00:00:00.000Z', // also doesn't match weeks
+    });
+    const leader2 = block({
+      id: 'l2',
+      name: 'Leader 2',
+      kind: 'leader',
+      programId,
+      sequenceIndex: 1,
+      weeksBeforeDeload: 3,
+      includesDeload: false,
+      completedAt: '2026-05-04T00:00:00.000Z',
+    });
+    const seventhWeek = block({
+      id: '7w',
+      name: '7th Week Deload',
+      kind: 'seventh-week',
+      seventhWeekKind: 'deload',
+      programId,
+      sequenceIndex: 2,
+      weeksBeforeDeload: 1,
+      includesDeload: false,
+      completedAt: '2026-05-09T00:00:00.000Z',
+    });
+    const anchor1 = block({
+      id: 'a1',
+      name: 'Anchor 1',
+      kind: 'anchor',
+      programId,
+      sequenceIndex: 3,
+      weeksBeforeDeload: 3,
+      includesDeload: false,
+      // No startedAt or completedAt — anchor purely off the cursor.
+    });
+    const m = buildTimelineModel(
+      [leader1, leader2, seventhWeek, anchor1],
+      [],
+      {
+        today,
+        paddingWeeks: 1,
+        anchor: { activeBlockId: 'a1', cursorWeek: 1 },
+      },
+    );
+    const segs = Object.fromEntries(m.blockSegments.map((s) => [s.blockId, s]));
+    // sequenceIndex order: Leader 1 → Leader 2 → 7w → Anchor 1.
+    expect(segs.l1!.endWeekIndex).toBeLessThan(segs.l2!.startWeekIndex);
+    expect(segs.l2!.endWeekIndex).toBeLessThan(segs['7w']!.startWeekIndex);
+    expect(segs['7w']!.endWeekIndex).toBeLessThan(segs.a1!.startWeekIndex);
+    // Anchor 1 is active.
+    expect(segs.a1!.isActive).toBe(true);
+    // Predecessors should NOT be marked active even though their
+    // dates were stale.
+    expect(segs.l1!.isActive).toBe(false);
+    expect(segs.l2!.isActive).toBe(false);
+    expect(segs['7w']!.isActive).toBe(false);
+    // Anchor 1's start should be exactly today's Monday (cursor.week=1
+    // means weeksAlreadyIn=0).
+    const todayMon = new Date(today);
+    todayMon.setHours(0, 0, 0, 0);
+    const wd = (todayMon.getDay() + 6) % 7;
+    todayMon.setDate(todayMon.getDate() - wd);
+    const expectedIso = `${todayMon.getFullYear()}-${String(todayMon.getMonth() + 1).padStart(2, '0')}-${String(todayMon.getDate()).padStart(2, '0')}`;
+    const headerAtAnchorStart = m.weekHeaders[segs.a1!.startWeekIndex]!;
+    expect(headerAtAnchorStart.weekStartIso).toBe(expectedIso);
+  });
 });

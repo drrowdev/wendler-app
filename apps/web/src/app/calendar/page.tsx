@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { useAllCardio, useAllStrengthHr, useAllTrainingMaxRecords, useBlocks, useRaces, useRecentWorkoutDays, useRunPlan, useUpcomingWorkouts, type RecentWorkoutDay } from '@/lib/hooks';
+import { useAllCardio, useAllStrengthHr, useAllTrainingMaxRecords, useBlocks, useRaces, useRecentWorkoutDays, useRunPlan, useSchedule, useUpcomingWorkouts, type RecentWorkoutDay } from '@/lib/hooks';
 import { liftLabel, liftLabelShort } from '@/lib/format';
 import { CARDIO_EMOJI, CARDIO_SHORT, cardioFullTitle, cardioMetric } from '@/lib/cardio-display';
 import { LinkActivityPicker } from '@/components/LinkActivityPicker';
@@ -103,6 +103,7 @@ export default function CalendarPage() {
   const runPlan = useRunPlan();
   const races = useRaces();
   const trainingMaxes = useAllTrainingMaxRecords();
+  const schedule = useSchedule();
   const router = useRouter();
   const params = useSearchParams();
   // View toggle persisted in the URL so reloads + deep-links keep the
@@ -341,6 +342,9 @@ export default function CalendarPage() {
           races={races ?? []}
           trainingMaxes={trainingMaxes ?? []}
           today={today}
+          {...(schedule?.cursor
+            ? { activeBlockId: schedule.cursor.blockId, cursorWeek: schedule.cursor.week }
+            : {})}
         />
       )}
 

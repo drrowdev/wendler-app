@@ -19,7 +19,7 @@
 //     `paddingWeeks` on both sides — never crops a known event.
 
 import type { ProgramBlock, BlockKind } from './blocks';
-import type { SeventhWeekKind } from './types';
+import type { SeventhWeekKind, WendlerWeek } from './types';
 
 /** Minimum race shape this model needs. Mirror of db-schema's Race. */
 export interface TimelineRaceInput {
@@ -40,6 +40,25 @@ export interface TimelineConfig {
    * while never cropping a known block edge or race milestone.
    */
   paddingWeeks?: number;
+  /**
+   * Active block + cursor anchor. When provided (the normal case in
+   * the app), the timeline anchors the named block to today minus the
+   * already-trained weeks of the current block — e.g. cursor.week=2
+   * means today is in Week 2, so block startMonday = today's Monday
+   * minus 1 week. Peer blocks (same programId, ordered by
+   * sequenceIndex) chain off the anchor — predecessors backward,
+   * successors forward. This is more reliable than the per-block
+   * `startedAt` field, which is often missing or stale on legacy data.
+   *
+   * When omitted, falls back to the previous heuristic (each block
+   * anchored by its own startedAt / completedAt date, planned blocks
+   * chained off the latest-ending placed block).
+   */
+  anchor?: {
+    activeBlockId: string;
+    /** Wendler week the user is currently training (1, 2, 3, deload, or 7w). */
+    cursorWeek: WendlerWeek;
+  };
 }
 
 export interface TimelineWeekHeader {
@@ -213,9 +232,93 @@ export function buildTimelineModel(
   }
   const placed: Placed[] = [];
 
+  // ANCHOR-DRIVEN PLACEMENT (preferred path) — when an anchor is
+  // provided, place the active block based on the schedule cursor
+  // ('we are training week N right now → block startMonday = today's
+  // Monday minus (N - 1) weeks') and chain its same-program peers
+  // by sequenceIndex backward and forward. This is reliable even
+  // when startedAt / completedAt are missing or stale on legacy
+  // blocks. Standalone blocks (no programId) AND blocks outside the
+  // active program still fall through to the date-based heuristic.
+  let placedIdSet: Set<string> = new Set();
+  if (config.anchor) {
+    const activeBlock = blocks.find((b) => b.id === config.anchor!.activeBlockId);
+    if (activeBlock) {
+      const cursorWeek = config.anchor.cursorWeek;
+      // How many full weeks of the block are already trained.
+      // Week 1 → 0; Week 2 → 1; Week 3 → 2; Deload → weeksBeforeDeload.
+      // 7w block → 0 (single week).
+      let weeksAlreadyIn = 0;
+      if (cursorWeek === 'deload') {
+        weeksAlreadyIn = activeBlock.weeksBeforeDeload;
+      } else if (cursorWeek === '7w') {
+        weeksAlreadyIn = 0;
+      } else {
+        weeksAlreadyIn = Math.max(0, (cursorWeek as 1 | 2 | 3) - 1);
+      }
+      const activeStartMonday = new Date(todayMonday);
+      activeStartMonday.setDate(activeStartMonday.getDate() - weeksAlreadyIn * 7);
+      placed.push({
+        block: activeBlock,
+        startMonday: activeStartMonday,
+        weeks: blockWeekCount(activeBlock),
+        isStarted: true,
+      });
+      placedIdSet.add(activeBlock.id);
+
+      // Same-program peers, ordered by sequenceIndex.
+      const peers = blocks
+        .filter(
+          (b) =>
+            b.id !== activeBlock.id &&
+            b.programId !== undefined &&
+            b.programId === activeBlock.programId,
+        )
+        .sort((a, b) => (a.sequenceIndex ?? 0) - (b.sequenceIndex ?? 0));
+      const activeSeq = activeBlock.sequenceIndex ?? 0;
+      const predecessors = peers.filter((b) => (b.sequenceIndex ?? 0) < activeSeq);
+      const successors = peers.filter((b) => (b.sequenceIndex ?? 0) > activeSeq);
+
+      // Predecessors — walk backward from active block's start.
+      let cursorMonday = new Date(activeStartMonday);
+      for (let i = predecessors.length - 1; i >= 0; i--) {
+        const b = predecessors[i]!;
+        const weeks = blockWeekCount(b);
+        const start = new Date(cursorMonday);
+        start.setDate(start.getDate() - weeks * 7);
+        placed.push({ block: b, startMonday: start, weeks, isStarted: true });
+        placedIdSet.add(b.id);
+        cursorMonday = start;
+      }
+
+      // Successors — walk forward from active block's end.
+      const activeEnd = new Date(activeStartMonday);
+      activeEnd.setDate(activeEnd.getDate() + blockWeekCount(activeBlock) * 7);
+      cursorMonday = activeEnd;
+      for (const b of successors) {
+        const weeks = blockWeekCount(b);
+        placed.push({
+          block: b,
+          startMonday: new Date(cursorMonday),
+          weeks,
+          isStarted: false,
+        });
+        placedIdSet.add(b.id);
+        cursorMonday = new Date(cursorMonday);
+        cursorMonday.setDate(cursorMonday.getDate() + weeks * 7);
+      }
+    }
+  }
+
+  // FALLBACK PATH — for any block NOT placed via the anchor path
+  // (standalone blocks, blocks in other programs, or when no anchor
+  // was supplied): use the per-block date heuristic.
+  const fallbackStarted = started.filter((b) => !placedIdSet.has(b.id));
+  const fallbackHistorical = historicalCompleted.filter((b) => !placedIdSet.has(b.id));
+  const fallbackPlanned = planned.filter((b) => !placedIdSet.has(b.id));
   // 2a. Historical completed blocks — anchor each backward from
   // completedAt. End up in the past where they actually were trained.
-  for (const b of historicalCompleted) {
+  for (const b of fallbackHistorical) {
     const weeks = blockWeekCount(b);
     const endMonday = isoMondayOf(new Date(b.completedAt!));
     const startMonday = new Date(endMonday);
@@ -224,7 +327,7 @@ export function buildTimelineModel(
   }
 
   // 2b. Started blocks — anchor forward from startedAt.
-  for (const b of started) {
+  for (const b of fallbackStarted) {
     placed.push({
       block: b,
       startMonday: isoMondayOf(new Date(b.startedAt!)),
@@ -247,7 +350,7 @@ export function buildTimelineModel(
   if (!chainCursor || chainCursor.getTime() < todayMonday.getTime()) {
     chainCursor = todayMonday;
   }
-  for (const b of planned) {
+  for (const b of fallbackPlanned) {
     const startMonday: Date = new Date(chainCursor);
     const weeks = blockWeekCount(b);
     placed.push({ block: b, startMonday, weeks, isStarted: false });

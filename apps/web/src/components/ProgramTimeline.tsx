@@ -35,6 +35,15 @@ interface Props {
   races: Race[];
   trainingMaxes?: TrainingMaxRecord[];
   today: Date;
+  /**
+   * Optional anchor used to align the timeline with the user's actual
+   * training position. Wired in /calendar from db.schedule.singleton
+   * — the cursor week + activeBlockId are the authoritative 'where
+   * am I right now' state, used in preference to per-block startedAt
+   * dates (which may be missing or stale on legacy blocks).
+   */
+  activeBlockId?: string;
+  cursorWeek?: WendlerWeek;
 }
 
 const WEEK_COL_MIN_WIDTH = '5.5rem'; // ~88px; ~4 visible on a 360-wide viewport
@@ -108,7 +117,14 @@ function blockKindLabel(seg: TimelineBlockSegment): string {
   return seg.kind.charAt(0).toUpperCase() + seg.kind.slice(1);
 }
 
-export function ProgramTimeline({ blocks, races, trainingMaxes, today }: Props) {
+export function ProgramTimeline({
+  blocks,
+  races,
+  trainingMaxes,
+  today,
+  activeBlockId,
+  cursorWeek,
+}: Props) {
   const [showTmDeltas, setShowTmDeltas] = useState(false);
   const model = useMemo(() => {
     const raceInput: TimelineRaceInput[] = races.map((r) => ({
@@ -117,8 +133,13 @@ export function ProgramTimeline({ blocks, races, trainingMaxes, today }: Props) 
       date: r.date,
       kind: r.kind,
     }));
-    return buildTimelineModel(blocks, raceInput, { today });
-  }, [blocks, races, today]);
+    return buildTimelineModel(blocks, raceInput, {
+      today,
+      ...(activeBlockId && cursorWeek !== undefined
+        ? { anchor: { activeBlockId, cursorWeek } }
+        : {}),
+    });
+  }, [blocks, races, today, activeBlockId, cursorWeek]);
 
   // Per-block skip data — for each segment, list the timeline-week
   // indices where ANY plan day is flagged skipped, plus the count.
