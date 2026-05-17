@@ -5,6 +5,7 @@ import {
   effectivePlan,
   effectiveScheduleDays,
   initialCursorWeek,
+  isDaySkipped,
   resolveDayWeekday,
 } from './blocks';
 
@@ -250,7 +251,17 @@ export function projectUpcomingWorkouts(
     const scheduleDay = scheduleDays[cursor.groupIndex];
     const weekday = resolvedByGroup.get(cursor.groupIndex);
 
-    if (typeof weekday === 'number') {
+    // Skip-aware projection: a (week, dayId) flagged skipped in
+    // plan.dayOverridesByWeek does NOT emit an upcoming workout. The
+    // cursor still walks past it (advanceCursor below) so subsequent
+    // days project normally. Skipped strength days are typically paired
+    // with an explicit cardio-plan slot the calendar already renders
+    // separately; the strength side just falls silent for those weeks.
+    const isSkipped = planDay
+      ? isDaySkipped(plan, cursor.week, planDay.id)
+      : false;
+
+    if (typeof weekday === 'number' && !isSkipped) {
       // Project the slot. Default: next matching weekday at-or-after the
       // pointer. But for slots whose current-calendar-week date is today-
       // or-future AND not yet occupied by an emitted entry, use that

@@ -256,4 +256,49 @@ describe('projectUpcomingWorkouts', () => {
     // Suppression must not consume a maxItems slot — we still get 4 results.
     expect(out).toHaveLength(4);
   });
+
+  it('suppresses days flagged skipped via plan.dayOverridesByWeek', () => {
+    const block: ProgramBlock = makeBlock({
+      includesDeload: true,
+      // Pre-built plan with an explicit dayOverridesByWeek that skips
+      // Day 3 (groupIndex 2) for weeks 2, 3, and deload — the
+      // taper-week / cardio-replacement pattern.
+      plan: {
+        days: [
+          { id: 'd0', mainLifts: ['press'], assistance: [], weekday: 0, label: 'Mon' },
+          { id: 'd1', mainLifts: ['bench'], assistance: [], weekday: 2, label: 'Wed' },
+          { id: 'd2', mainLifts: [], assistance: [], weekday: 4, label: 'Fri' },
+        ],
+        dayOverridesByWeek: {
+          '2|d2': { skipped: true, skipReason: 'cardio-replacement', skipNote: 'Z2 bike 60min' },
+          '3|d2': { skipped: true, skipReason: 'cardio-replacement' },
+          'deload|d2': { skipped: true, skipReason: 'cardio-replacement' },
+        },
+      },
+    });
+    const schedule = makeSchedule({
+      dayGroups: [
+        { mainLifts: ['press'], weekday: 0, label: 'Mon' },
+        { mainLifts: ['bench'], weekday: 2, label: 'Wed' },
+        { mainLifts: [], weekday: 4, label: 'Fri' },
+      ],
+      cursor: { blockId: 'b1', week: 1, groupIndex: 0 },
+    });
+    const from = new Date(2026, 4, 18); // Mon 2026-05-18
+    const out = projectUpcomingWorkouts(block, schedule, from, {
+      horizonDays: 40,
+      maxItems: 30,
+    });
+    // Week 1's Day 3 SHOULD appear (no skip flag for week 1).
+    expect(
+      out.some((u) => u.week === 1 && u.dayIndex === 2),
+    ).toBe(true);
+    // Weeks 2 / 3 / deload should NOT have Day 3 entries.
+    expect(out.some((u) => u.week === 2 && u.dayIndex === 2)).toBe(false);
+    expect(out.some((u) => u.week === 3 && u.dayIndex === 2)).toBe(false);
+    expect(out.some((u) => u.week === 'deload' && u.dayIndex === 2)).toBe(false);
+    // Other days in those weeks STILL project.
+    expect(out.some((u) => u.week === 2 && u.dayIndex === 0)).toBe(true);
+    expect(out.some((u) => u.week === 3 && u.dayIndex === 1)).toBe(true);
+  });
 });
