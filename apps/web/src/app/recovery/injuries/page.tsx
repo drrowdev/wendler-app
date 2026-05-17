@@ -8,6 +8,7 @@ import { kickSync } from '@/lib/sync';
 import { deleteWithTombstones } from '@/lib/delete';
 import { InjurySheet } from '@/components/injury/InjurySheet';
 import type { Injury, ProgramBlock } from '@wendler/db-schema';
+import { resolveDayAssistance, type WendlerWeek } from '@wendler/domain';
 
 const ACTION_LABEL: Record<string, string> = {
   skip: 'Skip',
@@ -218,9 +219,19 @@ function InjuryRow({ injury, onDelete, onReopen }: InjuryRowProps) {
         repsMax?: number;
         unit?: string;
       }> = [];
-      active.plan!.days.forEach((d, di) => {
-        d.assistance.forEach((e) => {
-          if (e.movementId === source.id) {
+      // Union all weeks' assistance entries for each day, dedup by entryId.
+      // Post-v21 the canonical store is per (week, day) so the iteration
+      // covers every scheduled instance of the movement.
+      const planLocal = active.plan!;
+      const weeks: WendlerWeek[] =
+        active.kind === 'seventh-week' ? ['7w'] : [1, 2, 3, 'deload'];
+      planLocal.days.forEach((d, di) => {
+        const seen = new Set<string>();
+        for (const wk of weeks) {
+          for (const e of resolveDayAssistance(planLocal, wk, d.id)) {
+            if (e.movementId !== source.id) continue;
+            if (seen.has(e.id)) continue;
+            seen.add(e.id);
             affected.push({
               dayId: d.id,
               dayLabel: d.label?.trim() || `Day ${di + 1}`,
@@ -231,7 +242,7 @@ function InjuryRow({ injury, onDelete, onReopen }: InjuryRowProps) {
               unit: e.unit,
             });
           }
-        });
+        }
       });
       if (affected.length === 0) continue;
       plans.push({
@@ -275,15 +286,22 @@ function InjuryRow({ injury, onDelete, onReopen }: InjuryRowProps) {
       let swapsCount = 0;
       for (const p of previewPlan.plans) {
         const plan = block.plan!;
-        const days = plan.days.map((d) => {
-          const next = d.assistance.map((e) => {
+        // Iterate per-week canonical store, swap any entry whose
+        // movementId matches the source. Post-v21 there is no base to
+        // mutate; the per-week store IS the data.
+        const overrides = plan.assistanceOverrides ?? {};
+        const nextOverrides: Record<string, typeof overrides[string]> = {};
+        for (const [key, entries] of Object.entries(overrides)) {
+          nextOverrides[key] = entries.map((e) => {
             if (e.movementId !== p.sourceId) return e;
             swapsCount += 1;
             return { ...e, movementId: p.targetId, movementName: p.targetName };
           });
-          return { ...d, assistance: next };
-        });
-        block = { ...block, plan: { ...plan, days } };
+        }
+        block = {
+          ...block,
+          plan: { ...plan, assistanceOverrides: nextOverrides },
+        };
       }
       await db.blocks.put({ ...block, updatedAt: new Date().toISOString() });
       kickSync();

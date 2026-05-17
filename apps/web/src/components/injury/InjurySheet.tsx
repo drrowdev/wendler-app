@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { nanoid } from 'nanoid';
+import { resolveDayAssistance, type WendlerWeek } from '@wendler/domain';
 import type { Injury, InjurySeverity, ProgramBlock } from '@wendler/db-schema';
 import { getDb } from '@/lib/db';
 import { useMovements } from '@/lib/hooks';
@@ -18,15 +19,39 @@ import { analyzeInjury, type InjuryAnalysisResult } from '@/lib/injury-workflow'
  * accept flow to auto-apply Coach-proposed substitutions. Pure — returns
  * a new ProgramBlock; caller persists it.
  */
+function toUiEntry(e: {
+  id: string;
+  movementId?: string;
+  movementName: string;
+  sets: number;
+  reps: number;
+  repsMax?: number;
+  unit?: string;
+}): { id: string; movementId?: string; movementName: string; sets: number; reps: number; repsMax?: number; unit?: string } {
+  return {
+    id: e.id,
+    movementId: e.movementId,
+    movementName: e.movementName,
+    sets: e.sets,
+    reps: e.reps,
+    repsMax: e.repsMax,
+    unit: e.unit,
+  };
+}
+
 function applySubstitutionToBlock(
   block: ProgramBlock,
   fromId: string,
   alt: { movementId: string; movementName: string },
 ): ProgramBlock {
   if (!block.plan) return block;
+  // Post-v21 canonical store is per (week, day). Iterate every override
+  // slot, swap any entry whose movementId matches `fromId`.
+  const overrides = block.plan.assistanceOverrides ?? {};
   let touched = false;
-  const days = block.plan.days.map((d) => {
-    const next = d.assistance.map((e) => {
+  const nextOverrides: Record<string, typeof overrides[string]> = {};
+  for (const [key, entries] of Object.entries(overrides)) {
+    const next = entries.map((e) => {
       if (e.movementId !== fromId) return e;
       touched = true;
       return {
@@ -37,11 +62,13 @@ function applySubstitutionToBlock(
         suggestionRationale: undefined,
       };
     });
-    if (next === d.assistance) return d;
-    return { ...d, assistance: next };
-  });
+    nextOverrides[key] = next;
+  }
   if (!touched) return block;
-  return { ...block, plan: { ...block.plan, days } };
+  return {
+    ...block,
+    plan: { ...block.plan, assistanceOverrides: nextOverrides },
+  };
 }
 
 const COMMON_AREAS = [
@@ -548,22 +575,29 @@ function ProposalReview({ proposal, onSave, onBack, onCancel }: ProposalReviewPr
         setActiveBlockPlan(null);
         return;
       }
+      const plan = active.plan;
+      const weeks: WendlerWeek[] =
+        active.kind === 'seventh-week' ? ['7w'] : [1, 2, 3, 'deload'];
       setActiveBlockPlan({
         blockId: active.id,
         blockName: active.name,
-        days: active.plan.days.map((d, di) => ({
-          id: d.id,
-          label: d.label?.trim() || `Day ${di + 1}`,
-          assistance: d.assistance.map((e) => ({
-            id: e.id,
-            movementId: e.movementId,
-            movementName: e.movementName,
-            sets: e.sets,
-            reps: e.reps,
-            repsMax: e.repsMax,
-            unit: e.unit,
-          })),
-        })),
+        days: plan.days.map((d, di) => {
+          // Union all weeks' entries, deduped by entryId. After v21
+          // entries with the same id repeat across weeks for the same
+          // movement-per-day, so the union view is what the user sees
+          // as 'the movements in this day' regardless of week.
+          const seen = new Map<string, ReturnType<typeof toUiEntry>>();
+          for (const wk of weeks) {
+            for (const e of resolveDayAssistance(plan, wk, d.id)) {
+              if (!seen.has(e.id)) seen.set(e.id, toUiEntry(e));
+            }
+          }
+          return {
+            id: d.id,
+            label: d.label?.trim() || `Day ${di + 1}`,
+            assistance: Array.from(seen.values()),
+          };
+        }),
       });
     })();
   }, []);

@@ -5,7 +5,7 @@
 // AgentResponse<InjuryAnalysisResult>.
 
 import type { AgentResponse } from '@wendler/domain';
-import { CoachAgent, type Movement } from '@wendler/domain';
+import { CoachAgent, resolveDayAssistance, type Movement, type WendlerWeek } from '@wendler/domain';
 import { authFetch } from './auth';
 import { getDb } from './db';
 import { getLatestBodyweightOnOrBefore } from './recovery';
@@ -100,24 +100,43 @@ export async function analyzeInjury(
 
   // Active block plan — gives Coach visibility into WHAT IS SCHEDULED so
   // it can target real entries and the apply path can auto-swap on accept.
+  // Post-v21 the canonical store is per (week, day); we union all weeks
+  // (dedup by movementId) so the Coach sees the full set of movements
+  // scheduled for each day across the block.
   const activeBlock = allBlocks.find((b) => !b.completedAt);
   const currentBlockPlan = activeBlock?.plan
-    ? {
-        ...(activeBlock.name ? { blockName: activeBlock.name } : {}),
-        days: activeBlock.plan.days.map((d, i) => {
-          const label = d.label?.trim() || `Day ${i + 1}`;
-          const lifts = d.mainLifts.length > 0 ? ` · ${d.mainLifts.join('/')}` : ' · accessory';
-          return {
-            dayLabel: `${label}${lifts}`,
-            assistance: d.assistance
-              .filter((e) => e.movementId)
-              .map((e) => ({
-                movementId: e.movementId!,
-                movementName: e.movementName,
-              })),
-          };
-        }).filter((d) => d.assistance.length > 0),
-      }
+    ? (() => {
+        const plan = activeBlock.plan!;
+        const weeks: WendlerWeek[] =
+          activeBlock.kind === 'seventh-week' ? ['7w'] : [1, 2, 3, 'deload'];
+        return {
+          ...(activeBlock.name ? { blockName: activeBlock.name } : {}),
+          days: plan.days
+            .map((d, i) => {
+              const label = d.label?.trim() || `Day ${i + 1}`;
+              const lifts =
+                d.mainLifts.length > 0
+                  ? ` · ${d.mainLifts.join('/')}`
+                  : ' · accessory';
+              const seenMovementIds = new Set<string>();
+              const dayAssistance: Array<{ movementId: string; movementName: string }> = [];
+              for (const wk of weeks) {
+                const entries = resolveDayAssistance(plan, wk, d.id);
+                for (const e of entries) {
+                  if (!e.movementId) continue;
+                  if (seenMovementIds.has(e.movementId)) continue;
+                  seenMovementIds.add(e.movementId);
+                  dayAssistance.push({
+                    movementId: e.movementId,
+                    movementName: e.movementName,
+                  });
+                }
+              }
+              return { dayLabel: `${label}${lifts}`, assistance: dayAssistance };
+            })
+            .filter((d) => d.assistance.length > 0),
+        };
+      })()
     : undefined;
 
   const { userPrompt } = CoachAgent.buildCoachPrompt({
