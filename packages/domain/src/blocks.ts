@@ -779,7 +779,15 @@ export interface BlockDay {
   supplementalTemplate?: SupplementalTemplateId;
   /** Per-day override for supplemental set count; falls back to `block.supplementalSetsOverride`. */
   supplementalSetsOverride?: number;
-  /** Inline assistance entries for this day (per-day default). */
+  /**
+   * Per-day default assistance.
+   *
+   * @deprecated since v21 — assistance now lives canonically in
+   * `BlockPlan.assistanceOverrides[`${week}|${dayId}`]`. This field
+   * is preserved as an empty array on migrated blocks for sync
+   * back-compat with pre-v21 clients. **Do not write to it** —
+   * use the per-week store instead.
+   */
   assistance: AssistanceEntry[];
   /**
    * Per-lift override that flags specific main-set indices (0-based) as AMRAP.
@@ -799,7 +807,24 @@ export interface BlockDay {
 
 export interface BlockPlan {
   days: BlockDay[];
-  /** Per-week override of assistance, keyed `${week}|${dayId}`. */
+  /**
+   * Per-week assistance storage. Keyed `${week}|${dayId}` (e.g.
+   * `'1|day-abc'`, `'deload|day-xyz'`). **This is the canonical store**
+   * for what assistance work is scheduled for every (week, day) cell
+   * of the block — read it via `resolveDayAssistance(plan, week, dayId)`.
+   *
+   * Pre-v21 this field was a thin "overrides" layer on top of
+   * `BlockDay.assistance`. v21 collapsed that two-layer model into
+   * one flat store: every (week, day) has its own row here. Entry
+   * IDs are SHARED across weeks for the same movement-per-day so a
+   * single propose_edit op can target an entry once and the apply
+   * path iterates each week.
+   *
+   * The legacy `BlockDay.assistance` field is preserved for sync
+   * back-compat but is no longer written by app code. The v21
+   * upgrade promotes any non-empty `day.assistance` arrays into this
+   * store and empties them.
+   */
   assistanceOverrides?: Record<string, AssistanceEntry[]>;
   /**
    * Per-week override of an entire day's lift schedule, keyed
@@ -996,13 +1021,30 @@ export function effectivePlan(
  * Resolve the assistance entries for a (week, dayId) cell:
  * per-week override → day's default → empty.
  */
+/**
+ * Resolve the assistance entries scheduled for a specific (week, day)
+ * in a block. The canonical store is `plan.assistanceOverrides` —
+ * keyed `${week}|${dayId}` — which holds the per-week assistance for
+ * every cell. There is NO base/override layering anymore: this is
+ * just "what's in the block for this week, on this day".
+ *
+ * Legacy fallback (Pre-v21 blocks): if the canonical store is missing
+ * an entry for the given (week, day) and the day has a non-empty
+ * `assistance` array, that array is returned. The v21 Dexie upgrade
+ * promotes legacy data into the canonical store on first load, so
+ * this fallback path should only ever fire for pre-migration data
+ * (or sync docs arriving from a device that hasn't run v21 yet).
+ */
 export function resolveDayAssistance(
   plan: BlockPlan,
   week: WendlerWeek,
   dayId: string,
 ): AssistanceEntry[] {
-  const override = plan.assistanceOverrides?.[`${week}|${dayId}`];
-  if (override) return override;
+  const fromStore = plan.assistanceOverrides?.[`${week}|${dayId}`];
+  if (fromStore !== undefined) return fromStore;
+  // Legacy fallback — preserved through the v21 migration window. Once
+  // every block has been touched by the v21 upgrade, this branch is
+  // dead code; we keep it for one schema cycle for safety.
   const day = plan.days.find((d) => d.id === dayId);
   return day?.assistance ?? [];
 }

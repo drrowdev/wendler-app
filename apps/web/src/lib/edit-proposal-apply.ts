@@ -38,9 +38,58 @@ import type {
   TrainingMaxRecord,
   AssistanceEntry,
 } from '@wendler/db-schema';
+import type { BlockPlan } from '@wendler/domain';
 import { getDb } from './db';
 import { kickSync } from './sync';
 import { updateActionStatus } from './chat-actions';
+
+// ===== Helpers for per-week assistance mutation =====
+//
+// After v21, BlockPlan.assistanceOverrides is the canonical store for
+// scheduled assistance per (week, day) — there is no separate "base"
+// anymore. propose_edit ops mutate ALL weeks of the block so a single
+// op semantically means "this change applies to the block". A user
+// who wants a per-week diverged value uses the editor directly.
+//
+// Entry IDs are SHARED across weeks for the same movement-per-day so
+// a single op.entryId targets every week's instance. The helpers
+// below abstract: clone the per-week store; ensure a week has an
+// entries array to mutate (promoting from the legacy day.assistance
+// base when present, for blocks that haven't been touched by the
+// v21 Dexie upgrade yet — usually only docs in transit via sync).
+
+function weeksOfBlock(block: ProgramBlock): Array<'1' | '2' | '3' | 'deload' | '7w'> {
+  if (block.kind === 'seventh-week') return ['7w'];
+  const weeks: Array<'1' | '2' | '3' | 'deload' | '7w'> = ['1', '2', '3'];
+  if (block.includesDeload) weeks.push('deload');
+  return weeks;
+}
+
+function clonePerWeekStore(plan: BlockPlan): Record<string, AssistanceEntry[]> {
+  const src = plan.assistanceOverrides ?? {};
+  const out: Record<string, AssistanceEntry[]> = {};
+  for (const [k, v] of Object.entries(src)) {
+    out[k] = v.map((e) => ({ ...e }));
+  }
+  return out;
+}
+
+function ensureWeekEntries(
+  overrides: Record<string, AssistanceEntry[]>,
+  key: string,
+  plan: BlockPlan,
+  dayId: string,
+): AssistanceEntry[] {
+  if (overrides[key]) return overrides[key]!;
+  // Legacy promotion: pre-v21 blocks may still have day.assistance
+  // populated. Copy it (with fresh object identities) into the per-
+  // week slot so the mutation has somewhere to land.
+  const day = plan.days.find((d) => d.id === dayId);
+  const fromLegacy = day?.assistance ?? [];
+  const cloned = fromLegacy.map((e) => ({ ...e }));
+  overrides[key] = cloned;
+  return cloned;
+}
 
 const APPLY_ORDER: Record<EditOperation['kind'], number> = {
   set_block_volume_preset: 0,
@@ -317,40 +366,39 @@ async function performTrimAssistanceEntry(
   const db = getDb();
   const block = await resolveBlock(op.blockId);
   if (!block.plan) throw new Error(`Block "${block.name}" has no plan to trim.`);
+  const weeks = weeksOfBlock(block);
+  const overrides = clonePerWeekStore(block.plan);
   let captured:
-    | {
-        previousSets: number;
-        previousReps: number;
-        previousRepsMax?: number;
-      }
+    | { previousSets: number; previousReps: number; previousRepsMax?: number }
     | undefined;
-  const days = block.plan.days.map((d) => {
-    if (d.id !== op.dayId) return d;
-    return {
-      ...d,
-      assistance: d.assistance.map((e) => {
-        if (e.id !== op.entryId) return e;
-        captured = {
-          previousSets: e.sets,
-          previousReps: e.reps,
-          ...(e.repsMax !== undefined ? { previousRepsMax: e.repsMax } : {}),
-        };
-        const trimmed: AssistanceEntry = {
-          ...e,
-          sets: op.newSets,
-          reps: op.newReps,
-          ...(op.newRepsMax !== undefined ? { repsMax: op.newRepsMax } : { repsMax: undefined }),
-        };
-        return trimmed;
-      }),
+  for (const wk of weeks) {
+    const key = `${wk}|${op.dayId}`;
+    const entries = ensureWeekEntries(overrides, key, block.plan, op.dayId);
+    const idx = entries.findIndex((e) => e.id === op.entryId);
+    if (idx === -1) continue;
+    const entry = entries[idx]!;
+    if (!captured) {
+      captured = {
+        previousSets: entry.sets,
+        previousReps: entry.reps,
+        ...(entry.repsMax !== undefined ? { previousRepsMax: entry.repsMax } : {}),
+      };
+    }
+    const trimmed: AssistanceEntry = {
+      ...entry,
+      sets: op.newSets,
+      reps: op.newReps,
+      ...(op.newRepsMax !== undefined ? { repsMax: op.newRepsMax } : { repsMax: undefined }),
     };
-  });
+    entries[idx] = trimmed;
+    overrides[key] = entries;
+  }
   if (!captured) {
-    throw new Error(`Entry ${op.entryId} not found on day ${op.dayId}.`);
+    throw new Error(`Entry ${op.entryId} not found on day ${op.dayId} in any week.`);
   }
   await db.blocks.put({
     ...block,
-    plan: { ...block.plan, days },
+    plan: { ...block.plan, assistanceOverrides: overrides },
     updatedAt: new Date().toISOString(),
   });
   return {
@@ -374,24 +422,31 @@ async function performSwapAssistanceMovement(
   if (!newMovement) {
     throw new Error(`Replacement movement \`${op.newMovementId}\` not in library.`);
   }
+  const weeks = weeksOfBlock(block);
+  const overrides = clonePerWeekStore(block.plan);
   let captured: { prevId: string | undefined; prevName: string } | undefined;
-  const days = block.plan.days.map((d) => {
-    if (d.id !== op.dayId) return d;
-    return {
-      ...d,
-      assistance: d.assistance.map((e) => {
-        if (e.id !== op.entryId) return e;
-        captured = { prevId: e.movementId, prevName: e.movementName };
-        return { ...e, movementId: op.newMovementId, movementName: op.newMovementName };
-      }),
+  for (const wk of weeks) {
+    const key = `${wk}|${op.dayId}`;
+    const entries = ensureWeekEntries(overrides, key, block.plan, op.dayId);
+    const idx = entries.findIndex((e) => e.id === op.entryId);
+    if (idx === -1) continue;
+    const entry = entries[idx]!;
+    if (!captured) {
+      captured = { prevId: entry.movementId, prevName: entry.movementName };
+    }
+    entries[idx] = {
+      ...entry,
+      movementId: op.newMovementId,
+      movementName: op.newMovementName,
     };
-  });
+    overrides[key] = entries;
+  }
   if (!captured) {
-    throw new Error(`Entry ${op.entryId} not found on day ${op.dayId}.`);
+    throw new Error(`Entry ${op.entryId} not found on day ${op.dayId} in any week.`);
   }
   await db.blocks.put({
     ...block,
-    plan: { ...block.plan, days },
+    plan: { ...block.plan, assistanceOverrides: overrides },
     updatedAt: new Date().toISOString(),
   });
   return {
@@ -428,29 +483,35 @@ async function performAddAssistanceEntry(
   if (!movement) {
     throw new Error(`Movement \`${resolvedMovementId}\` not in library.`);
   }
-  const entryId = nanoid();
-  let inserted = false;
-  const days = block.plan.days.map((d) => {
-    if (d.id !== op.dayId) return d;
-    inserted = true;
-    const entry: AssistanceEntry = {
-      id: entryId,
-      movementId: resolvedMovementId,
-      movementName: op.movementName,
-      category: op.category as AssistanceEntry['category'],
-      sets: op.sets,
-      reps: op.reps,
-      ...(op.repsMax !== undefined ? { repsMax: op.repsMax } : {}),
-      ...(op.unit ? { unit: op.unit } : {}),
-    };
-    return { ...d, assistance: [...d.assistance, entry] };
-  });
-  if (!inserted) {
+  const dayExists = block.plan.days.some((d) => d.id === op.dayId);
+  if (!dayExists) {
     throw new Error(`Day ${op.dayId} not found in block "${block.name}".`);
+  }
+  // One shared entryId across all weeks — matches the post-v21 model
+  // where the same movement-per-day has a single canonical id; the
+  // editor / chat / future propose_edit ops can address it once.
+  const entryId = nanoid();
+  const newEntry: AssistanceEntry = {
+    id: entryId,
+    movementId: resolvedMovementId,
+    movementName: op.movementName,
+    category: op.category as AssistanceEntry['category'],
+    sets: op.sets,
+    reps: op.reps,
+    ...(op.repsMax !== undefined ? { repsMax: op.repsMax } : {}),
+    ...(op.unit ? { unit: op.unit } : {}),
+  };
+  const weeks = weeksOfBlock(block);
+  const overrides = clonePerWeekStore(block.plan);
+  for (const wk of weeks) {
+    const key = `${wk}|${op.dayId}`;
+    const entries = ensureWeekEntries(overrides, key, block.plan, op.dayId);
+    entries.push({ ...newEntry });
+    overrides[key] = entries;
   }
   await db.blocks.put({
     ...block,
-    plan: { ...block.plan, days },
+    plan: { ...block.plan, assistanceOverrides: overrides },
     updatedAt: new Date().toISOString(),
   });
   return {
@@ -466,24 +527,26 @@ async function performRemoveAssistanceEntry(
   const db = getDb();
   const block = await resolveBlock(op.blockId);
   if (!block.plan) throw new Error(`Block "${block.name}" has no plan to remove from.`);
+  const weeks = weeksOfBlock(block);
+  const overrides = clonePerWeekStore(block.plan);
   let removedName: string | undefined;
-  const days = block.plan.days.map((d) => {
-    if (d.id !== op.dayId) return d;
-    return {
-      ...d,
-      assistance: d.assistance.filter((e) => {
-        if (e.id !== op.entryId) return true;
-        removedName = e.movementName;
-        return false;
-      }),
-    };
-  });
+  for (const wk of weeks) {
+    const key = `${wk}|${op.dayId}`;
+    const entries = ensureWeekEntries(overrides, key, block.plan, op.dayId);
+    const idx = entries.findIndex((e) => e.id === op.entryId);
+    if (idx === -1) continue;
+    if (removedName === undefined) {
+      removedName = entries[idx]!.movementName;
+    }
+    entries.splice(idx, 1);
+    overrides[key] = entries;
+  }
   if (removedName === undefined) {
-    throw new Error(`Entry ${op.entryId} not found on day ${op.dayId}.`);
+    throw new Error(`Entry ${op.entryId} not found on day ${op.dayId} in any week.`);
   }
   await db.blocks.put({
     ...block,
-    plan: { ...block.plan, days },
+    plan: { ...block.plan, assistanceOverrides: overrides },
     updatedAt: new Date().toISOString(),
   });
   return {

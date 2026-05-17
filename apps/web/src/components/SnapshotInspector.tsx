@@ -144,7 +144,7 @@ export function SnapshotInspector() {
       {state.activeBlock?.plan && (
         <div className="mt-2">
           <p className="font-semibold text-fg/80">
-            Active block · plan.days resolved per week (what /program/block reads):
+            Active block · per-week assistance (canonical store, v21+):
           </p>
           <ul className="mt-1 ml-4 list-disc">
             {state.activeBlock.plan.days.map((d, i) => (
@@ -176,9 +176,10 @@ export function SnapshotInspector() {
             ))}
           </ul>
           <p className="mt-1 text-[10px] italic text-muted/80">
-            Pre-v421, the snapshot read only the BASE (day.assistance) — manual edits in
-            /program/block go to per-week overrides, so the chat AI never saw them. Each week
-            above resolves overrides + base correctly via resolveDayAssistance.
+            Each (week, day) cell is independent storage in
+            BlockPlan.assistanceOverrides. v21+ writes flow here from BOTH the editor and
+            propose_edit ops. If any week diverges from what /program/block shows for that
+            week, the editor and chat are out of sync.
           </p>
         </div>
       )}

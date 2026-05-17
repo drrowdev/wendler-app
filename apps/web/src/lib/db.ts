@@ -481,7 +481,7 @@ class WendlerDb extends Dexie {
     // for every existing slot (back-compat default). Removing it from
     // the store map deletes the table in IndexedDB; the upgrade tx
     // runs before the table is dropped, so the read is safe.
-    this.version(SCHEMA_VERSION)
+    this.version(20)
       .stores({
         movements: 'id, name, equipment, pattern, isMainLift, isCustom',
         trainingMaxes: 'id, lift, createdAt',
@@ -536,6 +536,80 @@ class WendlerDb extends Dexie {
           // starts empty.
         }
       });
+
+    // v21: flatten BlockPlan assistance storage.
+    //
+    // Pre-v21 model had two layers:
+    //   - BlockDay.assistance — the "base" assistance, set at block
+    //     generation time.
+    //   - BlockPlan.assistanceOverrides[`${wk}|${dayId}`] — per-week
+    //     overrides, present only when a specific week diverges from
+    //     the base.
+    // Reads via resolveDayAssistance preferred overrides, falling back
+    // to the base. WRITES split: BlockPlanEditor manual edits wrote to
+    // overrides; propose_edit ops wrote to the base; the suggester
+    // wrote to the base. That divergence let user edits become
+    // invisible to the chat AI ('still shows Skull Crusher' bug).
+    //
+    // v21 collapses to ONE canonical store keyed `${wk}|${dayId}`. For
+    // every existing block, for every week of the block, every (week,
+    // day) cell is populated from the previous (override OR base) so
+    // no data is lost. BlockDay.assistance is cleared post-copy. The
+    // field name `assistanceOverrides` is kept on disk to avoid sync-
+    // wire churn — its semantics now mean "the per-week assistance
+    // store", not "overrides on a base".
+    this.version(SCHEMA_VERSION).upgrade(async (tx) => {
+      try {
+        const blocks = await tx.table('blocks').toArray();
+        for (const block of blocks) {
+          const plan = block.plan;
+          if (!plan || !Array.isArray(plan.days)) continue;
+          // Week set depends on block kind. 7th-week blocks have only '7w';
+          // every other kind has weeks 1, 2, 3 plus deload if includesDeload.
+          const weeks: Array<'1' | '2' | '3' | 'deload' | '7w'> =
+            block.kind === 'seventh-week'
+              ? ['7w']
+              : block.includesDeload
+                ? ['1', '2', '3', 'deload']
+                : ['1', '2', '3'];
+          const overrides = plan.assistanceOverrides ?? {};
+          let anyWritten = false;
+          for (const day of plan.days) {
+            const base = Array.isArray(day.assistance) ? day.assistance : [];
+            for (const wk of weeks) {
+              const key = `${wk}|${day.id}`;
+              if (overrides[key] !== undefined) continue; // existing data wins
+              if (base.length === 0) continue; // nothing to promote
+              // Deep-clone the base into this week so weeks are
+              // independent rows. Entry IDs are intentionally SHARED
+              // across weeks for the same movement-per-day so a single
+              // propose_edit op can target it once and the apply path
+              // iterates all weeks.
+              overrides[key] = base.map((e: unknown) => ({ ...(e as object) }));
+              anyWritten = true;
+            }
+            // Clear the base after copy — every week now has its own
+            // canonical row. We leave `day.assistance` present but
+            // empty so legacy code paths still see a valid array.
+            if (Array.isArray(day.assistance) && day.assistance.length > 0) {
+              day.assistance = [];
+              anyWritten = true;
+            }
+          }
+          if (anyWritten) {
+            plan.assistanceOverrides = overrides;
+            block.plan = plan;
+            block.updatedAt = new Date().toISOString();
+            await tx.table('blocks').put(block);
+          }
+        }
+      } catch (err) {
+        // Don't block the upgrade on this — failures here cost the
+        // user a stale snapshot, not data loss (the legacy fields
+        // are preserved during the migration window).
+        console.warn('[v21 upgrade] BlockPlan flatten failed:', err);
+      }
+    });
   }
 }
 
