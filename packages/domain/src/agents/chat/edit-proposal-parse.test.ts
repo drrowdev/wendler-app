@@ -287,6 +287,106 @@ describe('parseEditProposal', () => {
     );
     expect(r.errors.some((e) => e.includes('invalid muscle "spleen"'))).toBe(true);
   });
+
+  it('rejects ops introducing a movement matching an active user exclusion', () => {
+    const r = parseEditProposal(
+      {
+        label: 'x',
+        headline: 'h',
+        reason: 'r',
+        operations: [
+          {
+            kind: 'add_assistance_entry',
+            label: 'Add skull crusher',
+            dayId: 'day-1',
+            movementId: 'seed:skull-crusher',
+            movementName: 'EZ-Bar Skull Crushers',
+            category: 'isolation',
+            sets: 3,
+            reps: 10,
+          },
+        ],
+      },
+      { idGen: idGen(), activeExclusions: ['no skull crushers'] },
+    );
+    expect(r.proposal).toBeUndefined();
+    expect(r.errors.some((e) => e.includes('no skull crushers'))).toBe(true);
+  });
+
+  it('accepts ops on movements NOT in the exclusion list', () => {
+    const r = parseEditProposal(
+      {
+        label: 'x',
+        headline: 'h',
+        reason: 'r',
+        operations: [
+          {
+            kind: 'add_assistance_entry',
+            label: 'Add hip thrust',
+            dayId: 'day-1',
+            movementId: 'seed:hip-thrust',
+            movementName: 'Hip Thrust',
+            category: 'push',
+            sets: 3,
+            reps: 10,
+          },
+        ],
+      },
+      { idGen: idGen(), activeExclusions: ['no skull crushers', 'no close-grip bench press'] },
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.proposal).toBeDefined();
+  });
+
+  it('exclusion matching is case-insensitive and substring-based', () => {
+    const r = parseEditProposal(
+      {
+        label: 'x',
+        headline: 'h',
+        reason: 'r',
+        operations: [
+          {
+            kind: 'swap_assistance_movement',
+            label: 'Swap to close-grip',
+            dayId: 'day-1',
+            entryId: 'entry-1',
+            currentMovementId: 'seed:incline-db-press',
+            currentMovementName: 'Incline Dumbbell Press',
+            newMovementId: 'seed:cgbp',
+            newMovementName: 'Close-Grip Bench Press',
+          },
+        ],
+      },
+      { idGen: idGen(), activeExclusions: ['no close-grip bench'] },
+    );
+    expect(r.proposal).toBeUndefined();
+    expect(r.errors.some((e) => e.includes('close-grip bench'))).toBe(true);
+  });
+
+  it('does not flag swap currentMovementName matching an exclusion — user is moving AWAY from it', () => {
+    const r = parseEditProposal(
+      {
+        label: 'x',
+        headline: 'h',
+        reason: 'r',
+        operations: [
+          {
+            kind: 'swap_assistance_movement',
+            label: 'Swap skull crusher → tricep pushdown',
+            dayId: 'day-1',
+            entryId: 'entry-1',
+            currentMovementId: 'seed:skull-crusher',
+            currentMovementName: 'Skull Crushers',
+            newMovementId: 'seed:tricep-pushdown',
+            newMovementName: 'Tricep Pushdown',
+          },
+        ],
+      },
+      { idGen: idGen(), activeExclusions: ['no skull crushers'] },
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.proposal).toBeDefined();
+  });
 });
 
 describe('applyDecisionToOp', () => {

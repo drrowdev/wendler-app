@@ -35,6 +35,15 @@ interface RequestBody {
   messages: IncomingMessage[];
   contextPath?: string;
   todayLocal?: string;
+  /**
+   * User-configured movement-exclusion labels from
+   * TrainingProfile.constraints (active-only). Surfaced verbatim from
+   * the client so the propose_edit parser can reject any AI proposal
+   * introducing an excluded movement. The chat-context snapshot also
+   * embeds these for the model to read; the parser is the
+   * belt-and-braces server-side enforcement.
+   */
+  activeExclusions?: string[];
 }
 
 const SYSTEM_PROMPT_BASE = `You are the user's personal training coach assistant inside the Wendler 5/3/1 PWA. You have access to a snapshot of their training data (cardio sessions, strength logs, training maxes, races, recovery entries, training profile, active limitations) AND four specialist tools you can consult:
@@ -210,7 +219,7 @@ export async function chat(
     };
   }
 
-  const { context, messages, contextPath, todayLocal } = body ?? ({} as RequestBody);
+  const { context, messages, contextPath, todayLocal, activeExclusions } = body ?? ({} as RequestBody);
   if (typeof context !== 'string' || context.length < 20) {
     return { status: 400, jsonBody: { error: 'bad-request', detail: 'context missing' } };
   }
@@ -441,7 +450,12 @@ ${context}
           }> = [];
           for (const tu of proposeEditUses) {
             const startedAt = Date.now();
-            const parsed = parseEditProposal(tu.input as unknown, { idGen: () => randomUUID() });
+            const parsed = parseEditProposal(tu.input as unknown, {
+              idGen: () => randomUUID(),
+              ...(activeExclusions && activeExclusions.length > 0
+                ? { activeExclusions }
+                : {}),
+            });
             const durationMs = Date.now() - startedAt;
             if (parsed.proposal) {
               // Emit ONE action_chips event carrying the parsed proposal.

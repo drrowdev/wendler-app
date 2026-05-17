@@ -229,6 +229,20 @@ export interface ParseEditProposalOptions {
   idGen: () => string;
   /** Hard cap on operations per proposal. Defaults to 10. */
   maxOperations?: number;
+  /**
+   * User-configured movement exclusions (verbatim labels from
+   * TrainingProfile.constraints, active-only). Each entry is a phrase
+   * like "no skull crushers" or "no close-grip bench press" — the
+   * leading "no " is stripped and the remainder is matched as a
+   * case-insensitive substring against the target movement name of any
+   * add_assistance_entry / swap_assistance_movement (newMovementName) /
+   * add_movement_to_library op. Matches REJECT the whole proposal —
+   * the tool_result returned to the model lists the violating ops so
+   * it can self-correct within the same turn. Semantic equivalents
+   * (e.g. "skull crusher" vs "lying triceps extension") are NOT caught
+   * by the substring match — the system prompt covers those.
+   */
+  activeExclusions?: string[];
 }
 
 /**
@@ -287,6 +301,37 @@ export function parseEditProposal(
         }
       }
     });
+  }
+
+  // Hard exclusion enforcement. Substring-match the user's "no <X>"
+  // filters against the target movement name of every op that
+  // INTRODUCES a movement (add_assistance_entry / swap target /
+  // add_movement_to_library). Existing entries that already reference
+  // an excluded movement are not blocked here (the user already has
+  // them — trim/remove ops MUST still work on those).
+  const normalizedExclusions = (opts.activeExclusions ?? [])
+    .map((raw) => raw.toLowerCase().trim().replace(/^no\s+/, '').trim())
+    .filter((s) => s.length > 0);
+  if (normalizedExclusions.length > 0) {
+    for (let i = 0; i < operations.length; i++) {
+      const op = operations[i]!;
+      const targetName: string | undefined =
+        op.kind === 'add_assistance_entry'
+          ? op.movementName
+          : op.kind === 'swap_assistance_movement'
+            ? op.newMovementName
+            : op.kind === 'add_movement_to_library'
+              ? op.name
+              : undefined;
+      if (!targetName) continue;
+      const targetLower = targetName.toLowerCase();
+      const hit = normalizedExclusions.find((ex) => targetLower.includes(ex));
+      if (hit) {
+        errors.push(
+          `operations[${i}] (${op.kind}) introduces "${targetName}" which matches the active user exclusion "no ${hit}". Propose a different movement that respects the user's filters, or omit the op entirely.`,
+        );
+      }
+    }
   }
 
   if (errors.length > 0 || !label || !headline || !reason || operations.length === 0) {

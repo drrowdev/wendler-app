@@ -361,6 +361,22 @@ export function useChatSender(externalId: string | null): UseChatSender {
 
         const contextBlob = await buildContextBlob();
 
+        // Active hard-exclusion filter labels from the user's training
+        // profile. Server-side propose_edit parser rejects ops that
+        // introduce a movement whose name matches any of these
+        // (substring, case-insensitive after stripping "no "). The
+        // snapshot also lists them inline so the model SEES them, but
+        // this is the durable backstop in case the model anchors on a
+        // prior turn's reply.
+        const activeExclusions: string[] = await (async () => {
+          const settings = await getDb().settings.get('singleton');
+          const constraints = settings?.trainingProfile?.constraints ?? [];
+          return constraints
+            .filter((c) => c.active !== false)
+            .map((c) => c.label.trim())
+            .filter((s) => s.length > 0);
+        })();
+
         // Today's date in the user's local timezone (YYYY-MM-DD). The API
         // injects this verbatim into the system prompt so the model can
         // reason about "race in N weeks" without guessing.
@@ -379,6 +395,7 @@ export function useChatSender(externalId: string | null): UseChatSender {
             context: contextBlob,
             contextPath: opts.contextPath,
             todayLocal,
+            ...(activeExclusions.length > 0 ? { activeExclusions } : {}),
             messages: messagesSoFar.map((m) => ({ role: m.role, content: m.content })),
           }),
         });
