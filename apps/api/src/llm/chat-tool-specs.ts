@@ -488,6 +488,11 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
               description:
                 'add_cardio_plan_slot only. Optional free-text note (e.g. "60 min indoor trainer"). ≤ 200 chars.',
             },
+            linkedToActiveBlock: {
+              type: 'boolean',
+              description:
+                'add_cardio_plan_slot only. When true (default), the slot is auto-removed when the active block completes — use this for taper-week cardio replacements paired with skip_day_in_week. Pass false ONLY when the user explicitly wants the slot to persist beyond the current block.',
+            },
           },
           required: ['kind', 'label'],
           additionalProperties: false,

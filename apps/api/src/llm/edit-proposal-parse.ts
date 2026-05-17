@@ -102,6 +102,12 @@ export interface ParsedAddCardioPlanSlotOp extends ParsedEditOpBase {
   planKind: string;
   durationMin?: number;
   notes?: string;
+  /**
+   * When true (default), the apply path tags the slot with the active
+   * block's id so it auto-removes when that block completes. Pass
+   * false to keep the slot permanent.
+   */
+  linkedToActiveBlock?: boolean;
 }
 
 export interface ParsedScheduleDeloadOp extends ParsedEditOpBase {
@@ -772,6 +778,9 @@ function validateOp(
         planKind: planKindRaw as string,
         ...(durationMin !== undefined ? { durationMin } : {}),
         ...(notes ? { notes } : {}),
+        ...(typeof op.linkedToActiveBlock === 'boolean'
+          ? { linkedToActiveBlock: op.linkedToActiveBlock }
+          : {}),
       };
     }
     case 'schedule_deload': {

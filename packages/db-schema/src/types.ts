@@ -1492,6 +1492,15 @@ export interface AddCardioPlanSlotEditOp extends EditOperationBase {
   durationMin?: number;
   /** Free-text note (e.g. "60 min indoor trainer"). */
   notes?: string;
+  /**
+   * When `true` (the default for AI proposals that pair with
+   * `skip_day_in_week`), the apply path stamps the new slot with the
+   * active block's id. A side-effect on block completion then prunes
+   * any slot whose `linkedBlockId` matches the just-completed block.
+   * Pass `false` to keep the slot in the cardio plan after the block
+   * ends — e.g. when the user explicitly wants a permanent change.
+   */
+  linkedToActiveBlock?: boolean;
 }
 
 export interface RemoveAssistanceEntryEditOp extends EditOperationBase {

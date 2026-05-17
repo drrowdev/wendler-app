@@ -170,6 +170,16 @@ export interface CardioPlanSlot {
   durationMin?: number;
   /** Free-text note shown to the user (e.g. "60 min indoor trainer"). */
   notes?: string;
+  /**
+   * Optional block this slot is tied to. When set, the slot is
+   * automatically removed from the cardio plan when the linked block
+   * transitions to `completedAt`. Used by the AI's
+   * `add_cardio_plan_slot` op when it pairs a cardio replacement with
+   * `skip_day_in_week` — the bike ride scheduled to replace a strength
+   * day during taper goes away on its own once the taper block ends,
+   * so the user doesn't have to remember to clean it up.
+   */
+  linkedBlockId?: string;
 }
 
 /**

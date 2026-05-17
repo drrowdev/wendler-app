@@ -14,6 +14,7 @@ import {
   buildChatContext,
   renderChatContextAsText,
   resolveDayAssistance,
+  resolveDayWeekday,
   type MinimalChatCardio,
   type MinimalChatRace,
   type MinimalChatRecovery,
@@ -231,7 +232,21 @@ export async function buildContextBlob(): Promise<string> {
           : anyHasEntries
             ? ` · accessory-only day (no main lifts, up to ${maxCount} assistance movements per week — listed per-week below)`
             : ' · EMPTY (no main lifts and no assistance scheduled in any week)';
-      const dayHeader = `  - Day ${i + 1}${day.label ? ` "${day.label}"` : ''} (id=\`${day.id}\`)${mainPart}`;
+      // Resolve the day's weekday. Prefer the explicit `weekday` field
+      // on the BlockDay; fall back to parsing the label ("Monday",
+      // "Thu", etc.) via the shared resolveDayWeekday helper. Emit a
+      // human-readable weekday name in the header so the AI never has
+      // to ASK the user which day a given Day N falls on.
+      const weekdayNumeric = resolveDayWeekday({
+        weekday: typeof day.weekday === 'number' ? day.weekday : undefined,
+        label: day.label,
+      });
+      const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const weekdayPart =
+        typeof weekdayNumeric === 'number'
+          ? ` · scheduled on ${WEEKDAY_NAMES[weekdayNumeric]} (weekday=${weekdayNumeric})`
+          : ' · scheduled weekday: not set';
+      const dayHeader = `  - Day ${i + 1}${day.label ? ` "${day.label}"` : ''} (id=\`${day.id}\`)${weekdayPart}${mainPart}`;
       lines.push(dayHeader);
 
       // Skip-status block (unchanged).

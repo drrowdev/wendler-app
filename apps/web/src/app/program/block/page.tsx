@@ -17,6 +17,7 @@ import {
 } from '@wendler/domain';
 import type { MainLift } from '@wendler/db-schema';
 import { getDb } from '@/lib/db';
+import { onBlockCompleted } from '@/lib/block-lifecycle';
 import { deleteWithTombstones } from '@/lib/delete';
 import { fmtDate, liftLabel } from '@/lib/format';
 import {
@@ -84,6 +85,7 @@ function BlockDetailPage() {
       const dbi = getDb();
       const now = new Date().toISOString();
       await dbi.blocks.update(block.id, { completedAt: now, updatedAt: now });
+      await onBlockCompleted(block.id);
 
       // Advance the schedule's active block to the next non-completed block in
       // the same program (sorted by sequenceIndex), if this block is currently

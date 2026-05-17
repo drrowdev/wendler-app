@@ -611,6 +611,19 @@ async function performAddCardioPlanSlot(
     slots: [],
     updatedAt: new Date().toISOString(),
   };
+  // Resolve the linked block. Default behavior is to tie the slot to
+  // the active block (linkedToActiveBlock === undefined OR true) so
+  // it's auto-removed when that block completes — the user's expected
+  // 'AI keeps the plan up-to-date with what we agreed' UX. The AI can
+  // opt out by passing linkedToActiveBlock: false when the user wants
+  // a permanent slot.
+  const linkToActive = op.linkedToActiveBlock !== false;
+  let linkedBlockId: string | undefined;
+  if (linkToActive) {
+    const allBlocks = await db.blocks.toArray();
+    const active = allBlocks.find((b) => !b.completedAt);
+    linkedBlockId = active?.id;
+  }
   const slots = [...existing.slots];
   // Idempotency: a slot already in place for the same (dayOfWeek,
   // modality) is left untouched (treated as the user's authoritative
@@ -645,6 +658,7 @@ async function performAddCardioPlanSlot(
         | 'cross',
       ...(op.durationMin !== undefined ? { durationMin: op.durationMin } : {}),
       ...(op.notes ? { notes: op.notes } : {}),
+      ...(linkedBlockId ? { linkedBlockId } : {}),
     });
     await db.cardioPlan.put({
       ...existing,

@@ -875,9 +875,11 @@ function AddCardioPlanSlotDiff({
         </div>
       )}
       <p className="text-[11px] text-muted leading-relaxed">
-        Will be added to your weekly cardio plan and shows up on /calendar every
-        {' '}{dayName}. The slot is recurring — remove it from /program (Cardio tab)
-        when the racing block is over.
+        Will be added to your weekly cardio plan and shows up on /calendar every{' '}
+        {dayName}.
+        {op.linkedToActiveBlock !== false
+          ? ' Auto-removed when the current block completes — no manual cleanup.'
+          : ' Permanent — stays in the cardio plan until you remove it manually.'}
       </p>
     </div>
   );
