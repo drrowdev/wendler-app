@@ -15,6 +15,7 @@
 // otherwise to keep the surface clean for normal use.
 
 import { useEffect, useState } from 'react';
+import { resolveDayAssistance } from '@wendler/domain';
 import { buildContextBlob, readActiveExclusions } from '@/lib/useChat';
 import { getDb } from '@/lib/db';
 import type { ProgramBlock } from '@wendler/db-schema';
@@ -143,25 +144,41 @@ export function SnapshotInspector() {
       {state.activeBlock?.plan && (
         <div className="mt-2">
           <p className="font-semibold text-fg/80">
-            Active block · plan.days (raw Dexie, what /program/block reads):
+            Active block · plan.days resolved per week (what /program/block reads):
           </p>
           <ul className="mt-1 ml-4 list-disc">
             {state.activeBlock.plan.days.map((d, i) => (
               <li key={d.id} className="text-fg/80">
                 Day {i + 1}
                 {d.label ? ` "${d.label}"` : ''} · main:{' '}
-                {d.mainLifts.length > 0 ? d.mainLifts.join(', ') : '—'} · assistance (
-                {d.assistance.length}):{' '}
-                {d.assistance.length > 0
-                  ? d.assistance.map((e) => e.movementName).join(', ')
-                  : '(none)'}
+                {d.mainLifts.length > 0 ? d.mainLifts.join(', ') : '—'}
+                <ul className="ml-4 mt-0.5">
+                  {(['1', '2', '3', 'deload'] as const).map((wk) => {
+                    const wendlerWk =
+                      wk === 'deload' ? 'deload' : (Number(wk) as 1 | 2 | 3);
+                    const entries = resolveDayAssistance(
+                      state.activeBlock!.plan!,
+                      wendlerWk,
+                      d.id,
+                    );
+                    const label = wk === 'deload' ? 'Deload' : `Wk ${wk}`;
+                    return (
+                      <li key={wk} className="text-fg/70">
+                        {label} ({entries.length}):{' '}
+                        {entries.length > 0
+                          ? entries.map((e) => e.movementName).join(', ')
+                          : '(none)'}
+                      </li>
+                    );
+                  })}
+                </ul>
               </li>
             ))}
           </ul>
           <p className="mt-1 text-[10px] italic text-muted/80">
-            If THIS list disagrees with what you see at /program/block on this device, your
-            edits did not persist (save bug). If it agrees but the snapshot text below shows
-            different movements, the snapshot builder is reading from a stale or wrong source.
+            Pre-v421, the snapshot read only the BASE (day.assistance) — manual edits in
+            /program/block go to per-week overrides, so the chat AI never saw them. Each week
+            above resolves overrides + base correctly via resolveDayAssistance.
           </p>
         </div>
       )}

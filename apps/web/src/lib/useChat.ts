@@ -13,11 +13,13 @@ import type { Chat, ChatAction, ChatMessage } from '@wendler/db-schema';
 import {
   buildChatContext,
   renderChatContextAsText,
+  resolveDayAssistance,
   type MinimalChatCardio,
   type MinimalChatRace,
   type MinimalChatRecovery,
   type MinimalChatSet,
   type MinimalChatTrainingMax,
+  type WendlerWeek,
   effectiveAssistanceVolumeForPhase,
   effectiveTrainingPhaseInfo,
 } from '@wendler/domain';
@@ -203,37 +205,42 @@ export async function buildContextBlob(): Promise<string> {
   }
   if (days.length > 0) {
     lines.push('- Days:');
+    const plan = activeBlock.plan!;
+    // Helper to convert the local '1'|'2'|'3'|'deload'|'7w' string into
+    // the canonical WendlerWeek (number for 1/2/3) the domain uses.
+    const toWendlerWeek = (wk: '1' | '2' | '3' | 'deload' | '7w'): WendlerWeek =>
+      wk === 'deload' || wk === '7w' ? wk : (Number(wk) as 1 | 2 | 3);
     days.forEach((day, i) => {
-      const assistanceCount = day.assistance.length;
-      // User-facing label is 1-based ("Day 1", "Day 2", ...). The
-      // 0-based index is exposed only via the `id` field below for tools
-      // that need stable references (e.g. substitute_movement chips).
-      //
-      // Day header explicitly distinguishes:
-      //   - "main lifts" days (have 5/3/1 main work) — list which lifts
-      //   - "accessory-only" days (no main lifts but assistance is
-      //     scheduled) — list the count so the AI doesn't mis-read as
-      //     "empty"
-      //   - truly empty days (no main + no assistance) — flagged
-      //     EMPTY so the AI knows there is genuinely nothing scheduled
+      // Resolve the EFFECTIVE assistance for each week of the block.
+      // This is what /program/block actually shows and what would run
+      // in any given week. We use resolveDayAssistance so per-week
+      // overrides (the editor's only write target) are honoured —
+      // reading day.assistance directly here would show the BASE only
+      // and silently lose every manual edit the user made in /program/
+      // block. That used to happen pre-v421 and produced 'stale
+      // snapshot' bugs that looked like AI hallucinations.
+      const perWeek = weekScopes.map((wk) => ({
+        wk,
+        entries: resolveDayAssistance(plan, toWendlerWeek(wk), day.id),
+      }));
+      const anyHasEntries = perWeek.some((w) => w.entries.length > 0);
+      const maxCount = Math.max(0, ...perWeek.map((w) => w.entries.length));
       const mainPart =
         day.mainLifts.length > 0
           ? ` · main lifts: ${day.mainLifts.join(', ')}`
-          : assistanceCount > 0
-            ? ` · accessory-only day (no main lifts, ${assistanceCount} assistance ${assistanceCount === 1 ? 'movement' : 'movements'} scheduled — listed below)`
-            : ' · EMPTY (no main lifts and no assistance scheduled)';
+          : anyHasEntries
+            ? ` · accessory-only day (no main lifts, up to ${maxCount} assistance movements per week — listed per-week below)`
+            : ' · EMPTY (no main lifts and no assistance scheduled in any week)';
       const dayHeader = `  - Day ${i + 1}${day.label ? ` "${day.label}"` : ''} (id=\`${day.id}\`)${mainPart}`;
       lines.push(dayHeader);
-      // Per-week skip status for this day. Only emitted when the day is
-      // skipped in at least one week, to keep the snapshot lean. The AI
-      // uses this to (a) avoid proposing trim/swap/skip ops on already-
-      // skipped weeks and (b) treat skipped weeks as zero strength load.
-      const overrides = activeBlock.plan?.dayOverridesByWeek ?? {};
+
+      // Skip-status block (unchanged).
+      const skipOverrides = activeBlock.plan?.dayOverridesByWeek ?? {};
       const skippedIn: string[] = [];
       for (const wk of weekScopes) {
-        if (overrides[`${wk}|${day.id}`]?.skipped === true) {
-          const skipNote = overrides[`${wk}|${day.id}`]?.skipNote;
-          const skipReason = overrides[`${wk}|${day.id}`]?.skipReason;
+        if (skipOverrides[`${wk}|${day.id}`]?.skipped === true) {
+          const skipNote = skipOverrides[`${wk}|${day.id}`]?.skipNote;
+          const skipReason = skipOverrides[`${wk}|${day.id}`]?.skipReason;
           const label = wk === 'deload' ? 'Deload' : wk === '7w' ? '7w' : `Wk ${wk}`;
           const tail =
             skipReason || skipNote
@@ -245,23 +252,56 @@ export async function buildContextBlob(): Promise<string> {
       if (skippedIn.length > 0) {
         lines.push(`    - SKIPPED in: ${skippedIn.join(' · ')}`);
       }
-      if (day.assistance.length > 0) {
-        for (const entry of day.assistance) {
+
+      // Render per-week assistance. Collapse weeks with identical
+      // resolved entries into a single 'All weeks' line — common when
+      // there are no overrides — so the snapshot stays lean. When
+      // weeks differ (user has manual overrides for some weeks), list
+      // each week explicitly so the AI sees exactly what's scheduled
+      // where.
+      const fingerprint = (entries: typeof perWeek[number]['entries']) =>
+        entries
+          .map(
+            (e) =>
+              `${e.id}|${e.movementId ?? ''}|${e.movementName}|${e.category}|${e.sets}×${e.reps}${e.repsMax != null ? '-' + e.repsMax : ''}${e.isAmrap ? '+' : ''}${e.unit === 'sec' ? 'sec' : ''}`,
+          )
+          .join('::');
+      const uniqueFingerprints = new Set(perWeek.map((w) => fingerprint(w.entries)));
+      const renderEntries = (
+        entries: typeof perWeek[number]['entries'],
+        weekLabel: string,
+      ) => {
+        if (entries.length === 0) {
+          lines.push(`    ${weekLabel}: (no assistance scheduled for this week)`);
+          return;
+        }
+        lines.push(`    ${weekLabel}:`);
+        for (const entry of entries) {
           const mid = entry.movementId ?? '(no movement id)';
           const reps =
             entry.repsMax != null
               ? `${entry.reps}-${entry.repsMax}`
               : String(entry.reps);
           const amrap = entry.isAmrap ? '+' : '';
-          // IMPORTANT: emit entry.id (stable assistance-entry ID, used by
-          // trim_assistance_entry.entryId / remove_assistance_entry.entryId
-          // / swap_assistance_movement.entryId) AND entry.movementId (the
-          // library reference, used by suggest_assistance + add_assistance_entry).
-          // Labelling matters — the model previously confused movementId for
-          // entryId because we only emitted one ambiguous `id=` field.
+          // entryId is the per-week-resolved id; trim/remove/swap ops
+          // must reference THIS id to target the correct row in the
+          // override / base map.
           lines.push(
-            `    - ${entry.category}: ${entry.movementName} (entryId=\`${entry.id}\`, movementId=\`${mid}\`) — ${entry.sets}×${reps}${amrap}${entry.unit === 'sec' ? ' sec' : ''}`,
+            `      - ${entry.category}: ${entry.movementName} (entryId=\`${entry.id}\`, movementId=\`${mid}\`) — ${entry.sets}×${reps}${amrap}${entry.unit === 'sec' ? ' sec' : ''}`,
           );
+        }
+      };
+      if (uniqueFingerprints.size <= 1) {
+        // Every week resolves to the same set of entries → collapse.
+        const labels = weekScopes
+          .map((wk) => (wk === 'deload' ? 'Deload' : wk === '7w' ? '7w' : `Wk ${wk}`))
+          .join(', ');
+        renderEntries(perWeek[0]?.entries ?? [], `All weeks (${labels})`);
+      } else {
+        // Weeks diverge → list each.
+        for (const { wk, entries } of perWeek) {
+          const label = wk === 'deload' ? 'Deload' : wk === '7w' ? '7w' : `Wk ${wk}`;
+          renderEntries(entries, label);
         }
       }
     });
