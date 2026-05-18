@@ -9,6 +9,7 @@ export * from './waves';
 export * from './warmup';
 export * from './plate-calculator';
 export * from './e1rm';
+export * from './amrap-confidence';
 export * from './pr-detection';
 export * from './supplemental';
 export * from './blocks';
