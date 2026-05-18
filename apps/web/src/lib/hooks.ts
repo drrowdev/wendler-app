@@ -693,7 +693,18 @@ function localYmd(): string {
 export function useUnreadNotificationCount(): number {
   const all = useLiveQuery(() => getDb().notifications.toArray(), []);
   if (!all) return 0;
-  return all.reduce((acc, n) => (n.readAt ? acc : acc + 1), 0);
+  const nowIso = new Date().toISOString();
+  // Mirror /notifications inbox filtering:
+  //  - Hide future-due scheduled follow-ups (dueAt > now).
+  //  - Hide soft-deleted rows (deletedAt set).
+  // Without this the bell over-counts because scheduled check-ins
+  // hidden from the inbox still contribute to the badge.
+  return all.reduce((acc, n) => {
+    if (n.readAt) return acc;
+    if (n.dueAt && n.dueAt > nowIso) return acc;
+    if ((n as { deletedAt?: string }).deletedAt) return acc;
+    return acc + 1;
+  }, 0);
 }
 
 export function useRunPlan() {

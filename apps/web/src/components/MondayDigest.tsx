@@ -13,7 +13,7 @@ import { weeklyLoad, weeklyCardio, type LoadSet, type MinimalCardio } from '@wen
 import { getDb } from '@/lib/db';
 import { notify } from '@/lib/notify';
 
-const FLAG_PREFIX = 'wendler:monday-digest-emitted:v3';
+const FLAG_PREFIX = 'wendler:monday-digest-emitted:v4';
 
 function isoWeekKey(d: Date): string {
   // ISO week: Thursday-aligned, year inferred from Thursday's date.
@@ -170,13 +170,13 @@ async function maybeEmit(now: Date): Promise<void> {
   bodyLines.push(
     `${sessionsLast7Count} strength session${sessionsLast7Count === 1 ? '' : 's'}` +
       (sessionDelta != null
-        ? ` (${sessionDelta >= 0 ? '+' : ''}${sessionDelta}% vs 4-wk avg)`
+        ? ` (${sessionDelta >= 0 ? '+' : ''}${sessionDelta}% vs 4-wk avg ${baselineWeeklyAvg.toFixed(1)}/wk)`
         : ''),
   );
   bodyLines.push(
     `${Math.round(last7CardioMin)} min cardio` +
       (cardioDelta != null
-        ? ` (${cardioDelta >= 0 ? '+' : ''}${cardioDelta}% vs 4-wk avg)`
+        ? ` (${cardioDelta >= 0 ? '+' : ''}${cardioDelta}% vs 4-wk avg ${Math.round(baselineCardioMinPerWeek)} min/wk)`
         : ''),
   );
   bodyLines.push(`Stress score: ${Math.round(wl.stressScore)} / 100`);
