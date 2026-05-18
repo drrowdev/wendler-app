@@ -540,6 +540,23 @@ export interface SessionRecord {
    * every row would multiply storage cost without benefit.
    */
   assistanceSnapshot?: AssistanceEntry[];
+
+  /**
+   * The value of `block.updatedAt` at the moment `assistanceSnapshot` was
+   * captured. Lets the day-page reader detect cross-device staleness: if
+   * the block's current `updatedAt` is newer than this stamp, the snapshot
+   * was likely captured against a stale plan (e.g., chat AI edited the
+   * prescription on another device after this device opened /day but
+   * before it called completeDayWorkout). In that case the day-page
+   * prefers the live plan when no assistance sets have been logged
+   * against this session yet, so the user sees the correct prescription
+   * instead of the stale snapshot.
+   *
+   * Absent on snapshots taken before v467; those continue to be treated
+   * as authoritative for back-compat (no false invalidations on legacy
+   * historical days).
+   */
+  assistanceSnapshotBlockUpdatedAt?: string;
 }
 
 /**

@@ -56,6 +56,9 @@ export async function completeDayWorkout({
   // Best-effort: if anything fails to resolve, we proceed without a
   // snapshot — the user's completion is more important than the snapshot.
   let snapshot: AssistanceEntry[] | undefined;
+  // Stamp the block.updatedAt that produced this snapshot so /day can
+  // detect cross-device staleness later (see SessionRecord field doc).
+  let snapshotBlockUpdatedAt: string | undefined;
   try {
     const block = await db.blocks.get(blockId);
     const schedule = await db.schedule.get('singleton');
@@ -71,6 +74,7 @@ export async function completeDayWorkout({
         // Deep-clone so a later mutation to the live plan can't surface
         // in the snapshot via shared object refs.
         snapshot = entries ? entries.map((e) => ({ ...e })) : undefined;
+        snapshotBlockUpdatedAt = block.updatedAt;
       }
     }
   } catch {
@@ -91,6 +95,9 @@ export async function completeDayWorkout({
         const patch: Partial<typeof s> = { workoutCompletedAt: stamp };
         if (snapshot && !snapshotWritten) {
           patch.assistanceSnapshot = snapshot;
+          if (snapshotBlockUpdatedAt) {
+            patch.assistanceSnapshotBlockUpdatedAt = snapshotBlockUpdatedAt;
+          }
           snapshotWritten = true;
         }
         return db.sessions.update(s.id, patch);
@@ -105,6 +112,7 @@ export async function completeDayWorkout({
       dayIndex: dayIdx,
       workoutCompletedAt: stamp,
       ...(snapshot ? { assistanceSnapshot: snapshot } : {}),
+      ...(snapshotBlockUpdatedAt ? { assistanceSnapshotBlockUpdatedAt: snapshotBlockUpdatedAt } : {}),
     });
   }
 

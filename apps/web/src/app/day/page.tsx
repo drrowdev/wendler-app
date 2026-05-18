@@ -33,6 +33,7 @@ import {
   useSchedule,
   useSetsForMovement,
   useSetsForSession,
+  useHasLoggedAssistanceForDay,
   useSettings,
 } from '@/lib/hooks';
 import { getDb } from '@/lib/db';
@@ -984,6 +985,11 @@ function DayAssistanceSection({
   });
 
   const loggedSets = useSetsForSession(sessionId ?? undefined);
+  const hasLoggedAssistanceForDay = useHasLoggedAssistanceForDay(
+    blockId,
+    week,
+    dayGroupIndex,
+  );
 
   // Snapshot lookup. When the day was completed via `completeDayWorkout` in
   // v282+, ONE session row in the day-group carries `assistanceSnapshot` —
@@ -991,6 +997,14 @@ function DayAssistanceSection({
   // the live plan so historical days don't change shape when the block
   // plan is later edited (new movements generated for Wk2 no longer
   // retroactively appear in Wk1's completed Day 1 view).
+  //
+  // v467+ cross-device staleness guard: if `assistanceSnapshotBlockUpdatedAt`
+  // is older than the live `block.updatedAt`, the snapshot was likely
+  // captured against a stale plan (e.g., the chat AI edited the prescription
+  // on another device after this device's /day rendered but before the user
+  // tapped Complete). In that case we prefer the live plan UNLESS the user
+  // has actually logged assistance sets against this session — those are
+  // real history and must be preserved verbatim.
   const allSessions = useAllSessions();
   const snapshot = useMemo<AssistanceEntry[] | undefined>(() => {
     if (!allSessions) return undefined;
@@ -998,12 +1012,24 @@ function DayAssistanceSection({
       if (s.blockId !== blockId) continue;
       if (s.week !== week) continue;
       if (s.dayIndex !== dayGroupIndex) continue;
-      if (s.assistanceSnapshot && s.assistanceSnapshot.length > 0) {
-        return s.assistanceSnapshot;
+      if (!s.assistanceSnapshot || s.assistanceSnapshot.length === 0) continue;
+
+      const snapStamp = s.assistanceSnapshotBlockUpdatedAt;
+      const blockStamp = block.updatedAt;
+      const blockEditedSinceSnapshot =
+        !!snapStamp && !!blockStamp && blockStamp > snapStamp;
+
+      if (blockEditedSinceSnapshot && !hasLoggedAssistanceForDay) {
+        // Stale snapshot suspect AND nothing logged against it yet —
+        // fall through to the live plan so the user sees the latest
+        // prescription instead of a stale one from another device.
+        continue;
       }
+
+      return s.assistanceSnapshot;
     }
     return undefined;
-  }, [allSessions, blockId, week, dayGroupIndex]);
+  }, [allSessions, blockId, week, dayGroupIndex, block.updatedAt, hasLoggedAssistanceForDay]);
 
   const plan = schedule ? effectivePlan(block, schedule) : effectivePlan(block, dayOrder, liftsPerDay);
   const day = plan.days[dayGroupIndex];

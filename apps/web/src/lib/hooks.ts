@@ -462,6 +462,41 @@ export function useSetsForSession(sessionId: string | undefined) {
   );
 }
 
+/**
+ * True iff at least one assistance set has been logged for the given
+ * (blockId, week, dayIndex) day group across ANY of the day's session
+ * rows. Used by /day's snapshot-staleness guard to preserve the snapshot
+ * when the user has actually trained against it, even if the live block
+ * plan has been edited since the snapshot was captured.
+ */
+export function useHasLoggedAssistanceForDay(
+  blockId: string | undefined,
+  week: WendlerWeek | undefined,
+  dayIndex: number | undefined,
+): boolean {
+  const result = useLiveQuery(async () => {
+    if (!blockId || week === undefined || dayIndex === undefined) return false;
+    const sessions = await getDb()
+      .sessions.where('blockId')
+      .equals(blockId)
+      .toArray();
+    const dayRows = sessions.filter(
+      (s) => s.week === week && s.dayIndex === dayIndex,
+    );
+    if (dayRows.length === 0) return false;
+    const sessionIds = dayRows.map((s) => s.id);
+    const allSets = await Promise.all(
+      sessionIds.map((sid) =>
+        getDb().sets.where('sessionId').equals(sid).toArray(),
+      ),
+    );
+    return allSets.some((rows) =>
+      rows.some((set) => set.kind === 'assistance'),
+    );
+  }, [blockId, week, dayIndex]);
+  return result === true;
+}
+
 export function useBlocks() {
   return useLiveQuery(
     () => getDb().blocks.orderBy('createdAt').reverse().toArray(),

@@ -8,6 +8,22 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Cross-device AI edit clobbering + snapshot staleness (SW v467)
+
+Two related sync bugs surfaced after the chat AI trimmed an assistance entry on desktop and a fresh mobile PWA session subsequently overwrote both the live plan and the day-page snapshot. The user reported: "AI changes were accurately reflected in the desktop but not in the PWA app. Now that I completed the workout the desktop also shows the old amounts."
+
+**Bug 1 — `LegacyDefaultAssistanceMigrator` clobbers via LWW (root cause).** The v287 one-shot migrator promotes legacy `day.assistance` defaults into per-week `assistanceOverrides`. It runs once per browser and writes `block.updatedAt = now` on every block it touches. If the migrator fires on a fresh mobile session BEFORE the first sync pull lands, mobile writes a newer timestamp with the legacy defaults still in place. On the next push, that mobile block beats the desktop's earlier AI edit via last-write-wins, and the next pull on desktop reverts.
+
+Fix: the migrator now **skips any block that already has ANY entry in `assistanceOverrides`** — the presence of overrides means another device (chat AI, manual editor, or another browser's migration) has touched the block more recently than the legacy defaults represent, so overlaying defaults would silently undo that fresher state. Modern blocks (post-v287) always have overrides, so they're no-ops anyway. Legacy blocks that genuinely need migration still get it, but only on a device where no overrides exist yet.
+
+**Bug 2 — `assistanceSnapshot` from a stale device wins on /day.** When mobile's local block was stale, `completeDayWorkout` captured `session.assistanceSnapshot` from the stale plan. That snapshot synced to desktop and the /day page rendered it instead of the (correct) live plan — because the snapshot lookup didn't know it was stale.
+
+Fix: `SessionRecord` now carries `assistanceSnapshotBlockUpdatedAt`, the value of `block.updatedAt` at snapshot capture time. The /day reader compares it to the current `block.updatedAt`; if the block has been edited since the snapshot was taken AND no assistance sets have been logged against the session yet, /day falls through to the live plan. When sets ARE logged, the snapshot is preserved verbatim (real history). Legacy snapshots without the stamp continue to be treated as authoritative for back-compat — no surprise invalidations on past sessions.
+
+New hook `useHasLoggedAssistanceForDay(blockId, week, dayIndex)` returns true iff any assistance set exists across any session row in the day group.
+
+SW v466 → v467. No flag prefix needed; both fixes are non-destructive.
+
 ### Added — Native iOS app via Capacitor (apps/ios + iOS-build workflow)
 
 New `apps/ios/` workspace package wraps the deployed PWA in a native iOS shell. The WKWebView loads `red-moss-02386a803.7.azurestaticapps.net` directly, so every CI deploy to `main` reaches the phone instantly — no rebuild, no resign, no TestFlight roll. Bundle ID `com.drrowdev.wendler531`, app name "Wendler 531".

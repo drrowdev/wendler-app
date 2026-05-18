@@ -45,6 +45,24 @@ export function LegacyDefaultAssistanceMigrator() {
         for (const block of blocks) {
           const plan = block.plan;
           if (!plan?.days?.length) continue;
+          // Skip blocks that already have ANY per-week override. The
+          // presence of overrides means this block has been edited by
+          // another device (AI chat, manual editor, or another browser's
+          // migration that already ran). Re-running this migration would
+          // overlay LEGACY defaults from `day.assistance` and bump
+          // `block.updatedAt = now`, which under last-write-wins sync
+          // would clobber that fresher edit when this device next pushes.
+          // Real-world impact (incident 2026-05-18): the chat AI trimmed
+          // a Wk2 entry on desktop; a fresh mobile session ran the
+          // migrator before its first sync pull, wrote a newer timestamp
+          // with the legacy default still in place, pushed, and the
+          // desktop's correct edit was overwritten on the next pull.
+          if (
+            plan.assistanceOverrides &&
+            Object.keys(plan.assistanceOverrides).length > 0
+          ) {
+            continue;
+          }
           const overrides: Record<string, AssistanceEntry[]> = {
             ...(plan.assistanceOverrides ?? {}),
           };
