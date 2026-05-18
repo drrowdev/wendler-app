@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.drrowdev.531',
+  appId: 'com.drrowdev.wendler531',
   appName: 'Wendler 531',
   webDir: 'www',
   // WKWebView loads the deployed Static Web App directly. This means every

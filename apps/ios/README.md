@@ -50,7 +50,7 @@ Free path, no Apple Developer Program needed.
 upload section. To switch:
 
 1. Buy the Apple Developer Program ($99/yr) at `developer.apple.com`.
-2. App Store Connect → create app record with bundle ID `com.drrowdev.531`.
+2. App Store Connect → create app record with bundle ID `com.drrowdev.wendler531`.
 3. Create an API key (App Store Connect → Users and Access → Keys).
 4. Add three GitHub repo secrets:
    - `APPSTORE_API_KEY_ID`

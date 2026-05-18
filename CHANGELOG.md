@@ -10,7 +10,7 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ### Added — Native iOS app via Capacitor (apps/ios + iOS-build workflow)
 
-New `apps/ios/` workspace package wraps the deployed PWA in a native iOS shell. The WKWebView loads `red-moss-02386a803.7.azurestaticapps.net` directly, so every CI deploy to `main` reaches the phone instantly — no rebuild, no resign, no TestFlight roll. Bundle ID `com.drrowdev.531`, app name "Wendler 531".
+New `apps/ios/` workspace package wraps the deployed PWA in a native iOS shell. The WKWebView loads `red-moss-02386a803.7.azurestaticapps.net` directly, so every CI deploy to `main` reaches the phone instantly — no rebuild, no resign, no TestFlight roll. Bundle ID `com.drrowdev.wendler531`, app name "Wendler 531".
 
 **What's checked in:**
 
