@@ -52,7 +52,7 @@ A four-layer pivot from "AI when you open the chat" to "AI that pings you with c
 - **AMRAP +5 reps → TM bump suggestion (v454)** — if the last main-lift AMRAP exceeded the prescribed reps by 5+, a `set_training_max` chip is queued for next opening of the chat.
 - **Race added + block completed + welcome-back (v455)** — three additional triggers: when the user adds a race within 16 weeks (Periodizer offers a taper plan), when a block reaches its final completed day (Summarizer surfaces a weekly review), and when the user returns after 14+ days idle (returning-user trigger nudges a soft restart instead of dumping them back into wave 1 wk 1).
 
-**Layer 4 — Persistent AI memory (v451).** New `memories` Dexie table. The AI can `remember` user-stated facts via the existing tool-use channel ("Martin's Helsinki Half is May 31 and he wants Z2-heavy weeks"). Memories surface in every snapshot under `## User memory` so they persist across chat threads. User can edit/delete from a new `/settings → AI memory` panel.
+**Layer 4 — Persistent AI memory (v451).** New `memories` Dexie table. The AI can `remember` user-stated facts via the existing tool-use channel (e.g. "user's next A-priority race is in 4 weeks and they want Z2-heavy training weeks"). Memories surface in every snapshot under `## User memory` so they persist across chat threads. User can edit/delete from a new `/settings → AI memory` panel.
 
 **Layer 5 — Voice + in-session AI** is explicitly **on hold** pending real usage of layers 1–4.
 
