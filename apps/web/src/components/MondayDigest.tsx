@@ -13,7 +13,7 @@ import { weeklyLoad, weeklyCardio, type LoadSet, type MinimalCardio } from '@wen
 import { getDb } from '@/lib/db';
 import { notify } from '@/lib/notify';
 
-const FLAG_PREFIX = 'wendler:monday-digest-emitted:v5';
+const FLAG_PREFIX = 'wendler:monday-digest-emitted:v6';
 
 function isoWeekKey(d: Date): string {
   // ISO week: Thursday-aligned, year inferred from Thursday's date.
@@ -68,7 +68,6 @@ async function maybeEmit(now: Date): Promise<void> {
 
   const allSets = await db.sets.toArray();
   const allCardio = await db.cardio.toArray();
-  const allSessions = await db.sessions.toArray();
   const allRaces = await db.races.toArray();
   const recovery = await db.recovery.toArray();
   // Strava-imported strength activities (WeightTraining, Crossfit, HIIT,
@@ -101,47 +100,35 @@ async function maybeEmit(now: Date): Promise<void> {
     last7Start,
   );
 
-  // Strength sessions in window. Count DISTINCT WORKOUT DAYS — the
-  // user's mental model. A single workout day can contain multiple
-  // session rows (one per main lift, e.g. Bench + Deadlift = 2 rows)
-  // so counting session rows over-counts. Workout days are keyed by
-  // (blockId, week, dayIndex) when available, falling back to the
-  // local YYYY-MM-DD of the set's performedAt.
-  function workoutDayKey(s: { sessionId?: string }): string | null {
-    if (!s.sessionId) return null;
-    const sess = allSessions.find((x) => x.id === s.sessionId);
-    if (sess && sess.blockId != null && sess.week != null && sess.dayIndex != null) {
-      return `${sess.blockId}|${sess.week}|${sess.dayIndex}`;
-    }
-    // Fallback: bucket by local date of the set's performedAt.
-    const performedAt = (s as { performedAt?: string }).performedAt;
+  // Strength sessions in window. Count DISTINCT CALENDAR DAYS — the
+  // user's mental model: "how many days did I lift last week?" A single
+  // workout day can contain multiple session rows (Bench + Deadlift =
+  // 2 rows), warm-up sets without a sessionId, AND a Strava-imported
+  // strength row — all of which must collapse to one count. Bucketing
+  // by local YYYY-MM-DD is the only key that works for every source.
+  function dayKeyFromPerformedAt(performedAt: string | undefined): string | null {
     if (!performedAt) return null;
     const d = new Date(performedAt);
     if (!Number.isFinite(d.getTime())) return null;
-    return `date:${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
   const dayKeysLast7 = new Set<string>();
-  for (const s of setsLast7 as ReadonlyArray<{ sessionId?: string; performedAt?: string }>) {
-    const k = workoutDayKey(s);
+  for (const s of setsLast7 as ReadonlyArray<{ performedAt?: string }>) {
+    const k = dayKeyFromPerformedAt(s.performedAt);
     if (k) dayKeysLast7.add(k);
   }
   const dayKeysBaseline = new Set<string>();
-  for (const s of setsBaseline as ReadonlyArray<{ sessionId?: string; performedAt?: string }>) {
-    const k = workoutDayKey(s);
+  for (const s of setsBaseline as ReadonlyArray<{ performedAt?: string }>) {
+    const k = dayKeyFromPerformedAt(s.performedAt);
     if (k) dayKeysBaseline.add(k);
   }
   // Also fold Strava-imported strength sessions into the workout-day
-  // count. Bucketed by local date so an imported session on the same
-  // day as a Wendler workout counts once.
-  function importedDayKey(h: { performedAt: string }): string | null {
-    const t = new Date(h.performedAt);
-    if (!Number.isFinite(t.getTime())) return null;
-    return `date:${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
-  }
+  // count. Bucketed by the same local-date key so an imported session
+  // on the same day as a Wendler workout counts once.
   for (const h of allStrengthHr) {
     const t = new Date(h.performedAt).getTime();
     if (!Number.isFinite(t)) continue;
-    const k = importedDayKey(h);
+    const k = dayKeyFromPerformedAt(h.performedAt);
     if (!k) continue;
     if (t >= last7Start.getTime() && t < now.getTime()) dayKeysLast7.add(k);
     else if (t >= baselineStart.getTime() && t < last7Start.getTime()) dayKeysBaseline.add(k);
