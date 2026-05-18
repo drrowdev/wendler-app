@@ -181,23 +181,61 @@ export async function buildContextBlob(): Promise<string> {
     }
   }
 
-  // "## Warm-up protocol" — the configured warm-up ramp before main
-  // lifts. Without this the AI assumes the user has no warm-up at all
-  // when asked "is my warm-up good?". The ramp lives in settings as
-  // parallel percent/reps arrays applied to the top working weight.
-  if (settings && Array.isArray(settings.warmupPercents) && Array.isArray(settings.warmupReps)) {
-    const percents = settings.warmupPercents;
-    const reps = settings.warmupReps;
-    const n = Math.min(percents.length, reps.length);
-    if (n > 0) {
-      const stepStr = Array.from({ length: n }, (_, i) =>
+  // "## Warm-up protocol" — the user's full pre-lifting warmup as
+  // configured in Settings → Pre-lifting warm-up (blocks of movements,
+  // optionally filtered to specific main-lift days). When this is
+  // absent we still emit the barbell ramp percentages so the AI never
+  // says "I don't see a warm-up routine."
+  const preLiftBlocks = (settings as { preLiftingWarmup?: { blocks?: unknown[] } } | undefined)
+    ?.preLiftingWarmup?.blocks as
+    | Array<{
+        id: string;
+        title: string;
+        note?: string;
+        durationOverride?: string;
+        appliesTo?: 'always' | string;
+        movements: Array<{ id: string; name: string; dose?: string }>;
+      }>
+    | undefined;
+  const preLiftEnabled =
+    (settings as { preLiftingWarmupEnabled?: boolean } | undefined)?.preLiftingWarmupEnabled !== false;
+  const hasPreLift =
+    preLiftEnabled && Array.isArray(preLiftBlocks) && preLiftBlocks.length > 0;
+
+  const percents = Array.isArray(settings?.warmupPercents) ? settings!.warmupPercents : [];
+  const reps = Array.isArray(settings?.warmupReps) ? settings!.warmupReps : [];
+  const nRamp = Math.min(percents.length, reps.length);
+
+  if (hasPreLift || nRamp > 0) {
+    lines.push('', '## Warm-up protocol');
+    lines.push(
+      '(This is the user-configured warm-up. NEVER answer "I don\'t have your warm-up" — refer to the blocks below. Each block applies to either every day or only days whose main lifts match `appliesTo`. Doses are the user\'s own; the AI can suggest changes but should respect the structure.)',
+    );
+
+    if (hasPreLift) {
+      lines.push('### Pre-lifting routine (Settings → Pre-lifting warm-up)');
+      for (const b of preLiftBlocks!) {
+        const applies = !b.appliesTo || b.appliesTo === 'always'
+          ? 'every day'
+          : `days: ${b.appliesTo}`;
+        const dur = b.durationOverride ? ` · ${b.durationOverride}` : '';
+        const note = b.note ? ` — ${b.note}` : '';
+        lines.push(`- **${b.title}** (${applies})${dur}${note}`);
+        for (const mv of b.movements ?? []) {
+          const dose = mv.dose ? ` — ${mv.dose}` : '';
+          lines.push(`  - ${mv.name}${dose}`);
+        }
+      }
+    }
+
+    if (nRamp > 0) {
+      const stepStr = Array.from({ length: nRamp }, (_, i) =>
         `${Math.round((percents[i] ?? 0) * 100)}% × ${reps[i] ?? 0}`,
       ).join(' → ');
-      lines.push('', '## Warm-up protocol');
       lines.push(
-        `(Applied before every main lift, scaled to the day's top working weight. The user can change these in Settings → Warm-up. No separate dynamic-stretch or mobility log exists — only this barbell ramp.)`,
+        `### Barbell ramp (before each main lift, scaled to the day's top working weight)`,
       );
-      lines.push(`  - Ramp: ${stepStr}`);
+      lines.push(`- Ramp: ${stepStr}`);
     }
   }
 
