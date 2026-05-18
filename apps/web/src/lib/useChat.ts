@@ -181,6 +181,26 @@ export async function buildContextBlob(): Promise<string> {
     }
   }
 
+  // "## Warm-up protocol" — the configured warm-up ramp before main
+  // lifts. Without this the AI assumes the user has no warm-up at all
+  // when asked "is my warm-up good?". The ramp lives in settings as
+  // parallel percent/reps arrays applied to the top working weight.
+  if (settings && Array.isArray(settings.warmupPercents) && Array.isArray(settings.warmupReps)) {
+    const percents = settings.warmupPercents;
+    const reps = settings.warmupReps;
+    const n = Math.min(percents.length, reps.length);
+    if (n > 0) {
+      const stepStr = Array.from({ length: n }, (_, i) =>
+        `${Math.round((percents[i] ?? 0) * 100)}% × ${reps[i] ?? 0}`,
+      ).join(' → ');
+      lines.push('', '## Warm-up protocol');
+      lines.push(
+        `(Applied before every main lift, scaled to the day's top working weight. The user can change these in Settings → Warm-up. No separate dynamic-stretch or mobility log exists — only this barbell ramp.)`,
+      );
+      lines.push(`  - Ramp: ${stepStr}`);
+    }
+  }
+
   // Cardio plan section is independent of having an active block — emit
   // first so a chat-only flow (Q&A about cardio without an active block)
   // still gets the data.
