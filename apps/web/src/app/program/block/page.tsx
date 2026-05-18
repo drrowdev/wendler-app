@@ -56,14 +56,22 @@ function BlockDetailPage() {
   const [busy, setBusy] = useState(false);
 
   // Week scope drives both the week tab strip AND BlockPlanEditor's per-day
-  // assistance view. Persisted in the URL (`?week=`) so reloads/links keep
-  // the chosen week. Default landing is Week 1 — every week is programmed
-  // independently (v287: the legacy "Default" tab was removed).
+  // assistance view. Persisted in the URL (`?week=`) so reloads / shared
+  // links keep the chosen week. When no explicit `?week=` is in the URL:
+  //   - If THIS block is the schedule's active block, default to the
+  //     cursor's current week so the editor lands where the user is
+  //     actually training.
+  //   - Otherwise default to Week 1 — sensible neutral starting point
+  //     for browsing past or future blocks.
   const weekParam = params.get('week');
   const weekScope: WendlerWeek = (() => {
     if (weekParam === 'deload') return 'deload';
     const n = weekParam ? parseInt(weekParam, 10) : NaN;
     if (n === 1 || n === 2 || n === 3) return n as WendlerWeek;
+    if (!weekParam && block && schedule?.cursor?.blockId === block.id) {
+      const cw = schedule.cursor.week;
+      if (cw === 1 || cw === 2 || cw === 3 || cw === 'deload') return cw;
+    }
     return 1;
   })();
 
