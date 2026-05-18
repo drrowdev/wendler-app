@@ -13,7 +13,7 @@ import { weeklyLoad, weeklyCardio, type LoadSet, type MinimalCardio } from '@wen
 import { getDb } from '@/lib/db';
 import { notify } from '@/lib/notify';
 
-const FLAG_PREFIX = 'wendler:monday-digest-emitted:v1';
+const FLAG_PREFIX = 'wendler:monday-digest-emitted:v2';
 
 function isoWeekKey(d: Date): string {
   // ISO week: Thursday-aligned, year inferred from Thursday's date.
@@ -96,17 +96,26 @@ async function maybeEmit(now: Date): Promise<void> {
     last7Start,
   );
 
-  // Strength sessions in window.
-  const sessionsLast7 = allSessions.filter((s) => {
-    if (!s.completedAt) return false;
-    const t = new Date(s.completedAt).getTime();
-    return t >= last7Start.getTime() && t < now.getTime();
-  });
-  const sessionsBaseline = allSessions.filter((s) => {
-    if (!s.completedAt) return false;
-    const t = new Date(s.completedAt).getTime();
-    return t >= baselineStart.getTime() && t < last7Start.getTime();
-  });
+  // Strength sessions in window. A session counts when sets were
+  // logged for it during the window — matches the user's mental model
+  // ("if I lifted, it counts"). Previously this filtered by
+  // session.completedAt which only gets set when the per-lift work is
+  // fully logged AND the supplemental is finished — sessions where
+  // the user trained but stopped short would silently count as 0,
+  // producing the surprising "0 strength sessions last week" digest
+  // when they actually did 3.
+  const sessionIdsWithSets = new Set<string>();
+  for (const s of setsLast7 as ReadonlyArray<{ sessionId?: string }>) {
+    if (s.sessionId) sessionIdsWithSets.add(s.sessionId);
+  }
+  const sessionsLast7 = allSessions.filter((s) => sessionIdsWithSets.has(s.id));
+  const baselineSessionIdsWithSets = new Set<string>();
+  for (const s of setsBaseline as ReadonlyArray<{ sessionId?: string }>) {
+    if (s.sessionId) baselineSessionIdsWithSets.add(s.sessionId);
+  }
+  const sessionsBaseline = allSessions.filter((s) =>
+    baselineSessionIdsWithSets.has(s.id),
+  );
   const baselineWeeklyAvg = sessionsBaseline.length / 4; // 28 days → 4 weeks
 
   // Cardio minutes.
