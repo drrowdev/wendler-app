@@ -70,7 +70,7 @@ export function useChatList(): Chat[] | undefined {
  */
 export async function buildContextBlob(): Promise<string> {
   const db = getDb();
-  const [sets, cardio, recovery, races, tms, settings, movements, blocks, sessions, schedule, cardioPlan, memories] =
+  const [sets, cardio, recovery, races, tms, settings, movements, blocks, sessions, schedule, cardioPlan, memories, injuries] =
     await Promise.all([
       db.sets.toArray(),
       db.cardio.toArray(),
@@ -84,6 +84,7 @@ export async function buildContextBlob(): Promise<string> {
       db.schedule.get('singleton'),
       db.cardioPlan.get('singleton'),
       db.aiMemories.toArray(),
+      db.injuries.toArray(),
     ]);
   const movementName = new Map(movements.map((m) => [m.id, m.name]));
   const summary = buildChatContext({
@@ -134,6 +135,48 @@ export async function buildContextBlob(): Promise<string> {
       lines.push(`- **${cat}**:`);
       for (const m of rows) {
         lines.push(`  - ${m.text} (id=\`${m.id.slice(0, 8)}\`)`);
+      }
+    }
+  }
+
+  // "## Active limitations" — unresolved injuries with their structured
+  // adjustments. The InjurySheet auto-applies movement swaps to the
+  // active block at injury-log time, but the AI needs to SEE the
+  // underlying injuries so it can reason about them ("which movements
+  // aggravate my adductor?"), avoid re-proposing problematic movements,
+  // and surface relevant follow-ups. Resolved injuries are dropped from
+  // the snapshot — they're history, not context.
+  const activeInjuries = injuries.filter((i) => !i.resolvedAt);
+  if (activeInjuries.length > 0) {
+    lines.push('', '## Active limitations');
+    lines.push(
+      `(${activeInjuries.length} unresolved injur${activeInjuries.length === 1 ? 'y' : 'ies'}. NEVER propose a movement listed under "affected movements" below for the affected body area. When asked which movements aggravate an injury, cross-reference the affected list AND reason about the movement's pattern + primary muscles vs the injury area.)`,
+    );
+    for (const inj of activeInjuries) {
+      const sev = inj.severity ? ` · severity ${inj.severity}/5` : '';
+      const consult = inj.consultRecommended ? ' · ⚠️ consult-recommended' : '';
+      const started = inj.startedAt ? ` · started ${inj.startedAt.slice(0, 10)}` : '';
+      lines.push(`  - **${inj.area}** (id=\`${inj.id.slice(0, 8)}\`)${sev}${started}${consult}`);
+      if (inj.description) {
+        lines.push(`    - Description: ${inj.description}`);
+      }
+      if (inj.summary && inj.summary !== inj.description) {
+        lines.push(`    - Coach summary: ${inj.summary}`);
+      }
+      const adjustments = (inj.adjustments ?? []).filter(
+        (a) => a.status === 'accepted',
+      );
+      if (adjustments.length > 0) {
+        lines.push(`    - Accepted adjustments (${adjustments.length}):`);
+        for (const a of adjustments) {
+          const movement = movements.find((m) => m.id === a.movementId);
+          const movementLabel = movement?.name ?? a.movementId;
+          const modPart = a.modification ? ` — ${a.modification}` : '';
+          lines.push(`      - ${a.action}: ${movementLabel}${modPart}`);
+        }
+      }
+      if (inj.monitoringAdvice) {
+        lines.push(`    - Monitoring: ${inj.monitoringAdvice}`);
       }
     }
   }

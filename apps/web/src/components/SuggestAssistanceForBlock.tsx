@@ -944,6 +944,31 @@ export function SuggestAssistanceForBlock({
           <p className="text-[11px] text-muted">
             Fills empty days only — days you&apos;ve already arranged are left alone. Claude sees your existing picks (so it doesn&apos;t duplicate movements or families) and only generates for the gaps.
           </p>
+          {activeLimitations && activeLimitations.length > 0 && (
+            <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-100">
+              <div className="font-semibold">
+                ⚠️ Honoring {activeLimitations.length} active limitation
+                {activeLimitations.length === 1 ? '' : 's'}:
+              </div>
+              <ul className="ml-3 mt-0.5 list-disc space-y-0.5 text-amber-100/90">
+                {activeLimitations.map((l, i) => {
+                  const skipCount = l.acceptedAdjustments.filter(
+                    (a) => a.action === 'skip',
+                  ).length;
+                  const sev = l.severity ? ` (${l.severity}/5)` : '';
+                  return (
+                    <li key={i}>
+                      <strong>{l.area}</strong>
+                      {sev}
+                      {skipCount > 0
+                        ? ` — ${skipCount} movement${skipCount === 1 ? '' : 's'} excluded from suggestions`
+                        : ''}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
         </div>
         <button
           type="button"
