@@ -54,7 +54,7 @@ There is no `pnpm test` at the workspace root and no test script in
 `apps/web/public/sw.js` → `const CACHE = 'wendler-shell-vNNN';`
 
 If you skip this, installed PWAs serve stale assets after deploy. Current
-value at handoff: **v271**.
+value at handoff: **v466**.
 
 ## 5. CHANGELOG rule
 
@@ -256,19 +256,22 @@ are now user-authored only — there's no built-in vocabulary.)
 - **`free-text secondary goals`** — explicitly rejected for v1. There's
   a "request a new secondary goal" CTA in the UI that captures real
   demand instead. Don't add free-text without a redesign.
-- **Vestigial schema fields.** `ProgramBlock.weeksBeforeDeload` and
-  `ProgramBlock.includesDeload` survive in the schema but are no longer
-  semantically meaningful — in-block deload weeks were migrated away by
-  `LegacyDeloadMigrator.tsx` (forces `includesDeload: false`) and
-  replaced by standalone 7th-week deload blocks (`kind: 'seventh-week'`,
-  `seventhWeekKind: 'deload'`). Renaming is parked for sync-compat
-  reasons; treat the fields as opaque.
+- **`ProgramBlock.weeksBeforeDeload` is vestigial.** Survives in the
+  schema for sync-compat but is no longer semantically meaningful. The
+  in-block deload-week concept was fully eliminated in v453 (see
+  CHANGELOG): `includesDeload` is GONE from `ProgramBlock`, and 7th-week
+  deload is now strictly a separate block (`kind: 'seventh-week'`,
+  `seventhWeekKind: 'deload'`). Treat `weeksBeforeDeload` as opaque.
 - **Generalize the 7th-week cadence rule?** Today `nextSeventhWeekRecommendation`
   only fires the deload prompt after 2+ completed *Leader* blocks (matches
   Wendler's macro shape). If you ever want "any 2 consecutive completed
   non-7w blocks → deload prompt" regardless of kind, that's a one-line
   change in `seventh-week.ts`. We explicitly chose to keep the
   Leader/Anchor-specific behavior in the v272 work.
+- **Voice + in-session AI (proactive Layer 5)** — explicitly **on hold**
+  pending real-usage feedback on Layers 1–4 (page-aware prompts, daily
+  brief, event triggers, persistent memory). Consumption cost was the
+  trigger for pausing; revisit once trigger value is established.
 
 ## 10. Anti-patterns to avoid
 

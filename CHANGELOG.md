@@ -8,7 +8,81 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Monday digest accuracy + warm-up snapshot + bell counts (SW v462–v466)
+
+Tight iteration cycle on the proactive layer after real-world feedback:
+
+- **v462** — Notification bell `useUnreadNotificationCount` now mirrors the `/notifications` inbox filter (skips `readAt`, future `dueAt`, soft-deleted rows). Previously over-counted scheduled future check-ins that the inbox itself hides. Monday digest body also surfaces the raw 4-week baseline number alongside the % delta (e.g. "3 strength sessions (+200% vs 4-wk avg 1.0/wk)") so the math is verifiable when the percentage looks surprising.
+- **v463** — Monday digest now folds Strava-imported strength activities (`db.strengthHr` — WeightTraining / Crossfit / HIIT / Workout) into the workout-day count for both windows. Previously these were invisible because they don't write to `db.sets` (only the HR signal is captured).
+- **v464** — Chat snapshot emits the barbell warm-up ramp (`settings.warmupPercents / warmupReps`) so the AI never replies "I don't have your warm-up routine."
+- **v465** — Monday digest collapses workout days by **local calendar date only** (was a mixed `blockId|week|dayIndex` ⊕ `date:YYYY-MM-DD` key that double-counted any day where some sets had a session and others — like warm-ups — didn't). 3 actual workout days were rendering as 6 sessions.
+- **v466** — Chat snapshot also carries the full **structured pre-lifting warm-up** (`settings.preLiftingWarmup.blocks[]`) with every block title, `appliesTo` scope, optional note, and every movement + dose. The barbell ramp is rendered as a sub-section under the same `## Warm-up protocol` heading. AI can now reason about mobility / activation / per-day filters, not just the 40/60/80 % ramp.
+
+Each version flagged via `wendler:monday-digest-emitted:v{n}` so corrected digests re-emit even if a previous version already fired for the week.
+
+### Added — Injuries in chat snapshot + suggester limitations notice (SW v456)
+
+The chat AI was running blind to injuries — `db.injuries` was loaded for the InjurySheet workflow but never folded into the chat context blob. So `"which movements aggravate my adductor?"` couldn't be answered, and AI-generated assistance suggestions ignored active limitations even though the server-side `forbiddenMovementIds` ban was silently dropping them.
+
+- `## Active limitations` block in `buildContextBlob`: each unresolved injury rendered with area, severity, optional `consult-recommended` flag, description, coach summary, accepted adjustments (`avoid X`, `swap X→Y`, `modify X`) with movement names resolved from the library, and monitoring advice. Resolved injuries are intentionally omitted — they're history, not active context.
+- Lead-in instructs the AI to cross-reference the affected list AND reason about movement pattern + primary muscles vs the injury area when asked.
+- `SuggestAssistanceForBlock` now renders an amber `"Honoring N active limitation(s)"` notice before the Generate button so users see WHY the suggester is filtering — the silent ban was confusing.
+
+### Fixed — Chat UX polish: + New chat persistence, propose_edit rejection visibility, entry-id hash drop (SW v457–v459)
+
+- **v457** — `chatId` + `chatUserTouched` state hoisted from `ChatDrawer` to `ChatFab` (the parent stays mounted across drawer toggles + route changes). Previously a `+ New chat` selection was wiped when the drawer remounted on next open — the auto-select-most-recent effect re-ran and stomped the user's intent.
+- **v458** — Server emits a new `proposal_rejected` SSE event when `parseEditProposal` rejects a `propose_edit` tool call (typically a guessed `entryId` or no-op preset). Client appends an inline blockquote warning to the assistant message so the user sees WHY no proposal chip rendered when the AI's prose claimed there was one. System prompt also tightened with an explicit prose-vs-tool rule: "if you mention 'proposal' / 'changes below', you MUST have called `propose_edit` with a valid input — use the exact `entryId` from the snapshot."
+- **v459** — Removed the `(entry <code>...</code>)` suffix from `TrimEntryDiff` in `EditProposalSheet`. The 8-char hash was user-noise; the movement name alone identifies the row.
+
+### Removed — `includesDeload` field eliminated repo-wide (SW v453)
+
+Continuation of the deload-week deprecation: the field is now completely gone from `ProgramBlock`, the snapshot writers, the suggester input shape, and every consumer. Dexie `v24` upgrade strips it from existing block rows in IndexedDB. `LegacyDeloadMigrator` component was deleted — there's nothing left to migrate. The 7th-week deload remains as a first-class **separate block type** in the program timeline; what's gone is the bolt-on "this 3-week block also has a deload column" flag, which had become a footgun every time the suggester / chat snapshot forgot to honor it.
+
+### Added — Proactive AI layer (SW v446–v455) — the "Jarvis" stack
+
+A four-layer pivot from "AI when you open the chat" to "AI that pings you with context-aware nudges." Settings flag `dailyBriefEnabled` (default on) short-circuits Layers 2 and parts of 3.
+
+**Layer 1 — Page-aware chat prompts (v449).** The chat composer's initial suggestion chips now depend on which page you opened the drawer from. From `/recovery/injuries` you get prompts like "What movements should I avoid?"; from `/day` you get "How was last week?"; from `/stats` you get "What's my biggest weak point?". Cuts blank-prompt friction.
+
+**Layer 2 — Daily training brief (v450).** Runs at most once per local day on first interaction. Pure data — no LLM call. Surfaces a notification with the day's plan, deload signal, fatigue trajectory, next race countdown. `dailyBriefEnabled` setting in /settings → AI Coach.
+
+**Layer 3 — Event triggers (v447, v448, v454, v455).**
+- **Injury log (v447)** — when the user logs an injury via the InjurySheet, the Coach agent now does a proactive review of the active block and proposes adjustments inline in the same sheet (with the v378 preview-before-write pattern).
+- **Scheduled follow-ups (v448)** — when the AI says "let me check in in 3 days about your knee", a `Notification` row is created with `dueAt = now + 3d` and surfaces in the inbox once due. PA-style cadence; user can complete or dismiss.
+- **AMRAP +5 reps → TM bump suggestion (v454)** — if the last main-lift AMRAP exceeded the prescribed reps by 5+, a `set_training_max` chip is queued for next opening of the chat.
+- **Race added + block completed + welcome-back (v455)** — three additional triggers: when the user adds a race within 16 weeks (Periodizer offers a taper plan), when a block reaches its final completed day (Summarizer surfaces a weekly review), and when the user returns after 14+ days idle (returning-user trigger nudges a soft restart instead of dumping them back into wave 1 wk 1).
+
+**Layer 4 — Persistent AI memory (v451).** New `memories` Dexie table. The AI can `remember` user-stated facts via the existing tool-use channel ("Martin's Helsinki Half is May 31 and he wants Z2-heavy weeks"). Memories surface in every snapshot under `## User memory` so they persist across chat threads. User can edit/delete from a new `/settings → AI memory` panel.
+
+**Layer 5 — Voice + in-session AI** is explicitly **on hold** pending real usage of layers 1–4.
+
+### Added — Deload-week phase auto-derive + snapshot fixes (SW v446)
+
+Closes HANDOFF's open-backlog item "auto-derive `phase = 'deload'` from the visible block week at the GoalFlags layer." When the visible block week is the 7th-week deload, the derived training phase is now `deload`. The `volumeMultiplier` directive is suppressed in that phase to avoid compounding with the new preset auto-shift. User is notified on every automatic phase change via the notification inbox — no silent overrides.
+
+### Added — Cardio plan: dynamic slot scope + diagnostics + chat ops (SW v428–v445)
+
+Multi-version arc rebuilding cardio planning from "static date ranges" → "block-anchored, modality-first, AI-editable."
+
+- **v429–v430** — `add_cardio_plan_slot` `propose_edit` op. AI can pair a `skip_day_in_week` with a Z2 bike replacement in one proposal. Block-linked slots auto-remove on block completion.
+- **v432** — Re-openable applied proposals (audit history surfaces in /diagnostics) + week-scoped slots (a slot can target `weeks: [2, 3]` instead of an effectiveFrom/Until date range).
+- **v435–v438** — `remove_cardio_plan_slot` op with live preview (server tells the user EXACTLY which slot rows will be deleted before they tap Apply) + apply now deletes ALL matches by `(dayOfWeek, modality)` instead of just the first.
+- **v439–v444** — `/diagnostics` page for inspecting AI writes (full apply audit trail per proposal); inline `startedAt` editor for blocks; sync mapper preserves all slot fields on pull.
+- **v445** — Dynamic slot scope resolution: `appliesToWeeks` is canonical; the static `effectiveFrom/Until` cache is only consulted for legacy slots. `block.startedAt` is now stamped on first session of the block (was previously set at block-create time, which broke calendar math when a block sat unstarted for weeks).
+
+### Added — Program timeline view + skip-day-aware UI (SW v411–v414)
+
+Calendar page got a `[Calendar | Timeline]` toggle. Timeline renders the entire program as a horizontal block sequence with skip-hatching on skipped weeks, an active-week chip, and per-block TM deltas hovering over each title. Built on a pure `buildTimelineModel` (9 tests) so the same model can later drive `/year-review` and other visualizations.
+
+### Fixed — Chat snapshot accuracy under per-week assistance store (SW v415–v425)
+
+Multi-version cleanup after the v422 storage flatten (`BlockPlan.assistance[]` → per-week store keyed by `(blockId, week)`). The chat snapshot, EditProposalSheet "before" lookup, BringMovements migration, duplicateDay, and injury workflow surfaces all had separate readers that were still reading the old shape. Each was fixed in a small commit; v418 caught three additional misreads (empty-day, this-week scoping, exclusion-as-problem).
+
 ### Added — `add_movement_to_library` propose_edit op (SW v407–v409)
+
+(Already documented above — entry below.)
+
+
 
 Lets the chat AI propose adding a missing movement to the user's library inside a `propose_edit` proposal, with the same accept/decline/modify UX as every other op. Closes the loop on "I couldn't add Banded Clamshell because it's not in your library" — instead of telling the user to bounce to `/movements/new` and back, the AI proposes the library entry alongside the chained `add_assistance_entry` op and the user approves both in one sheet.
 
