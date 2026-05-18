@@ -15,29 +15,30 @@ export function ChatDrawer({
   onClose,
   chatId,
   setChatId,
-  userTouched,
   setUserTouched,
 }: {
   pathname: string;
   onClose: () => void;
   chatId: string | null;
   setChatId: (id: string | null) => void;
+  /** Retained for ChatFab→drawer prop contract; no longer read here. */
   userTouched: boolean;
   setUserTouched: (v: boolean) => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const conversations = useChatList();
 
-  // Auto-select most recent conversation on FIRST open only. Once the
-  // user touches anything (picks a different chat or hits "+ New"),
-  // the parent's `userTouched` flag pins their choice across drawer
-  // close → reopen and across route changes.
-  useEffect(() => {
-    if (userTouched || chatId) return;
-    if (conversations && conversations.length > 0) {
-      setChatId(conversations[0]!.id);
-    }
-  }, [conversations, chatId, userTouched, setChatId]);
+  // First-open behavior: land on a fresh blank composer, NOT on the most-
+  // recently-updated conversation. Auto-selecting most-recent kept dropping
+  // the user into the auto-created Daily Brief thread (whose prompt was
+  // surfacing visibly before the assistant reply rendered). Fresh-state-
+  // first lets the user start a new question without seeing implementation
+  // details, and the history list + notification deep-links remain the
+  // explicit ways to resume a specific past thread.
+  //
+  // `chatId` is hoisted from ChatFab so a user's explicit selection still
+  // survives drawer close → reopen and route changes — only the *initial*
+  // null state is preserved here.
 
   const selectChat = (id: string | null) => {
     setUserTouched(true);
