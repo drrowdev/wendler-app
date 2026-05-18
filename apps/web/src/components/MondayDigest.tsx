@@ -7,13 +7,27 @@
 //
 // Pure data — no LLM call. Reads existing analytics helpers and queries
 // Dexie directly. Falls silent when no data is available yet.
+//
+// v470+: Cross-device dedupe + sync-aware emission. The notification row
+// uses a deterministic `idempotencyKey` per ISO week so desktop + mobile
+// converge on a single inbox row even if they both run on the same Monday.
+// Before computing the body the digest also waits briefly for the next
+// sync pull so the device that emits first sees fresh data instead of a
+// partial local snapshot.
 
 import { useEffect } from 'react';
 import { weeklyLoad, weeklyCardio, type LoadSet, type MinimalCardio } from '@wendler/domain';
 import { getDb } from '@/lib/db';
 import { notify } from '@/lib/notify';
+import { syncNow } from '@/lib/sync';
 
-const FLAG_PREFIX = 'wendler:monday-digest-emitted:v6';
+const FLAG_PREFIX = 'wendler:monday-digest-emitted:v7';
+
+// How long to wait for a sync pull to finish before emitting the digest.
+// Picks the "fresh data" branch on every reasonable network; falls through
+// to local-only on offline / slow connections so the digest never silently
+// fails to emit.
+const SYNC_WAIT_MS = 5_000;
 
 function isoWeekKey(d: Date): string {
   // ISO week: Thursday-aligned, year inferred from Thursday's date.
@@ -45,6 +59,16 @@ export function MondayDigest() {
     let cancelled = false;
     void (async () => {
       try {
+        // Wait briefly for a sync pull so the digest sees the most recent
+        // sets/cardio/blocks/strengthHr from other devices, not just the
+        // partial local snapshot. Race against a hard cap so an offline /
+        // very slow client still emits a digest (with local-only data)
+        // instead of silently skipping the week.
+        await Promise.race([
+          syncNow().catch(() => undefined),
+          new Promise<void>((resolve) => setTimeout(resolve, SYNC_WAIT_MS)),
+        ]);
+        if (cancelled) return;
         await maybeEmit(now);
         if (!cancelled) localStorage.setItem(flagKey, '1');
       } catch {
@@ -197,13 +221,22 @@ async function maybeEmit(now: Date): Promise<void> {
     );
   }
 
+  const reviewWeekKey = isoWeekKey(new Date(now.getTime() - 7 * dayMs));
+
   await notify.info({
     channel: 'system',
+    // Deterministic ID per ISO week so cross-device emissions converge on
+    // a single inbox row (notify.info probe-then-skips on collision). The
+    // device that emits first wins; sync replicates that row. Combined with
+    // the SYNC_WAIT_MS pre-roll above, the first emitter usually has fresh
+    // data — and even if it doesn't, the user sees one digest per week
+    // instead of two with conflicting numbers.
+    idempotencyKey: `monday-digest:${reviewWeekKey}`,
     title: `Last week: ${sessionsLast7Count} sessions · ${Math.round(last7CardioMin)} min cardio`,
     body: bodyLines.join('\n'),
     deepLink: { href: '/stats', label: 'Open stats' },
     context: {
-      weekKey: isoWeekKey(new Date(now.getTime() - 7 * dayMs)),
+      weekKey: reviewWeekKey,
       sessionsLast7: sessionsLast7Count,
       sessionsBaselineAvg: baselineWeeklyAvg,
       cardioMinLast7: last7CardioMin,
