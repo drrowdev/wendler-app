@@ -173,6 +173,13 @@ function CardioHero({ next }: { next: NextCardio }) {
 interface Props {
   /** When true, render compact variant (used inside the block detail page). */
   compact?: boolean;
+  /**
+   * When set, the user has at least one in-progress session for this
+   * (blockId, week, dayIndex). The hero swaps "Start workout" for
+   * "Resume workout" and adds an "IN PROGRESS" eyebrow marker so the
+   * card matches the state already shown by the Recent sessions list.
+   */
+  ongoing?: { blockId: string; week: WendlerWeek; dayIndex: number } | null;
 }
 
 /**
@@ -180,7 +187,7 @@ interface Props {
  * with per-lift top-set weights, the supplemental scheme pill, an assistance
  * count, and the primary CTAs (Start workout / Preview).
  */
-export function NextUpCard({ compact = false }: Props) {
+export function NextUpCard({ compact = false, ongoing = null }: Props) {
   const block = useActiveBlock();
   const schedule = useSchedule();
   const settings = useSettings();
@@ -412,8 +419,14 @@ export function NextUpCard({ compact = false }: Props) {
     const dayGroup = effectiveGroupIndex ?? schedule.cursor.groupIndex;
     const url = `/day?blockId=${block.id}&week=${week === 'deload' ? 'deload' : week}&day=${dayGroup}`;
     const headerLabel = currentGroup.label?.trim() || 'Accessory day';
-    const accessoryEyebrow =
-      buildScheduleEyebrow(currentGroup, lastCompletedAt) ?? 'UP NEXT · ACCESSORY';
+    const isOngoing =
+      !!ongoing &&
+      ongoing.blockId === block.id &&
+      ongoing.week === week &&
+      ongoing.dayIndex === dayGroup;
+    const accessoryEyebrow = isOngoing
+      ? 'IN PROGRESS · ACCESSORY'
+      : (buildScheduleEyebrow(currentGroup, lastCompletedAt) ?? 'UP NEXT · ACCESSORY');
     return (
       <section className="rounded-2xl border border-violet-500/40 bg-violet-500/5 p-5">
         <div className="space-y-1">
@@ -431,7 +444,7 @@ export function NextUpCard({ compact = false }: Props) {
             href={url}
             className="flex-1 rounded-lg bg-violet-500 px-4 py-2.5 text-center text-sm font-semibold text-white sm:flex-none"
           >
-            Start workout
+            {isOngoing ? 'Resume workout' : 'Start workout'}
           </Link>
           <Link
             href={url}
@@ -497,8 +510,14 @@ export function NextUpCard({ compact = false }: Props) {
   // free-text label so we don't show ghost rows.
   const assistanceCount = assistance.filter((e) => e.movementId || e.movementName?.trim()).length;
   const _useMovementsRef = movements; // keep hook stable in deps order
-  const eyebrow =
-    buildScheduleEyebrow(planDay ?? currentGroup, lastCompletedAt) ?? 'UP NEXT';
+  const isOngoing =
+    !!ongoing &&
+    ongoing.blockId === block.id &&
+    ongoing.week === week &&
+    ongoing.dayIndex === dayGroup;
+  const eyebrow = isOngoing
+    ? 'IN PROGRESS'
+    : (buildScheduleEyebrow(planDay ?? currentGroup, lastCompletedAt) ?? 'UP NEXT');
 
   return (
     <section className="rounded-2xl bg-zinc-900 p-5 ring-1 ring-zinc-800">
@@ -560,7 +579,7 @@ export function NextUpCard({ compact = false }: Props) {
           href={url}
           className="flex-1 rounded-lg bg-accent px-4 py-3 text-center text-sm font-semibold text-bg hover:bg-accent/90"
         >
-          Start workout
+          {isOngoing ? 'Resume workout' : 'Start workout'}
         </Link>
         <Link
           href={url}

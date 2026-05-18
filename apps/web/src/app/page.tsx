@@ -109,7 +109,17 @@ export default function Home() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="space-y-6">
           {hasTms ? (
-            <NextUpCard />
+            <NextUpCard
+              ongoing={
+                ongoing && ongoing.blockId && ongoing.week != null && ongoing.dayIndex != null
+                  ? {
+                      blockId: ongoing.blockId,
+                      week: ongoing.week,
+                      dayIndex: ongoing.dayIndex,
+                    }
+                  : null
+              }
+            />
           ) : (
             <div className="rounded-2xl border border-border bg-card p-6 text-center">
               <h2 className="text-lg font-semibold">Welcome.</h2>
