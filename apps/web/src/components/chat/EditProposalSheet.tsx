@@ -683,7 +683,7 @@ function TrimAssistanceEntryDiff({
   return (
     <div className="space-y-2 text-sm">
       <div className="text-xs text-muted">
-        {op.movementName} (entry <code>{op.entryId.slice(0, 8)}…</code>)
+        {op.movementName}
       </div>
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="tabular-nums">
