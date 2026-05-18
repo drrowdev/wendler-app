@@ -1,0 +1,20 @@
+# Capacitor-generated Xcode project — regenerated fresh by CI on every build.
+ios/
+
+# CocoaPods
+Pods/
+Podfile.lock
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Build outputs
+DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Capacitor
+.capacitor/
+node_modules/

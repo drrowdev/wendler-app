@@ -1,0 +1,153 @@
+name: iOS build
+
+# Manual-only trigger. iOS builds are not part of the per-push CI pipeline
+# because the WKWebView loads the deployed Static Web App directly, so
+# normal feature changes never need a rebuild. Trigger this workflow when
+# `apps/ios/capacitor.config.ts`, `apps/ios/package.json`, or native iOS
+# code changes — or just whenever the AltStore-installed app is nearing
+# its 7-day signing expiry and you want a fresh `.ipa` to install.
+on:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: 'Build mode'
+        required: true
+        default: 'altstore-unsigned'
+        type: choice
+        options:
+          - altstore-unsigned
+          # - testflight  # Enable when you switch to TestFlight (see apps/ios/README.md)
+
+jobs:
+  build:
+    name: Build .ipa
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Generate Capacitor iOS project
+        working-directory: apps/ios
+        run: |
+          # Generate ios/App/ fresh (gitignored, regenerated every build).
+          pnpm exec cap add ios || pnpm exec cap sync ios
+          pnpm exec cap sync ios
+
+      - name: Install CocoaPods deps
+        working-directory: apps/ios/ios/App
+        run: pod install
+
+      - name: Build unsigned archive
+        if: ${{ inputs.build_mode == 'altstore-unsigned' }}
+        working-directory: apps/ios/ios/App
+        run: |
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      - name: Package unsigned .ipa
+        if: ${{ inputs.build_mode == 'altstore-unsigned' }}
+        run: |
+          # AltStore re-signs with the user's free Apple ID, so we ship an
+          # unsigned .ipa here. Standard "Payload/" zip layout — AltStore
+          # accepts it directly via the AltServer tray.
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$RUNNER_TEMP/App.xcarchive/Products/Applications/App.app" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          zip -qr wendler-ios-unsigned.ipa Payload
+          ls -la wendler-ios-unsigned.ipa
+
+      - name: Upload unsigned .ipa artifact
+        if: ${{ inputs.build_mode == 'altstore-unsigned' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wendler-ios-unsigned
+          path: ${{ runner.temp }}/wendler-ios-unsigned.ipa
+          retention-days: 14
+
+      # --- TestFlight upload (disabled — uncomment when you buy the
+      #     Apple Developer Program + add the three APPSTORE_API_* secrets,
+      #     and add `testflight` to the workflow_dispatch options above).
+      #
+      # - name: Decode App Store API key
+      #   if: ${{ inputs.build_mode == 'testflight' }}
+      #   env:
+      #     APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+      #   run: |
+      #     mkdir -p ~/private_keys
+      #     echo "$APPSTORE_API_PRIVATE_KEY" > ~/private_keys/AuthKey_${{ secrets.APPSTORE_API_KEY_ID }}.p8
+      #
+      # - name: Build signed archive (automatic signing)
+      #   if: ${{ inputs.build_mode == 'testflight' }}
+      #   working-directory: apps/ios/ios/App
+      #   env:
+      #     APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+      #     APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+      #   run: |
+      #     xcodebuild \
+      #       -workspace App.xcworkspace \
+      #       -scheme App \
+      #       -configuration Release \
+      #       -sdk iphoneos \
+      #       -destination 'generic/platform=iOS' \
+      #       -archivePath "$RUNNER_TEMP/App.xcarchive" \
+      #       -allowProvisioningUpdates \
+      #       -authenticationKeyID "$APPSTORE_API_KEY_ID" \
+      #       -authenticationKeyIssuerID "$APPSTORE_API_ISSUER_ID" \
+      #       -authenticationKeyPath ~/private_keys/AuthKey_$APPSTORE_API_KEY_ID.p8 \
+      #       archive
+      #
+      # - name: Export signed .ipa
+      #   if: ${{ inputs.build_mode == 'testflight' }}
+      #   working-directory: apps/ios/ios/App
+      #   run: |
+      #     cat > "$RUNNER_TEMP/ExportOptions.plist" <<'PLIST'
+      #     <?xml version="1.0" encoding="UTF-8"?>
+      #     <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      #     <plist version="1.0">
+      #     <dict>
+      #       <key>method</key><string>app-store-connect</string>
+      #       <key>uploadSymbols</key><true/>
+      #     </dict>
+      #     </plist>
+      #     PLIST
+      #     xcodebuild \
+      #       -exportArchive \
+      #       -archivePath "$RUNNER_TEMP/App.xcarchive" \
+      #       -exportPath "$RUNNER_TEMP/export" \
+      #       -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+      #       -allowProvisioningUpdates \
+      #       -authenticationKeyID "${{ secrets.APPSTORE_API_KEY_ID }}" \
+      #       -authenticationKeyIssuerID "${{ secrets.APPSTORE_API_ISSUER_ID }}" \
+      #       -authenticationKeyPath ~/private_keys/AuthKey_${{ secrets.APPSTORE_API_KEY_ID }}.p8
+      #
+      # - name: Upload to TestFlight
+      #   if: ${{ inputs.build_mode == 'testflight' }}
+      #   run: |
+      #     xcrun altool --upload-app \
+      #       -f "$RUNNER_TEMP/export/App.ipa" \
+      #       -t ios \
+      #       --apiKey "${{ secrets.APPSTORE_API_KEY_ID }}" \
+      #       --apiIssuer "${{ secrets.APPSTORE_API_ISSUER_ID }}"
