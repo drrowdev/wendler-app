@@ -13,7 +13,7 @@ import { weeklyLoad, weeklyCardio, type LoadSet, type MinimalCardio } from '@wen
 import { getDb } from '@/lib/db';
 import { notify } from '@/lib/notify';
 
-const FLAG_PREFIX = 'wendler:monday-digest-emitted:v2';
+const FLAG_PREFIX = 'wendler:monday-digest-emitted:v3';
 
 function isoWeekKey(d: Date): string {
   // ISO week: Thursday-aligned, year inferred from Thursday's date.
@@ -96,27 +96,38 @@ async function maybeEmit(now: Date): Promise<void> {
     last7Start,
   );
 
-  // Strength sessions in window. A session counts when sets were
-  // logged for it during the window — matches the user's mental model
-  // ("if I lifted, it counts"). Previously this filtered by
-  // session.completedAt which only gets set when the per-lift work is
-  // fully logged AND the supplemental is finished — sessions where
-  // the user trained but stopped short would silently count as 0,
-  // producing the surprising "0 strength sessions last week" digest
-  // when they actually did 3.
-  const sessionIdsWithSets = new Set<string>();
-  for (const s of setsLast7 as ReadonlyArray<{ sessionId?: string }>) {
-    if (s.sessionId) sessionIdsWithSets.add(s.sessionId);
+  // Strength sessions in window. Count DISTINCT WORKOUT DAYS — the
+  // user's mental model. A single workout day can contain multiple
+  // session rows (one per main lift, e.g. Bench + Deadlift = 2 rows)
+  // so counting session rows over-counts. Workout days are keyed by
+  // (blockId, week, dayIndex) when available, falling back to the
+  // local YYYY-MM-DD of the set's performedAt.
+  function workoutDayKey(s: { sessionId?: string }): string | null {
+    if (!s.sessionId) return null;
+    const sess = allSessions.find((x) => x.id === s.sessionId);
+    if (sess && sess.blockId != null && sess.week != null && sess.dayIndex != null) {
+      return `${sess.blockId}|${sess.week}|${sess.dayIndex}`;
+    }
+    // Fallback: bucket by local date of the set's performedAt.
+    const performedAt = (s as { performedAt?: string }).performedAt;
+    if (!performedAt) return null;
+    const d = new Date(performedAt);
+    if (!Number.isFinite(d.getTime())) return null;
+    return `date:${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
-  const sessionsLast7 = allSessions.filter((s) => sessionIdsWithSets.has(s.id));
-  const baselineSessionIdsWithSets = new Set<string>();
-  for (const s of setsBaseline as ReadonlyArray<{ sessionId?: string }>) {
-    if (s.sessionId) baselineSessionIdsWithSets.add(s.sessionId);
+  const dayKeysLast7 = new Set<string>();
+  for (const s of setsLast7 as ReadonlyArray<{ sessionId?: string; performedAt?: string }>) {
+    const k = workoutDayKey(s);
+    if (k) dayKeysLast7.add(k);
   }
-  const sessionsBaseline = allSessions.filter((s) =>
-    baselineSessionIdsWithSets.has(s.id),
-  );
-  const baselineWeeklyAvg = sessionsBaseline.length / 4; // 28 days → 4 weeks
+  const dayKeysBaseline = new Set<string>();
+  for (const s of setsBaseline as ReadonlyArray<{ sessionId?: string; performedAt?: string }>) {
+    const k = workoutDayKey(s);
+    if (k) dayKeysBaseline.add(k);
+  }
+  const sessionsLast7Count = dayKeysLast7.size;
+  const sessionsBaselineCount = dayKeysBaseline.size;
+  const baselineWeeklyAvg = sessionsBaselineCount / 4; // 28 days → 4 weeks
 
   // Cardio minutes.
   const cardioMin = (rows: MinimalCardio[]) =>
@@ -144,11 +155,11 @@ async function maybeEmit(now: Date): Promise<void> {
   // follow-up if the user wants it surfaced.)
 
   // If literally nothing happened last week, skip entirely.
-  if (sessionsLast7.length === 0 && cardioLast7.length === 0) return;
+  if (sessionsLast7Count === 0 && cardioLast7.length === 0) return;
 
   const sessionDelta =
     baselineWeeklyAvg > 0
-      ? Math.round(((sessionsLast7.length - baselineWeeklyAvg) / baselineWeeklyAvg) * 100)
+      ? Math.round(((sessionsLast7Count - baselineWeeklyAvg) / baselineWeeklyAvg) * 100)
       : null;
   const cardioDelta =
     baselineCardioMinPerWeek > 0
@@ -157,7 +168,7 @@ async function maybeEmit(now: Date): Promise<void> {
 
   const bodyLines: string[] = [];
   bodyLines.push(
-    `${sessionsLast7.length} strength session${sessionsLast7.length === 1 ? '' : 's'}` +
+    `${sessionsLast7Count} strength session${sessionsLast7Count === 1 ? '' : 's'}` +
       (sessionDelta != null
         ? ` (${sessionDelta >= 0 ? '+' : ''}${sessionDelta}% vs 4-wk avg)`
         : ''),
@@ -180,12 +191,12 @@ async function maybeEmit(now: Date): Promise<void> {
 
   await notify.info({
     channel: 'system',
-    title: `Last week: ${sessionsLast7.length} sessions · ${Math.round(last7CardioMin)} min cardio`,
+    title: `Last week: ${sessionsLast7Count} sessions · ${Math.round(last7CardioMin)} min cardio`,
     body: bodyLines.join('\n'),
     deepLink: { href: '/stats', label: 'Open stats' },
     context: {
       weekKey: isoWeekKey(new Date(now.getTime() - 7 * dayMs)),
-      sessionsLast7: sessionsLast7.length,
+      sessionsLast7: sessionsLast7Count,
       sessionsBaselineAvg: baselineWeeklyAvg,
       cardioMinLast7: last7CardioMin,
       cardioMinBaselinePerWeek: baselineCardioMinPerWeek,
