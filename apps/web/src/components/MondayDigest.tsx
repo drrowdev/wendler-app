@@ -13,7 +13,7 @@ import { weeklyLoad, weeklyCardio, type LoadSet, type MinimalCardio } from '@wen
 import { getDb } from '@/lib/db';
 import { notify } from '@/lib/notify';
 
-const FLAG_PREFIX = 'wendler:monday-digest-emitted:v4';
+const FLAG_PREFIX = 'wendler:monday-digest-emitted:v5';
 
 function isoWeekKey(d: Date): string {
   // ISO week: Thursday-aligned, year inferred from Thursday's date.
@@ -71,6 +71,11 @@ async function maybeEmit(now: Date): Promise<void> {
   const allSessions = await db.sessions.toArray();
   const allRaces = await db.races.toArray();
   const recovery = await db.recovery.toArray();
+  // Strava-imported strength activities (WeightTraining, Crossfit, HIIT,
+  // Workout). These never write to db.sets — only HR is captured — so
+  // we must also bucket them as workout days or the count under-reports
+  // anyone who logs strength on a non-Wendler platform.
+  const allStrengthHr = await db.strengthHr.toArray();
 
   // Filter sets / cardio per window.
   const inWindow = <T extends { performedAt: string }>(
@@ -124,6 +129,22 @@ async function maybeEmit(now: Date): Promise<void> {
   for (const s of setsBaseline as ReadonlyArray<{ sessionId?: string; performedAt?: string }>) {
     const k = workoutDayKey(s);
     if (k) dayKeysBaseline.add(k);
+  }
+  // Also fold Strava-imported strength sessions into the workout-day
+  // count. Bucketed by local date so an imported session on the same
+  // day as a Wendler workout counts once.
+  function importedDayKey(h: { performedAt: string }): string | null {
+    const t = new Date(h.performedAt);
+    if (!Number.isFinite(t.getTime())) return null;
+    return `date:${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  }
+  for (const h of allStrengthHr) {
+    const t = new Date(h.performedAt).getTime();
+    if (!Number.isFinite(t)) continue;
+    const k = importedDayKey(h);
+    if (!k) continue;
+    if (t >= last7Start.getTime() && t < now.getTime()) dayKeysLast7.add(k);
+    else if (t >= baselineStart.getTime() && t < last7Start.getTime()) dayKeysBaseline.add(k);
   }
   const sessionsLast7Count = dayKeysLast7.size;
   const sessionsBaselineCount = dayKeysBaseline.size;
