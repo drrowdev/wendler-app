@@ -497,6 +497,40 @@ export function useHasLoggedAssistanceForDay(
   return result === true;
 }
 
+/**
+ * Most recent non-deleted, non-warmup set for a given movement, optionally
+ * EXCLUDING a session (so /day can show the previous time the user trained
+ * the movement, not the current in-progress session). Returns the single
+ * latest set as `{ weightKg, reps, performedAt }` or `undefined` if the
+ * movement has no prior history.
+ */
+export function useLastSetForMovement(
+  movementId: string | undefined,
+  excludeSessionId?: string | null,
+): { weightKg: number; reps: number; performedAt: string } | undefined {
+  return useLiveQuery(async () => {
+    if (!movementId) return undefined;
+    const all = await getDb()
+      .sets.where('movementId')
+      .equals(movementId)
+      .toArray();
+    let best: { weightKg: number; reps: number; performedAt: string } | undefined;
+    for (const s of all) {
+      if (s.deletedAt) continue;
+      if (s.kind === 'warmup') continue;
+      if (excludeSessionId && s.sessionId === excludeSessionId) continue;
+      if (!best || s.performedAt > best.performedAt) {
+        best = {
+          weightKg: s.weightKg,
+          reps: s.reps,
+          performedAt: s.performedAt,
+        };
+      }
+    }
+    return best;
+  }, [movementId, excludeSessionId ?? null]);
+}
+
 export function useBlocks() {
   return useLiveQuery(
     () => getDb().blocks.orderBy('createdAt').reverse().toArray(),

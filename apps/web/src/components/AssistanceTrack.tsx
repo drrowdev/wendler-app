@@ -7,6 +7,7 @@
 // 'assistance'.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { nanoid } from 'nanoid';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
@@ -19,7 +20,7 @@ import {
 import type { Movement, SetRecord } from '@wendler/db-schema';
 import { getDb } from '@/lib/db';
 import { fmtKg } from '@/lib/format';
-import { useActiveInjuries } from '@/lib/hooks';
+import { useActiveInjuries, useLastSetForMovement } from '@/lib/hooks';
 import { SectionHeader } from './SessionParts';
 
 const CATEGORY_LABEL: Record<AssistanceCategory, string> = Object.fromEntries(
@@ -187,6 +188,12 @@ function AssistanceEntryCard({
     return undefined;
   }, [activeInjuries, entry.movementId]);
 
+  // Last-time-trained snapshot for this movement, excluding the current
+  // session so the user sees what they did PREVIOUSLY, not what they're
+  // logging right now. Drives the "Last: 30 kg × 8" pill in the row
+  // header and the link to the per-movement history page.
+  const lastSet = useLastSetForMovement(entry.movementId, sessionId);
+
   const targetSets = entry.sets;
   const doneCount = myLogged.length;
   const complete = doneCount >= targetSets;
@@ -265,51 +272,72 @@ function AssistanceEntryCard({
             : 'border-border bg-card'
       }`}
     >
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-3 px-3 py-2 text-left"
-      >
-        <span
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-            complete
-              ? 'bg-emerald-600 text-white'
-              : doneCount > 0
-                ? 'bg-accent/30 text-accent'
-                : 'bg-bg text-muted ring-1 ring-border'
-          }`}
+      <div className="flex w-full items-stretch">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left"
         >
-          {complete ? '✓' : `${doneCount}/${targetSets}`}
-        </span>
-        <span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm">
-          <span className="min-w-0 flex-1 truncate font-semibold">{entry.movementName}</span>
-          <span className="shrink-0 text-xs text-muted">{prescriptionSuffix(entry)}</span>
-          {entry.isAmrap && (
-            <span
-              className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300 ring-1 ring-amber-500/40"
-              title="AMRAP — take any set to max reps"
-            >
-              AMRAP
-            </span>
-          )}
-          {entry.loadHint && (
-            <span className="shrink-0 rounded bg-bg px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted ring-1 ring-border">
-              {entry.loadHint}
-            </span>
-          )}
-          {limitation && (
-            <span
-              className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300 ring-1 ring-amber-500/40"
-              title={`${limitation.injury.area}: ${limitation.adjustment.modification}`}
-            >
-              ⚠ {limitation.adjustment.action.replace('-', ' ')}
-            </span>
-          )}
-        </span>
-        <span className="text-xs text-muted" aria-hidden>
-          {expanded ? '▾' : '▸'}
-        </span>
-      </button>
+          <span
+            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+              complete
+                ? 'bg-emerald-600 text-white'
+                : doneCount > 0
+                  ? 'bg-accent/30 text-accent'
+                  : 'bg-bg text-muted ring-1 ring-border'
+            }`}
+          >
+            {complete ? '✓' : `${doneCount}/${targetSets}`}
+          </span>
+          <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-sm">
+            <span className="min-w-0 truncate font-semibold">{entry.movementName}</span>
+            <span className="shrink-0 text-xs text-muted">{prescriptionSuffix(entry)}</span>
+            {entry.isAmrap && (
+              <span
+                className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300 ring-1 ring-amber-500/40"
+                title="AMRAP — take any set to max reps"
+              >
+                AMRAP
+              </span>
+            )}
+            {entry.loadHint && (
+              <span className="shrink-0 rounded bg-bg px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted ring-1 ring-border">
+                {entry.loadHint}
+              </span>
+            )}
+            {limitation && (
+              <span
+                className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300 ring-1 ring-amber-500/40"
+                title={`${limitation.injury.area}: ${limitation.adjustment.modification}`}
+              >
+                ⚠ {limitation.adjustment.action.replace('-', ' ')}
+              </span>
+            )}
+            {lastSet && (
+              <span
+                className="shrink-0 rounded bg-bg px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted ring-1 ring-border"
+                title={`Most recent logged set: ${fmtKg(lastSet.weightKg)} × ${lastSet.reps} on ${lastSet.performedAt.slice(0, 10)}`}
+              >
+                Last {fmtKg(lastSet.weightKg)} × {lastSet.reps}
+              </span>
+            )}
+          </span>
+          <span className="text-xs text-muted" aria-hidden>
+            {expanded ? '▾' : '▸'}
+          </span>
+        </button>
+        {entry.movementId && (
+          <Link
+            href={`/movements/history?id=${entry.movementId}`}
+            className="flex shrink-0 items-center border-l border-border/60 px-3 text-muted hover:bg-bg hover:text-fg"
+            title="Open full history for this movement"
+            aria-label={`Open history for ${entry.movementName}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span aria-hidden className="text-sm">↗</span>
+          </Link>
+        )}
+      </div>
 
       {expanded && (
         <div className="border-t border-border/50 px-3 pb-3 pt-2">
