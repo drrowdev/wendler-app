@@ -26,6 +26,13 @@ function shouldHide(pathname: string): boolean {
 export function ChatFab() {
   const pathname = usePathname() ?? '/';
   const [open, setOpen] = useState(false);
+  // Hoisted from ChatDrawer so the user's explicit choice survives a
+  // drawer close → reopen and across route changes. Without this,
+  // hitting "+ New chat" then navigating away made the next drawer
+  // open auto-select the most-recent conversation again, wiping the
+  // user's fresh-state intent.
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [chatUserTouched, setChatUserTouched] = useState(false);
 
   // Close drawer on route change so it doesn't linger covering a new page.
   useEffect(() => {
@@ -71,6 +78,10 @@ export function ChatFab() {
         <ChatDrawer
           pathname={pathname}
           onClose={() => setOpen(false)}
+          chatId={chatId}
+          setChatId={setChatId}
+          userTouched={chatUserTouched}
+          setUserTouched={setChatUserTouched}
         />
       )}
     </>

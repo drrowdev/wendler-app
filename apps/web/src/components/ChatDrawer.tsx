@@ -10,21 +10,34 @@ import Link from 'next/link';
 import { ChatConversationList, ChatPanel } from './ChatPanel';
 import { useChatList } from '@/lib/useChat';
 
-export function ChatDrawer({ pathname, onClose }: { pathname: string; onClose: () => void }) {
-  const [chatId, setChatId] = useState<string | null>(null);
+export function ChatDrawer({
+  pathname,
+  onClose,
+  chatId,
+  setChatId,
+  userTouched,
+  setUserTouched,
+}: {
+  pathname: string;
+  onClose: () => void;
+  chatId: string | null;
+  setChatId: (id: string | null) => void;
+  userTouched: boolean;
+  setUserTouched: (v: boolean) => void;
+}) {
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [userTouched, setUserTouched] = useState(false);
   const conversations = useChatList();
 
-  // Auto-select most recent conversation on FIRST open only. Once the user
-  // touches anything (picks a different chat or hits "+ New"), we respect
-  // their choice — even if they explicitly chose `null` (= start fresh).
+  // Auto-select most recent conversation on FIRST open only. Once the
+  // user touches anything (picks a different chat or hits "+ New"),
+  // the parent's `userTouched` flag pins their choice across drawer
+  // close → reopen and across route changes.
   useEffect(() => {
     if (userTouched || chatId) return;
     if (conversations && conversations.length > 0) {
       setChatId(conversations[0]!.id);
     }
-  }, [conversations, chatId, userTouched]);
+  }, [conversations, chatId, userTouched, setChatId]);
 
   const selectChat = (id: string | null) => {
     setUserTouched(true);
