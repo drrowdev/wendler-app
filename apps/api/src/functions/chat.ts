@@ -231,9 +231,10 @@ creates a notification, not a data write.)
 - Don't put set_training_max / set_block_volume_preset / schedule_deload / substitute_movement / propose_edit in the \`<actions>\` sidecar. Only log_injury and schedule_followup belong there. Every other write goes through the \`propose_edit\` tool.
 - Don't emit a propose_edit when you haven't actually done the analysis to back it. A proposal is a recommendation you stand behind.
 - Don't emit a propose_edit AND a log_injury chip for the same underlying issue — pick one path.
-- Don't reference the proposal in the prose ("review the changes below..."); just call the tool and let the client surface the sheet.
+- Don't reference the proposal in the prose ("review the changes below…", "the proposal below shifts…"); just call the tool and let the client surface the sheet. **CRITICAL**: if you mention "a proposal" / "the changes below" / "trim ops" / similar in your prose, you MUST have ALSO called the \`propose_edit\` tool in this same turn with a valid input that the parser accepts. If you cannot construct valid ops (missing entryId, wrong blockId, no-op edits, etc.), DO NOT promise a proposal — instead, list the recommended changes as bullets and tell the user to apply them manually via the editor.
 - Don't propose ops that would have no effect (preset already matches; weeks already complete; entry not in any plan).
-- Don't schedule a follow-up the user has no reason to want — only after a real intervention (injury swaps, deload commitment, new race plan, mid-cut weight intervention).`;
+- Don't schedule a follow-up the user has no reason to want — only after a real intervention (injury swaps, deload commitment, new race plan, mid-cut weight intervention).
+- For \`trim_assistance_entry\` and \`swap_assistance_movement\`, you MUST use the EXACT \`entryId\` value from the snapshot (the value in \`entryId=\\\`...\\\`\` after each entry). Never guess; never substitute a movement name for an entryId; never invent a UUID. If you can't find the matching entryId, ask the user instead of fabricating one.`;
 
 const MAX_TOOL_CALLS_PER_TURN = 6;
 
@@ -503,6 +504,10 @@ ${context}
             tu: Anthropic.ToolUseBlock;
             resultText: string;
             durationMs: number;
+            /** True when the parser rejected this call (no chip emitted). */
+            rejected: boolean;
+            /** Validation errors when rejected, for client-side surfacing. */
+            rejectionErrors?: string[];
           }> = [];
           for (const tu of proposeEditUses) {
             const startedAt = Date.now();
@@ -523,17 +528,29 @@ ${context}
               proposeEditResults.push({
                 tu,
                 durationMs,
+                rejected: false,
                 resultText:
                   'Proposal emitted for user review. They will accept, decline, or modify each operation in the EditProposalSheet UI. Do not re-emit unless the user asks for a different plan.',
               });
             } else {
               // Send the validation errors back to the model so it can
               // self-correct within the same turn (it'll retry the tool_use
-              // with a fixed input on the next iteration).
+              // with a fixed input on the next iteration). ALSO surface
+              // the rejection to the client so the user sees that the AI
+              // tried to draft a proposal but couldn't — otherwise the AI
+              // may reference "the proposal below" in prose while no chip
+              // ever rendered, leaving the user confused.
               const errBody = parsed.errors.join('\n  - ');
+              yield sse({
+                type: 'proposal_rejected',
+                toolUseId: tu.id,
+                errors: parsed.errors,
+              });
               proposeEditResults.push({
                 tu,
                 durationMs,
+                rejected: true,
+                rejectionErrors: parsed.errors,
                 resultText:
                   `Proposal REJECTED — validation errors. Fix and retry with corrected input:\n  - ${errBody}`,
               });

@@ -708,7 +708,8 @@ export function useChatSender(externalId: string | null): UseChatSender {
                     outputTokens: number;
                   }
                 | { type: 'composing_start' }
-                | { type: 'action_chips'; actions: ChatAction[] };
+                | { type: 'action_chips'; actions: ChatAction[] }
+                | { type: 'proposal_rejected'; toolUseId: string; errors: string[] };
               if (evt.type === 'delta') {
                 accumulated += evt.text;
                 setStreaming(accumulated);
@@ -717,6 +718,19 @@ export function useChatSender(externalId: string | null): UseChatSender {
                 streamErr = evt.detail;
               } else if (evt.type === 'action_chips') {
                 accumulatedActions = evt.actions;
+              } else if (evt.type === 'proposal_rejected') {
+                // The AI tried to draft a propose_edit but the parser
+                // rejected the input. Append an inline warning to the
+                // accumulated text so the user SEES that a proposal was
+                // attempted but failed — otherwise the AI's prose may
+                // reference "the proposal below" with no chip rendered.
+                // The model also gets the errors back via tool_result and
+                // can self-correct on the next iteration; this surfaces
+                // the failure if it doesn't.
+                const errLines = evt.errors.map((e) => `  • ${e}`).join('\n');
+                const warning = `\n\n> ⚠️ **The coach attempted a proposal but it was rejected by validation. You may need to ask again with more detail.**\n>\n> Rejected because:\n${errLines.replace(/^/gm, '> ')}\n`;
+                accumulated += warning;
+                setStreaming(accumulated);
               } else if (evt.type === 'tool_use_start') {
                 setToolCalls((prev) => [
                   ...prev,
