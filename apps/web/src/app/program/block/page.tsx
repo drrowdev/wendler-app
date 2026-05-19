@@ -462,9 +462,12 @@ function BlockDetailPage() {
       />
 
       <BlockSettingsStrip
+        blockId={block.id}
         kind={block.kind}
+        seventhWeekKind={block.seventhWeekKind}
         weeks={block.weeksBeforeDeload}
         tmSummary={tmSummary}
+        supplementalTemplate={block.supplementalTemplate}
         supplementalLabel={supplementalTpl?.name ?? block.supplementalTemplate}
         supplementalSets={supplementalSets}
       />
@@ -775,35 +778,97 @@ function BlockOverflowMenu({
 // 2-column grid so each cell stays comfortably tappable.
 
 function BlockSettingsStrip({
+  blockId,
   kind,
+  seventhWeekKind,
   weeks,
   tmSummary,
+  supplementalTemplate,
   supplementalLabel,
   supplementalSets,
 }: {
-  kind: string;
+  blockId: string;
+  kind: import('@wendler/domain').BlockKind;
+  seventhWeekKind?: import('@wendler/domain').SeventhWeekKind;
   weeks: number;
   tmSummary: string;
+  supplementalTemplate: import('@wendler/domain').SupplementalTemplateId;
   supplementalLabel: string;
   supplementalSets: number;
 }) {
+  // Friendlier type label. 7th-week blocks render with their specific
+  // sub-kind (Deload / TM Test / PR Test) instead of the raw schema
+  // label "seventh-week", which doesn't tell the user what the week
+  // actually is. Leader / Anchor / standalone capitalise naturally.
+  const typeLabel = (() => {
+    if (kind === 'seventh-week') {
+      if (seventhWeekKind === 'deload') return 'Deload';
+      if (seventhWeekKind === 'tm-test') return 'TM Test';
+      if (seventhWeekKind === 'pr-test') return 'PR Test';
+      return '7th-week';
+    }
+    if (kind === 'leader') return 'Leader';
+    if (kind === 'anchor') return 'Anchor';
+    return kind.charAt(0).toUpperCase() + kind.slice(1);
+  })();
+
+  // Wendler 5/3/1 Forever, p.21: "no supplemental work is done" during
+  // the 7th-week protocol regardless of sub-kind. Lock the supplemental
+  // field to 'none' on 7th-week blocks so a stray edit can't re-introduce
+  // FSL / BBB into a deload week. Editable on every other block kind.
+  const supplementalLocked = kind === 'seventh-week';
+
+  async function setSupplemental(next: import('@wendler/domain').SupplementalTemplateId) {
+    const now = new Date().toISOString();
+    await getDb().blocks.update(blockId, {
+      supplementalTemplate: next,
+      updatedAt: now,
+    });
+  }
+
   return (
     <section className="rounded-xl border border-border bg-card p-3">
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
         <Field label="Type">
-          <span className="capitalize">{kind}</span>
+          <span>{typeLabel}</span>
         </Field>
         <Field label="Duration">
           {weeks} wk{weeks === 1 ? '' : 's'}
         </Field>
         <Field label="TM%">{tmSummary}</Field>
         <Field label="Supplemental">
-          <span>
-            {supplementalLabel}
-            {supplementalSets > 0 && (
-              <span className="ml-1 text-xs text-muted">· {supplementalSets} sets</span>
-            )}
-          </span>
+          {supplementalLocked ? (
+            <span
+              className="text-muted"
+              title="7th-week blocks (deload / TM test / PR test) carry no supplemental work per Wendler 5/3/1 Forever, p.21."
+            >
+              None <span className="ml-1 text-xs">· locked for 7th-week</span>
+            </span>
+          ) : (
+            <div className="flex items-center gap-2">
+              <select
+                value={supplementalTemplate}
+                onChange={(e) =>
+                  void setSupplemental(
+                    e.target.value as import('@wendler/domain').SupplementalTemplateId,
+                  )
+                }
+                className="rounded-md border border-border bg-bg px-1.5 py-0.5 text-sm font-medium text-fg focus:border-accent focus:outline-none"
+                aria-label="Supplemental template"
+              >
+                {SUPPLEMENTAL_TEMPLATES.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              {supplementalSets > 0 && supplementalTemplate !== 'none' && (
+                <span className="text-xs text-muted">· {supplementalSets} sets</span>
+              )}
+              {/* Reserved space — supplementalLabel surfaces if we need a tooltip later */}
+              <span className="sr-only">{supplementalLabel}</span>
+            </div>
+          )}
         </Field>
       </dl>
     </section>
