@@ -176,7 +176,7 @@ export function ChatPanel({ chatId, contextPath, headerSlot, onChatIdChange }: C
         {headerSlot}
       </header>
 
-      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
+      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-3" style={{ WebkitOverflowScrolling: 'touch' }}>
         {isEmpty ? (
           <EmptyState onPick={(p) => void submit(p)} prompts={suggestedPrompts} />
         ) : (

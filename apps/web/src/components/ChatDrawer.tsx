@@ -54,6 +54,18 @@ export function ChatDrawer({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Lock body scroll while the drawer is open so touch-drags inside the
+  // chat list scroll the LIST instead of bubbling up to the page beneath
+  // (iOS Safari + WKWebView are particularly aggressive about this).
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
   return (
     <div
       className="fixed inset-0 z-40 flex items-end justify-end bg-black/40 md:items-stretch"

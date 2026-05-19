@@ -79,7 +79,7 @@ export async function ensureDailyBrief(
     const chatId = nanoid();
     const nowIso = now.toISOString();
     const prompt = buildDailyBriefPrompt(now);
-    const title = `Daily brief · ${ymd}`;
+    const title = `Daily brief · ${formatHumanDate(now)}`;
 
     await db.chats.put({
       id: chatId,
