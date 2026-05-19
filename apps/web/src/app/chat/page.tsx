@@ -26,10 +26,17 @@ export default function ChatPage() {
   const [mobileListOpen, setMobileListOpen] = useState(false);
 
   // When the URL carries a `followup=<actionId>`, read the matching
-  // notification's `context.followupPrompt`, stash it as
-  // `pendingAutoSend` on the chat, and drop the param. ChatPanel's
-  // existing auto-send effect then fires the send so the AI runs the
-  // moment the page settles — same UX as the injury-coach trigger.
+  // notification's `context.followupPrompt` and APPEND IT AS THE NEXT
+  // ASSISTANT MESSAGE in the chat. The user then sees the AI's check-in
+  // question rendered as a normal coach turn and replies via the composer.
+  //
+  // v476+ change: previously this stashed the prompt as `pendingAutoSend`,
+  // which auto-fired it as a USER message — the user saw themselves
+  // "asking" the AI a question phrased from the AI's perspective ("How
+  // did today's bench session go? Any adductor pain?"), and the AI then
+  // tried to answer its own question. Re-anchoring it as an assistant
+  // message restores the intended UX: the coach proactively asks, the
+  // user replies.
   useEffect(() => {
     if (!id || !followupActionId) return;
     let cancelled = false;
@@ -45,21 +52,44 @@ export default function ChatPage() {
         if (!prompt) return;
         const chat = await db.chats.get(id);
         if (!chat || cancelled) return;
-        await db.chats.put({
-          ...chat,
-          pendingAutoSend: prompt,
-          updatedAt: new Date().toISOString(),
-        });
+
+        // Idempotent: if the last message is already this exact prompt
+        // from the assistant, don't double-append on a refresh / re-open.
+        const last = chat.messages[chat.messages.length - 1];
+        const alreadyAppended =
+          last && last.role === 'assistant' && last.content === prompt;
+
+        if (!alreadyAppended) {
+          const { nanoid } = await import('nanoid');
+          const nowIso = new Date().toISOString();
+          await db.chats.put({
+            ...chat,
+            messages: [
+              ...chat.messages,
+              {
+                id: nanoid(),
+                role: 'assistant',
+                content: prompt,
+                createdAt: nowIso,
+              },
+            ],
+            // Clear any leftover pendingAutoSend from older versions of
+            // the follow-up flow so we don't double up.
+            pendingAutoSend: undefined,
+            updatedAt: nowIso,
+          });
+        }
+
         // Mark the notification read so it stops showing as "new".
-        if (!note?.readAt) {
+        if (note && !note.readAt) {
           await db.notifications.put({
-            ...note!,
+            ...note,
             readAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           });
         }
       } catch {
-        // Best-effort. Worst case: user lands on chat without auto-send.
+        // Best-effort. Worst case: user lands on chat without the prompt.
       } finally {
         if (!cancelled) {
           router.replace(`/chat?id=${id}`, { scroll: false });
