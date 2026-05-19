@@ -303,7 +303,7 @@ export function parseEditProposal(
   }
   const obj = toolInput as Record<string, unknown>;
 
-  const label = strField(obj.label, 'label', errors, 35);
+  const label = strField(obj.label, 'label', errors, 80);
   const headline = strField(obj.headline, 'headline', errors, 200);
   const reason = strField(obj.reason, 'reason', errors, 500);
   const rationale =

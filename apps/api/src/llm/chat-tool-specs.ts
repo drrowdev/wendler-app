@@ -163,7 +163,7 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
     properties: {
       label: {
         type: 'string',
-        description: 'Imperative ≤ 35 char summary used as the chip button label.',
+        description: 'Imperative ≤ 80 char summary used as the chip button label.',
       },
       headline: {
         type: 'string',
