@@ -1367,7 +1367,8 @@ export type EditOperationKind =
   | 'remove_cardio_plan_slot'
   | 'remove_assistance_entry'
   | 'schedule_deload'
-  | 'skip_day_in_week';
+  | 'skip_day_in_week'
+  | 'switch_to_template';
 
 interface EditOperationBase {
   /** Stable id within the proposal. Assigned by the parser if missing. */
@@ -1618,6 +1619,36 @@ export interface SkipDayInWeekEditOp extends EditOperationBase {
   skipNote?: string;
 }
 
+/**
+ * Switch the user to a different Wendler 5/3/1 template. Creates a NEW
+ * program with one block seeded from the template, then activates that
+ * block. The user's previous program + blocks are NOT deleted or marked
+ * complete — they stay around as history. The schedule's activeBlockId
+ * + cursor flip to the new block so /day, /program, NextUpCard all pick
+ * up the change.
+ *
+ * `templateId` must reference an entry in the `WENDLER_TEMPLATES` catalog
+ * exported from packages/domain — the parser rejects unknown ids.
+ *
+ * `programName` defaults to the template name; `blockName` defaults to
+ * the template name (e.g. "BBB Forever"). Both are optional overrides.
+ *
+ * Used when the AI / user wants to change methodology mid-program (e.g.
+ * "my CNS is shot from Spinal Tap H.S., switch to BBB Forever until the
+ * marathon"). Single-block additions to the CURRENT program go through
+ * `schedule_deload` or the manual editor — switch_to_template is the
+ * "new program" door.
+ */
+export interface SwitchToTemplateEditOp extends EditOperationBase {
+  kind: 'switch_to_template';
+  /** Stable id from the WENDLER_TEMPLATES catalog. */
+  templateId: string;
+  /** Optional override for the new program's name. */
+  programName?: string;
+  /** Optional override for the seed block's name. */
+  blockName?: string;
+}
+
 export type EditOperation =
   | SetTrainingMaxEditOp
   | SetBlockVolumePresetEditOp
@@ -1629,7 +1660,8 @@ export type EditOperation =
   | RemoveCardioPlanSlotEditOp
   | RemoveAssistanceEntryEditOp
   | ScheduleDeloadEditOp
-  | SkipDayInWeekEditOp;
+  | SkipDayInWeekEditOp
+  | SwitchToTemplateEditOp;
 
 /**
  * Per-op user decision captured in the EditProposalSheet UI before
@@ -1741,6 +1773,29 @@ export type EditOperationAppliedDetail =
       weeks: Array<'1' | '2' | '3' | 'deload' | '7w'>;
       skipReason: string;
       skipNote?: string;
+    }
+  | {
+      kind: 'switch_to_template';
+      /** Template id from WENDLER_TEMPLATES that was applied. */
+      templateId: string;
+      /** Display name of the template (echo for audit). */
+      templateName: string;
+      /** New Program row id created by the op. */
+      newProgramId: string;
+      /** Program display name as persisted. */
+      newProgramName: string;
+      /** First Block row id created by the op (the new active block). */
+      newBlockId: string;
+      /** Block display name as persisted. */
+      newBlockName: string;
+      /**
+       * Echo of the SupplementalTemplateId actually written to the new
+       * block. 'unsupported' templates downgrade to 'none' at apply time
+       * (the user will get a notification explaining the fallback).
+       */
+      appliedSupplemental: string;
+      /** Schedule's previous active block id, when present. For audit / undo. */
+      previousActiveBlockId?: string;
     };
 
 export type ChatActionKind =
@@ -2004,6 +2059,7 @@ export interface ChatActionSnapshot {
 
 export interface ChatActionSnapshotTables {
   blocks?: ChatActionSnapshotTableMulti;
+  programs?: ChatActionSnapshotTableMulti;
   movements?: ChatActionSnapshotTableMulti;
   trainingMaxes?: ChatActionSnapshotTableMulti;
   /** Singleton — `null` row means it didn't exist before apply. */

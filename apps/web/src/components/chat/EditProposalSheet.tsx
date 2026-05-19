@@ -21,7 +21,7 @@
 
 import { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { resolveDayAssistance, type WendlerWeek } from '@wendler/domain';
+import { resolveDayAssistance, WENDLER_TEMPLATES, type WendlerWeek } from '@wendler/domain';
 import type {
   EditOperation,
   EditOperationDecision,
@@ -61,6 +61,7 @@ const OP_LABELS: Record<EditOperation['kind'], string> = {
   remove_assistance_entry: 'Remove entry',
   schedule_deload: 'Schedule deload',
   skip_day_in_week: 'Skip day',
+  switch_to_template: 'Switch to template',
 };
 
 const OP_TONE: Record<EditOperation['kind'], string> = {
@@ -75,6 +76,7 @@ const OP_TONE: Record<EditOperation['kind'], string> = {
   remove_assistance_entry: 'bg-rose-500/15 text-rose-100 ring-rose-500/40',
   schedule_deload: 'bg-sky-500/15 text-sky-100 ring-sky-500/40',
   skip_day_in_week: 'bg-rose-500/15 text-rose-100 ring-rose-500/40',
+  switch_to_template: 'bg-amber-500/15 text-amber-100 ring-amber-500/40',
 };
 
 export function EditProposalSheet({ chatId, messageId, action, onClose, readOnly }: Props) {
@@ -578,6 +580,8 @@ function OpDiff({
       return <ScheduleDeloadDiff />;
     case 'skip_day_in_week':
       return <SkipDayInWeekDiff op={op} />;
+    case 'switch_to_template':
+      return <SwitchToTemplateDiff op={op} />;
   }
 }
 
@@ -947,6 +951,99 @@ function SkipDayInWeekDiff({
         skipped for those weeks. Pair this with a cardio-plan slot if you&apos;re
         replacing it with a ride / swim / etc.
       </p>
+    </div>
+  );
+}
+
+function SwitchToTemplateDiff({
+  op,
+}: {
+  op: EditOperation & { kind: 'switch_to_template' };
+}) {
+  const template = WENDLER_TEMPLATES.find((t) => t.id === op.templateId);
+  const activeBlock = useLiveQuery(async () => {
+    const all = await getDb().blocks.toArray();
+    return all.find((b) => !b.completedAt);
+  }, []);
+  const activeProgram = useLiveQuery(async () => {
+    const sched = await getDb().schedule.get('singleton');
+    if (!sched?.activeBlockId) return undefined;
+    const block = await getDb().blocks.get(sched.activeBlockId);
+    if (!block?.programId) return undefined;
+    return getDb().programs.get(block.programId);
+  }, []);
+
+  if (!template) {
+    return (
+      <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+        Unknown template id <code>{op.templateId}</code>. The proposal cannot be applied.
+      </div>
+    );
+  }
+
+  const programName = op.programName?.trim() || template.name;
+  const blockName = op.blockName?.trim() || template.name;
+  const suppLabel =
+    template.supplementalTemplate === 'unsupported'
+      ? 'None (template uses an unsupported supplemental — will be persisted as None)'
+      : template.supplementalTemplate;
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
+        <span className="font-semibold uppercase tracking-wide">Heads-up:</span>{' '}
+        this creates a <strong>new program</strong> and makes it active. Your
+        current program{activeProgram?.name ? ` (${activeProgram.name})` : ''}{' '}
+        stays in your history — nothing is deleted.
+      </div>
+
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[13px]">
+        <dt className="text-muted">New program</dt>
+        <dd className="font-semibold">{programName}</dd>
+        <dt className="text-muted">First block</dt>
+        <dd>{blockName}</dd>
+        <dt className="text-muted">Template</dt>
+        <dd>
+          <span className="font-medium">{template.name}</span>
+          <span className="ml-1 text-xs text-muted">· p.{template.bookPage}</span>
+        </dd>
+        <dt className="text-muted">Block kind</dt>
+        <dd className="capitalize">{template.blockKind}</dd>
+        <dt className="text-muted">Main scheme</dt>
+        <dd className="font-mono text-xs">{template.mainScheme}</dd>
+        <dt className="text-muted">Supplemental</dt>
+        <dd>{suppLabel}</dd>
+        <dt className="text-muted">CNS load</dt>
+        <dd>{template.cnsLoad}</dd>
+        <dt className="text-muted">Conditioning</dt>
+        <dd>compat: {template.conditioningCompatibility}</dd>
+      </dl>
+
+      <p className="text-[11px] leading-relaxed text-fg/80">
+        {template.summary}
+      </p>
+
+      {template.cautions.length > 0 && (
+        <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-[11px] text-rose-200">
+          <span className="font-semibold uppercase tracking-wide">
+            Cautions:
+          </span>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            {template.cautions.map((c, i) => (
+              <li key={i}>{c}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {activeBlock && (
+        <p className="text-[11px] leading-relaxed text-muted">
+          After apply: {activeBlock.name} stops being active. The new block
+          becomes today&apos;s Up Next. Sessions logged so far stay in your
+          history — go to /program to see the new program and queue successor
+          blocks if needed.
+        </p>
+      )}
     </div>
   );
 }

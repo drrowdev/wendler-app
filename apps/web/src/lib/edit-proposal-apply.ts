@@ -42,6 +42,7 @@ import type {
   AssistanceEntry,
 } from '@wendler/db-schema';
 import type { BlockPlan } from '@wendler/domain';
+import { WENDLER_TEMPLATES } from '@wendler/domain';
 import { getDb } from './db';
 import { kickSync } from './sync';
 import { updateActionStatus } from './chat-actions';
@@ -96,6 +97,7 @@ function ensureWeekEntries(
 }
 
 const APPLY_ORDER: Record<EditOperation['kind'], number> = {
+  switch_to_template: -1,
   set_block_volume_preset: 0,
   schedule_deload: 1,
   skip_day_in_week: 2,
@@ -197,7 +199,15 @@ export async function applyEditProposal(
   try {
     await db.transaction(
       'rw',
-      [db.blocks, db.trainingMaxes, db.settings, db.movements, db.cardioPlan, db.schedule],
+      [
+        db.blocks,
+        db.programs,
+        db.trainingMaxes,
+        db.settings,
+        db.movements,
+        db.cardioPlan,
+        db.schedule,
+      ],
       async () => {
         for (const op of accepted) {
           // Re-resolve the target block fresh per op (a previous op in
@@ -329,6 +339,7 @@ async function captureSnapshotTables(
   const db = getDb();
   let touchesBlocks = false;
   let touchesAllBlocks = false; // any op that could create a block or fallback to active
+  let touchesPrograms = false; // switch_to_template creates a new Program row
   let touchesCardio = false;
   let touchesSchedule = false; // schedule_deload writes to schedule cursor
   let touchesTm = false;
@@ -348,6 +359,14 @@ async function captureSnapshotTables(
       case 'schedule_deload':
         touchesBlocks = true;
         touchesAllBlocks = true;
+        break;
+      case 'switch_to_template':
+        // Creates a new Program + new Block + flips schedule's active
+        // pointer. Snapshot all three so undo restores the prior state.
+        touchesPrograms = true;
+        touchesBlocks = true;
+        touchesAllBlocks = true;
+        touchesSchedule = true;
         break;
       case 'add_cardio_plan_slot':
       case 'remove_cardio_plan_slot':
@@ -377,6 +396,17 @@ async function captureSnapshotTables(
       presentIds.push(b.id);
     }
     out.blocks = { presentIds, rowsById };
+  }
+
+  if (touchesPrograms) {
+    const all = await db.programs.toArray();
+    const rowsById: Record<string, unknown> = {};
+    const presentIds: string[] = [];
+    for (const p of all) {
+      rowsById[p.id] = p;
+      presentIds.push(p.id);
+    }
+    out.programs = { presentIds, rowsById };
   }
 
   if (touchesCardio) {
@@ -482,6 +512,8 @@ async function performOp(
       return performScheduleDeload();
     case 'skip_day_in_week':
       return performSkipDayInWeek(op);
+    case 'switch_to_template':
+      return performSwitchToTemplate(op);
   }
 }
 
@@ -1148,5 +1180,102 @@ async function performAddMovementToLibrary(
     kind: 'add_movement_to_library',
     newMovementId: newId,
     movementName: movement.name,
+  };
+}
+
+async function performSwitchToTemplate(
+  op: EditOperation & { kind: 'switch_to_template' },
+): Promise<EditOperationAppliedDetail> {
+  const db = getDb();
+  const template = WENDLER_TEMPLATES.find((t) => t.id === op.templateId);
+  if (!template) {
+    throw new Error(`Unknown Wendler template id "${op.templateId}".`);
+  }
+  const now = new Date().toISOString();
+  const programName = op.programName?.trim() || template.name;
+  const blockName = op.blockName?.trim() || template.name;
+
+  // Supplemental fallback for templates the codebase can't yet model.
+  // The user will see this in the proposal's prose + on the new block's
+  // detail page (supplementalLabel = "None"); the AI is expected to
+  // mention the gap explicitly when proposing an unsupported template.
+  const appliedSupplemental: import('@wendler/db-schema').SupplementalTemplateId =
+    template.supplementalTemplate === 'unsupported'
+      ? 'none'
+      : template.supplementalTemplate;
+
+  // Snapshot the prior active block (for audit + undo). The schedule
+  // singleton is mutated in this op so the snapshot table already has
+  // the original captured upstream — this is just for the detail return.
+  const sched = await db.schedule.get('singleton');
+  const previousActiveBlockId = sched?.activeBlockId;
+
+  const programId = nanoid();
+  const blockId = nanoid();
+
+  // Standalone templates carry no Leader/Anchor cadence so the seed
+  // block IS the program. Leader / Anchor templates get a single seed
+  // block; the user (or follow-up AI suggestions) can queue successors
+  // afterwards via the existing /program/new flow or schedule_deload.
+  // Seventh-week templates are out of scope here (the AI should never
+  // propose switching INTO a 7th-week as a template; those are inserted
+  // via schedule_deload).
+  const weeksBeforeDeload =
+    template.blockKind === 'seventh-week' ? 1 : 3;
+
+  await db.programs.put({
+    id: programId,
+    name: programName,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const newBlock: import('@wendler/db-schema').ProgramBlock = {
+    id: blockId,
+    name: blockName,
+    kind: template.blockKind,
+    weeksBeforeDeload,
+    supplementalTemplate: appliedSupplemental,
+    mainScheme: template.mainScheme,
+    programId,
+    sequenceIndex: 0,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+  };
+  await db.blocks.put(newBlock);
+
+  // Flip the schedule cursor onto the new block so /day, NextUpCard,
+  // /program detail all pick up the new program. Preserve the rest of
+  // the schedule shape (dayOrder, liftsPerDay, dayGroups, etc.).
+  if (sched) {
+    await db.schedule.put({
+      ...sched,
+      activeBlockId: blockId,
+      cursor: { blockId, week: 1, groupIndex: 0 },
+      updatedAt: now,
+    });
+  } else {
+    // Edge case: no schedule yet — write a minimal one so the new
+    // block is reachable. Falls back to defaults the rest of the app
+    // uses when a schedule field is undefined.
+    await db.schedule.put({
+      id: 'singleton',
+      activeBlockId: blockId,
+      cursor: { blockId, week: 1, groupIndex: 0 },
+      updatedAt: now,
+    } as never);
+  }
+
+  return {
+    kind: 'switch_to_template',
+    templateId: template.id,
+    templateName: template.name,
+    newProgramId: programId,
+    newProgramName: programName,
+    newBlockId: blockId,
+    newBlockName: blockName,
+    appliedSupplemental,
+    ...(previousActiveBlockId ? { previousActiveBlockId } : {}),
   };
 }

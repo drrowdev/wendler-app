@@ -208,6 +208,7 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
                 'remove_assistance_entry',
                 'schedule_deload',
                 'skip_day_in_week',
+                'switch_to_template',
               ],
             },
             label: { type: 'string', description: 'Per-op row label. ≤ 80 chars.' },
@@ -326,6 +327,23 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
               type: 'string',
               description:
                 'skip_day_in_week only. Free-text user-visible note (e.g. "Z2 bike 60 min"). ≤ 200 chars.',
+            },
+
+            // switch_to_template
+            templateId: {
+              type: 'string',
+              description:
+                'switch_to_template only. Stable id from the ## Wendler templates catalog in the chat snapshot (e.g. "bbb-forever", "5spro-fsl", "pervertor", "krypteia-p1"). The apply path creates a NEW program (and a new seed block from this template) and flips the schedule cursor onto it — the user\'s previous program/blocks stay as history. Use ONLY for genuine methodology shifts (e.g. user mid-Spinal-Tap-H.S. wants to drop to BBB Forever for marathon prep); do NOT use for queueing a NEXT block in the current program (that\'s schedule_deload or manual editing). ID MUST exist in the snapshot catalog — invented ids fail at apply time.',
+            },
+            programName: {
+              type: 'string',
+              description:
+                'switch_to_template only. Optional override for the new program\'s name. Defaults to the template\'s display name.',
+            },
+            blockName: {
+              type: 'string',
+              description:
+                'switch_to_template only. Optional override for the seed block\'s name (the first block in the new program). Defaults to the template\'s display name.',
             },
 
             // add_movement_to_library

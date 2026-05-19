@@ -11,6 +11,8 @@
 // tsc rootDir). KEEP IN LOCKSTEP. Adding a new op kind requires a
 // validator branch here AND the type addition in db-schema.
 
+import { WENDLER_TEMPLATES } from '../../wendler-templates';
+
 // --- Local type mirrors (shape parity with db-schema's EditOperation) ---
 
 export type ParsedEditOperationKind =
@@ -24,7 +26,8 @@ export type ParsedEditOperationKind =
   | 'remove_cardio_plan_slot'
   | 'remove_assistance_entry'
   | 'schedule_deload'
-  | 'skip_day_in_week';
+  | 'skip_day_in_week'
+  | 'switch_to_template';
 
 interface ParsedEditOpBase {
   id: string;
@@ -158,6 +161,20 @@ export interface ParsedSkipDayInWeekOp extends ParsedEditOpBase {
   skipNote?: string;
 }
 
+export interface ParsedSwitchToTemplateOp extends ParsedEditOpBase {
+  kind: 'switch_to_template';
+  /** Stable id from the WENDLER_TEMPLATES catalog (e.g. 'bbb-forever'). */
+  templateId: string;
+  /** Optional override for the new program's name. Defaults to the template's name. */
+  programName?: string;
+  /**
+   * Optional override for the new block's name. Defaults to the template's
+   * name (so a Leader becomes "BBB Forever — Leader 1" only if the AI sets
+   * this explicitly; otherwise it stays unadorned).
+   */
+  blockName?: string;
+}
+
 export type ParsedEditOperation =
   | ParsedSetTrainingMaxOp
   | ParsedSetBlockVolumePresetOp
@@ -169,7 +186,8 @@ export type ParsedEditOperation =
   | ParsedRemoveCardioPlanSlotOp
   | ParsedRemoveAssistanceEntryOp
   | ParsedScheduleDeloadOp
-  | ParsedSkipDayInWeekOp;
+  | ParsedSkipDayInWeekOp
+  | ParsedSwitchToTemplateOp;
 
 export interface ParsedProposeEditAction {
   id: string;
@@ -195,6 +213,7 @@ const OP_KINDS = new Set<ParsedEditOperationKind>([
   'remove_assistance_entry',
   'schedule_deload',
   'skip_day_in_week',
+  'switch_to_template',
 ]);
 
 const VALID_LIFTS = new Set(['squat', 'bench', 'deadlift', 'press']);
@@ -828,6 +847,36 @@ function validateOp(
     }
     case 'schedule_deload': {
       return { ...base, kind };
+    }
+    case 'switch_to_template': {
+      const templateId =
+        typeof op.templateId === 'string' ? op.templateId.trim() : '';
+      if (!templateId) {
+        errors.push(`${where}.templateId is required.`);
+        return undefined;
+      }
+      const template = WENDLER_TEMPLATES.find((t) => t.id === templateId);
+      if (!template) {
+        errors.push(
+          `${where}.templateId "${templateId}" is not a known Wendler template. Pick an id from the ## Wendler templates catalog in the snapshot (e.g. "bbb-forever", "5spro-fsl", "pervertor").`,
+        );
+        return undefined;
+      }
+      const programName =
+        typeof op.programName === 'string' && op.programName.trim()
+          ? op.programName.trim().slice(0, 80)
+          : undefined;
+      const blockName =
+        typeof op.blockName === 'string' && op.blockName.trim()
+          ? op.blockName.trim().slice(0, 80)
+          : undefined;
+      return {
+        ...base,
+        kind,
+        templateId,
+        ...(programName ? { programName } : {}),
+        ...(blockName ? { blockName } : {}),
+      };
     }
     case 'remove_cardio_plan_slot': {
       const VALID_MODALITIES = new Set<string>([
