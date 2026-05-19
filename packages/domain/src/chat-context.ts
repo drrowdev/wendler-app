@@ -161,6 +161,23 @@ export interface ChatContextSummary {
   }>;
   /** Strength PR timeline (one row per highest TM per lift, oldest → newest). */
   prTimeline: Array<{ date: string; lift: string; kg: number }>;
+  /**
+   * Per-week RPE summary for the last 4 weeks of strength training. Used
+   * by the agents as a fatigue signal — sustained RPE drift on the SAME
+   * %TM is a TM-is-too-high or insufficient-recovery signal that load
+   * (CTL/ATL/TSB) alone won't catch.
+   *
+   * Each entry is computed over the working sets (kind !== 'warmup')
+   * with a logged `rpe`. `avgRpe` is the simple average; `maxRpe` is the
+   * worst single working set in the window; `setCount` is the number of
+   * RPE-tagged working sets contributing.
+   */
+  rpeWeekly?: Array<{
+    weekStart: string;
+    avgRpe: number;
+    maxRpe: number;
+    setCount: number;
+  }>;
 }
 
 function ymd(d: Date | string): string {
@@ -392,6 +409,41 @@ export function buildChatContext(input: ChatContextInput): ChatContextSummary {
       };
     });
 
+  // ── RPE weekly summary (last 28 days, working sets only) ─────────────────
+  // Bucketed by ISO Monday. Each entry rolls up working-set RPEs into an
+  // average, peak, and count so the AI can see WEEK-OVER-WEEK trend, not
+  // just per-day averages. Working sets are filtered by reps > 0 (warmups
+  // are typically logged with no RPE anyway). We pass through ALL set
+  // kinds since the chat-context's MinimalChatSet doesn't carry kind —
+  // the upstream caller (useChat.ts) filters out warmups before passing
+  // sets in. Empty result when no RPE-tagged sets exist in the window.
+  const rpeWindowStart = new Date(nowMs - 28 * MS_PER_DAY).toISOString();
+  const rpeByWeek = new Map<string, { rpes: number[] }>();
+  for (const s of validSets) {
+    if (s.performedAt < rpeWindowStart) continue;
+    if (typeof s.rpe !== 'number') continue;
+    if (s.rpe <= 0 || s.rpe > 10) continue; // sanity
+    const wk = isoWeekStart(s.performedAt);
+    let bucket = rpeByWeek.get(wk);
+    if (!bucket) {
+      bucket = { rpes: [] };
+      rpeByWeek.set(wk, bucket);
+    }
+    bucket.rpes.push(s.rpe);
+  }
+  const rpeWeekly = Array.from(rpeByWeek.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([weekStart, b]) => {
+      const avg = b.rpes.reduce((a, c) => a + c, 0) / b.rpes.length;
+      const max = Math.max(...b.rpes);
+      return {
+        weekStart,
+        avgRpe: Number(avg.toFixed(1)),
+        maxRpe: max,
+        setCount: b.rpes.length,
+      };
+    });
+
   return {
     generatedAt: input.now.toISOString(),
     profile: input.profile
@@ -414,6 +466,7 @@ export function buildChatContext(input: ChatContextInput): ChatContextSummary {
     monthly: monthlyOut,
     raceTimeline,
     prTimeline,
+    ...(rpeWeekly.length > 0 ? { rpeWeekly } : {}),
   };
 }
 
@@ -500,6 +553,33 @@ export function renderChatContextAsText(ctx: ChatContextSummary): string {
     }
   }
 
+  if (ctx.rpeWeekly && ctx.rpeWeekly.length > 0) {
+    lines.push('');
+    lines.push('## RPE trends (last 28d, working sets only)');
+    lines.push(
+      "RPE is logged per set on a 0-10 Borg scale (6-7 = comfortable, 8 = hard but reps in reserve, 9 = grinder, 10 = failure or max effort). Working sets only — warmups are excluded. Use this as a FATIGUE / TM-CALIBRATION signal:",
+    );
+    lines.push(
+      "- avgRpe rising week-over-week on the same %TM scheme → TM may be too high, OR fatigue is accumulating faster than the user is recovering. Consider deload, lower TM, or volume cut.",
+    );
+    lines.push(
+      "- avgRpe ≥ 9 across multiple weeks → almost certainly TM too high OR insufficient recovery. Recommend a TM test or hard deload.",
+    );
+    lines.push(
+      "- avgRpe ≤ 6 across multiple weeks → TM may be too low (under-stimulating). Recommend a TM test or modest bump (subject to the v473 amrap-trigger gating rules).",
+    );
+    lines.push(
+      "- A single maxRpe of 9-10 paired with a moderate avgRpe is normal Wendler AMRAP behavior — don't over-interpret one outlier.",
+    );
+    lines.push(
+      "- Sparse data (low setCount) means the signal is unreliable; weight it accordingly.",
+    );
+    for (const r of ctx.rpeWeekly) {
+      lines.push(
+        `- ${r.weekStart} · avg ${r.avgRpe} · peak ${r.maxRpe} · ${r.setCount} set${r.setCount === 1 ? '' : 's'}`,
+      );
+    }
+  }
   if (ctx.weekly.length > 0) {
     lines.push('');
     lines.push('## Weekly aggregates (90d–1y)');

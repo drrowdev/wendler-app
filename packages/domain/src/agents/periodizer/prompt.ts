@@ -38,6 +38,7 @@ The user prompt includes pre-computed signals. Treat them as ground truth — do
 - **ACWR (uncoupled rolling 7d / prior 28d).** Sweet spot 0.8-1.3. <0.5 = undertraining (or detraining). 1.3-1.5 = stretched. >1.5 = high injury risk.
 - **CTL (chronic load, 42d EWMA)** and **ATL (acute load, 7d EWMA)**. Trend, not threshold. Falling CTL during in-season = detraining.
 - **Weeks since last deload.** ≥ 6 weeks with no deload + a non-Anchor next block = strong deload signal. ≥ 8 weeks = mandatory unless the user is mid-taper.
+- **RPE drift (per-set Borg 0-10).** When the chat snapshot's "## RPE trends" section is present, treat it as a fatigue + TM-calibration signal that load (CTL/ATL/TSB) alone misses: sustained week-over-week rise on the same %TM = recommend deload or TM cut; multi-week avg ≥ 9 = TM likely too high; multi-week avg ≤ 6 = TM likely too low (recommend TM test). Single outliers on AMRAP are normal — don't over-interpret one set. Weight reliability by setCount.
 
 # User-specific training anchors
 
