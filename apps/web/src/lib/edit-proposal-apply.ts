@@ -737,13 +737,22 @@ async function performScheduleDeload(): Promise<EditOperationAppliedDetail> {
   const peers = programId ? all.filter((b) => b.programId === programId) : [activeBlock];
   const maxSeq = peers.reduce((acc, b) => Math.max(acc, b.sequenceIndex ?? 0), 0);
   const now = new Date().toISOString();
+  // Per Wendler 5/3/1 Forever, p.21: the 7th Week Protocol (whether used
+  // as deload, TM test, or PR test) is "a reduction in overall volume, NO
+  // SUPPLEMENTAL WORK is done and limited assistance work". Hard-set
+  // supplementalTemplate to 'none' regardless of the active block's
+  // supplemental — copying it forward (e.g. carrying FSL into the deload
+  // week) violates the protocol's purpose. mainScheme is preserved as a
+  // cosmetic carryover; buildMainSets honors the seventh-week wave
+  // (70/80/90/100 × 5/3-5/1/1 for deload) regardless of mainScheme value
+  // when week === '7w'.
   const deloadBlock: ProgramBlock = {
     id: nanoid(),
     name: 'Deload week',
     kind: 'seventh-week',
     seventhWeekKind: 'deload',
     weeksBeforeDeload: 1,
-    supplementalTemplate: activeBlock.supplementalTemplate,
+    supplementalTemplate: 'none',
     mainScheme: activeBlock.mainScheme,
     createdAt: now,
     updatedAt: now,
