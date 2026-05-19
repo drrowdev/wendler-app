@@ -1012,7 +1012,14 @@ function SwitchToTemplateDiff({
         <dt className="text-muted">Main scheme</dt>
         <dd className="font-mono text-xs">{template.mainScheme}</dd>
         <dt className="text-muted">Supplemental</dt>
-        <dd>{suppLabel}</dd>
+        <dd>
+          {suppLabel}
+          {typeof op.supplementalSetsOverride === 'number' && (
+            <span className="ml-1 font-mono text-xs text-fg/85">
+              · {op.supplementalSetsOverride}×N override
+            </span>
+          )}
+        </dd>
         <dt className="text-muted">CNS load</dt>
         <dd>{template.cnsLoad}</dd>
         <dt className="text-muted">Conditioning</dt>

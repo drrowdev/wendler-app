@@ -173,6 +173,13 @@ export interface ParsedSwitchToTemplateOp extends ParsedEditOpBase {
    * this explicitly; otherwise it stays unadorned).
    */
   blockName?: string;
+  /**
+   * Optional override for the seed block's supplemental set count. Honored
+   * only by multi-set supplemental templates (fsl, ssl, bbb, spinal-tap).
+   * Used when the AI wants to e.g. drop FSL from 5×5 to 3×5 during a
+   * conditioning-heavy phase. Integer 1–10.
+   */
+  supplementalSetsOverride?: number;
 }
 
 export type ParsedEditOperation =
@@ -870,12 +877,27 @@ function validateOp(
         typeof op.blockName === 'string' && op.blockName.trim()
           ? op.blockName.trim().slice(0, 80)
           : undefined;
+      let supplementalSetsOverride: number | undefined;
+      if (op.supplementalSetsOverride !== undefined) {
+        const n = op.supplementalSetsOverride;
+        if (typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 10) {
+          supplementalSetsOverride = n;
+        } else {
+          errors.push(
+            `${where}.supplementalSetsOverride must be an integer 1-10. Got ${String(n)}.`,
+          );
+          return undefined;
+        }
+      }
       return {
         ...base,
         kind,
         templateId,
         ...(programName ? { programName } : {}),
         ...(blockName ? { blockName } : {}),
+        ...(supplementalSetsOverride !== undefined
+          ? { supplementalSetsOverride }
+          : {}),
       };
     }
     case 'remove_cardio_plan_slot': {

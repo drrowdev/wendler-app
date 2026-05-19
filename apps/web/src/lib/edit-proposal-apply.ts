@@ -1230,6 +1230,21 @@ async function performSwitchToTemplate(
     updatedAt: now,
   });
 
+  // Honor supplementalSetsOverride when the template uses a multi-set
+  // supplemental (fsl / ssl / bbb / spinal-tap). Common scenario: AI is
+  // proposing "5's PRO + FSL with 3x5 instead of 5x5 for marathon prep"
+  // — write the override directly so the program lands ready to run
+  // instead of forcing the user to tweak it manually afterwards.
+  const supportsSetsOverride =
+    appliedSupplemental === 'fsl' ||
+    appliedSupplemental === 'ssl' ||
+    appliedSupplemental === 'bbb' ||
+    appliedSupplemental === 'spinal-tap';
+  const supplementalSetsOverride =
+    typeof op.supplementalSetsOverride === 'number' && supportsSetsOverride
+      ? op.supplementalSetsOverride
+      : undefined;
+
   const newBlock: import('@wendler/db-schema').ProgramBlock = {
     id: blockId,
     name: blockName,
@@ -1242,6 +1257,7 @@ async function performSwitchToTemplate(
     createdAt: now,
     updatedAt: now,
     startedAt: now,
+    ...(supplementalSetsOverride !== undefined ? { supplementalSetsOverride } : {}),
   };
   await db.blocks.put(newBlock);
 
@@ -1276,6 +1292,9 @@ async function performSwitchToTemplate(
     newBlockId: blockId,
     newBlockName: blockName,
     appliedSupplemental,
+    ...(supplementalSetsOverride !== undefined
+      ? { appliedSupplementalSetsOverride: supplementalSetsOverride }
+      : {}),
     ...(previousActiveBlockId ? { previousActiveBlockId } : {}),
   };
 }

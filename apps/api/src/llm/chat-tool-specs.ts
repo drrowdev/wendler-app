@@ -345,6 +345,13 @@ export const PROPOSE_EDIT_TOOL_SPEC: AnthropicToolSpec = {
               description:
                 'switch_to_template only. Optional override for the seed block\'s name (the first block in the new program). Defaults to the template\'s display name.',
             },
+            supplementalSetsOverride: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 10,
+              description:
+                'switch_to_template only. Optional override for the seed block\'s supplemental set count. Honored only by multi-set supplemental templates (fsl, ssl, bbb, spinal-tap). Use this whenever you\'d otherwise tell the user to "remember to set FSL to 3×5 instead of 5×5" — set it to 3 and the new program lands ready to run. Integer 1–10.',
+            },
 
             // add_movement_to_library
             tempMovementId: {

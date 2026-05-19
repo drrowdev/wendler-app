@@ -1647,6 +1647,12 @@ export interface SwitchToTemplateEditOp extends EditOperationBase {
   programName?: string;
   /** Optional override for the seed block's name. */
   blockName?: string;
+  /**
+   * Optional override for the seed block's supplemental set count. Honored
+   * only by multi-set supplemental templates (fsl, ssl, bbb, spinal-tap).
+   * Common case: drop FSL from 5×5 to 3×5 during marathon prep.
+   */
+  supplementalSetsOverride?: number;
 }
 
 export type EditOperation =
@@ -1794,6 +1800,8 @@ export type EditOperationAppliedDetail =
        * (the user will get a notification explaining the fallback).
        */
       appliedSupplemental: string;
+      /** Echo of the supplementalSetsOverride applied, when set. */
+      appliedSupplementalSetsOverride?: number;
       /** Schedule's previous active block id, when present. For audit / undo. */
       previousActiveBlockId?: string;
     };
