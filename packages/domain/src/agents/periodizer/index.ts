@@ -8,7 +8,7 @@ export const AGENT_DESCRIPTION =
   'race-week tapers, return-from-layoff ramps. Reasons over recent volume + ' +
   'intensity + ACWR signals plus upcoming priority races. Returns a structured ' +
   'verdict (deload-now / deload-soon / continue / taper-now / ramp-up / tm-test ' +
-  '/ extend-block) with evidence and next steps.';
+  '/ extend-block / switch-template) with evidence and next steps.';
 
 export * from './prompt';
 export * from './response';

@@ -11,6 +11,7 @@ const VALID_VERDICTS = [
   'ramp-up',
   'tm-test',
   'extend-block',
+  'switch-template',
 ] as const;
 export type PeriodizerVerdict = (typeof VALID_VERDICTS)[number];
 const VERDICT_SET = new Set<string>(VALID_VERDICTS);

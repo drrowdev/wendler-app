@@ -23,6 +23,7 @@ import {
   type WendlerWeek,
   effectiveAssistanceVolumeForPhase,
   effectiveTrainingPhaseInfo,
+  WENDLER_TEMPLATES,
 } from '@wendler/domain';
 import { getDb } from './db';
 import { kickSync } from './sync';
@@ -566,6 +567,49 @@ export async function buildContextBlob(): Promise<string> {
       lines.push(
         `  - ${m.name} (id=\`${m.id}\`; ${m.pattern}; ${primary}; ${m.equipment}${tagSuffix})`,
       );
+    }
+  }
+
+  // "## Wendler templates" — knowledge base from 5/3/1 Forever. The AI
+  // uses this to recommend a template SWITCH when the user reports
+  // accumulated fatigue, race-prep mismatch, CNS overload, etc. Each
+  // entry carries: book page citation, supplemental + main-scheme ids
+  // wired to the codebase's existing enums, CNS / strength / hypertrophy
+  // tiers, conditioning compatibility, day counts, audience, and
+  // recommended Leader→Anchor pairings.
+  //
+  // Compact one-line format keeps the prompt cheap (~38 templates). The
+  // AI is expected to filter by suitability (e.g. "user is mid-marathon-
+  // prep → conditioningCompatibility ≥ medium, cnsLoad ≤ moderate"), pick
+  // 1-3 candidates, and propose a switch with the book citation as
+  // justification. There is NO propose_edit op for template-switch yet
+  // (planned) — for now the AI explains the recommendation in prose and
+  // the user makes the change manually via /program/block.
+  if (WENDLER_TEMPLATES.length > 0) {
+    lines.push('', '## Wendler templates (5/3/1 Forever)');
+    lines.push(
+      `(${WENDLER_TEMPLATES.length} canonical templates from the book. When the user asks for a template change (e.g. "my Spinal Tap H.S. is too much CNS load during marathon prep — what should I switch to?"), pick from THIS list. Cite the bookPage in your recommendation. Filter by suitability: cnsLoad / conditioningCompatibility / daysPerWeek / audience / cautions. Don't invent new templates — if nothing fits, say so and recommend adjusting within the current template instead.)`,
+    );
+    const sorted = [...WENDLER_TEMPLATES].sort((a, b) => {
+      if (a.blockKind !== b.blockKind) return a.blockKind.localeCompare(b.blockKind);
+      return a.name.localeCompare(b.name);
+    });
+    for (const t of sorted) {
+      const supp =
+        t.supplementalTemplate === 'unsupported'
+          ? `supp:unsupported (${t.supplementalNote?.slice(0, 60) ?? 'see book'})`
+          : `supp:${t.supplementalTemplate}`;
+      const cond = `cond:${t.conditioningCompatibility}`;
+      const cns = `cns:${t.cnsLoad}`;
+      const days = `${t.daysPerWeek.join('/')}d/wk`;
+      const dur = `${t.recommendedDurationBlocks.min}-${t.recommendedDurationBlocks.max}blk`;
+      const aud = `aud:${t.audience}`;
+      const goals = t.goalEmphasis.length > 0 ? ` · goals:${t.goalEmphasis.join(',')}` : '';
+      const cautions = t.cautions.length > 0 ? ` · cautions:${t.cautions.slice(0, 2).join(';')}` : '';
+      lines.push(
+        `  - **${t.name}** (id=\`${t.id}\`; ${t.blockKind}; ${t.mainScheme}; ${supp}; ${cns}; ${cond}; ${days}; ${dur}; ${aud}${goals}${cautions}; p.${t.bookPage})`,
+      );
+      lines.push(`    - ${t.summary}`);
     }
   }
 
