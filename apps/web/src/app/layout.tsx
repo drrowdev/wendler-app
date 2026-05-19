@@ -6,6 +6,7 @@ import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
 import { SeedBootstrap } from '@/components/SeedBootstrap';
 import { ScheduleCursorHealer } from '@/components/ScheduleCursorHealer';
 import { LegacyDefaultAssistanceMigrator } from '@/components/LegacyDefaultAssistanceMigrator';
+import { SeventhWeekSupplementalFixer } from '@/components/SeventhWeekSupplementalFixer';
 import { SyncConflictFloodCleanup } from '@/components/SyncConflictFloodCleanup';
 import { MondayDigest } from '@/components/MondayDigest';
 import { KeepScreenOn } from '@/components/KeepScreenOn';
@@ -61,6 +62,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <SeedBootstrap />
         <ScheduleCursorHealer />
         <LegacyDefaultAssistanceMigrator />
+        <SeventhWeekSupplementalFixer />
         <SyncConflictFloodCleanup />
         <MondayDigest />
         <KeepScreenOn />
