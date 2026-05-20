@@ -581,14 +581,13 @@ export async function buildContextBlob(): Promise<string> {
   // Compact one-line format keeps the prompt cheap (~38 templates). The
   // AI is expected to filter by suitability (e.g. "user is mid-marathon-
   // prep → conditioningCompatibility ≥ medium, cnsLoad ≤ moderate"), pick
-  // 1-3 candidates, and propose a switch with the book citation as
-  // justification. There is NO propose_edit op for template-switch yet
-  // (planned) — for now the AI explains the recommendation in prose and
-  // the user makes the change manually via /program/block.
+  // 1-3 candidates, and EMIT propose_edit with kind=switch_to_template
+  // (not just prose). The propose_edit path creates the new program
+  // atomically — no manual user step required.
   if (WENDLER_TEMPLATES.length > 0) {
     lines.push('', '## Wendler templates (5/3/1 Forever)');
     lines.push(
-      `(${WENDLER_TEMPLATES.length} canonical templates from the book. When the user asks for a template change (e.g. "my Spinal Tap H.S. is too much CNS load during marathon prep — what should I switch to?"), pick from THIS list. Cite the bookPage in your recommendation. Filter by suitability: cnsLoad / conditioningCompatibility / daysPerWeek / audience / cautions. Don't invent new templates — if nothing fits, say so and recommend adjusting within the current template instead.)`,
+      `(${WENDLER_TEMPLATES.length} canonical templates from the book. When the user asks for a template change or you recommend one, CALL propose_edit with kind=switch_to_template and templateId from this list — do NOT just describe the recommendation in prose. Cite the bookPage in your proposal rationale. Filter by suitability: cnsLoad / conditioningCompatibility / daysPerWeek / audience / cautions. Don't invent template ids — if nothing fits, say so and recommend adjusting within the current template instead.)`,
     );
     const sorted = [...WENDLER_TEMPLATES].sort((a, b) => {
       if (a.blockKind !== b.blockKind) return a.blockKind.localeCompare(b.blockKind);

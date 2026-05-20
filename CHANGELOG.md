@@ -8,6 +8,14 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Chat AI now emits propose_edit for template switches (SW v487)
+
+The AI chat (Jarvis) would verbally recommend a template switch (e.g. "switch to BBB Forever") but then only emit a `schedule_followup` check-in chip — never calling `propose_edit{switch_to_template}`. The user saw the recommendation in prose but had no actionable chip to accept/decline.
+
+Root cause: the snapshot parenthetical instruction in `useChat.ts` said "pick from THIS list, cite bookPage in your recommendation" without mentioning the `propose_edit` tool — contradicting the system prompt. The AI defaulted to prose-only advice.
+
+Fix: updated the snapshot parenthetical to explicitly say "CALL propose_edit with kind=switch_to_template" when recommending a template change. Also fixed the stale code comment that still said "no propose_edit op for template-switch yet (planned)."
+
 ### Fixed — Race day suppresses the recurring planned-cardio chip (SW v486)
 
 Follow-up to v485. The Half-Marathon on Saturday June 6 now shows a `🏁 Helsinki HM` chip, but the recurring `🔵 Long Run` plan chip was still rendering underneath it. Reads as "the app doesn't know these are the same session" — a race IS the cardio for the day.
