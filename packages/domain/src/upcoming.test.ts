@@ -299,4 +299,69 @@ describe('projectUpcomingWorkouts', () => {
     expect(out.some((u) => u.week === 2 && u.dayIndex === 0)).toBe(true);
     expect(out.some((u) => u.week === 3 && u.dayIndex === 1)).toBe(true);
   });
+
+  it('suppresses phantom accessory days on seventh-week (deload) blocks', () => {
+    // Real-world reproduction: a prior block had an accessory day in
+    // its schedule.dayGroups. The user then triggered schedule_deload
+    // which creates a new 7th-week block WITHOUT its own plan — so
+    // effectivePlan falls back to schedule.dayGroups, which still
+    // includes the empty accessory group. Without this suppression the
+    // calendar renders an "Accessory · 7w · Deload" cell on the
+    // accessory weekday with literally nothing inside it (no main
+    // lifts, no supplemental, no assistance — Wendler 5/3/1 Forever
+    // p.21 explicitly omits supplemental/accessory on the 7th week).
+    const deloadBlock = makeBlock({
+      id: 'b-deload',
+      kind: 'seventh-week',
+      seventhWeekKind: 'deload',
+      weeksBeforeDeload: 1,
+      supplementalTemplate: 'none',
+    });
+    const schedule = makeSchedule({
+      activeBlockId: 'b-deload',
+      dayGroups: [
+        { mainLifts: ['press'], weekday: 0, label: 'Mon' },
+        { mainLifts: ['bench'], weekday: 2, label: 'Wed' },
+        { mainLifts: ['squat'], weekday: 3, label: 'Thu' },
+        { mainLifts: [], weekday: 4, label: 'Accessory' },
+      ],
+      cursor: { blockId: 'b-deload', week: '7w', groupIndex: 0 },
+    });
+    const from = new Date(2026, 4, 18); // Mon 2026-05-18
+    const out = projectUpcomingWorkouts(deloadBlock, schedule, from, {
+      horizonDays: 14,
+      maxItems: 10,
+    });
+    // The three main-lift days project normally.
+    expect(out.find((u) => u.dayIndex === 0)).toBeDefined();
+    expect(out.find((u) => u.dayIndex === 1)).toBeDefined();
+    expect(out.find((u) => u.dayIndex === 2)).toBeDefined();
+    // The empty accessory day (groupIndex 3) is suppressed on this
+    // deload block — no phantom cell on the calendar.
+    expect(out.find((u) => u.dayIndex === 3)).toBeUndefined();
+  });
+
+  it('does NOT suppress accessory days on normal (leader/anchor) blocks', () => {
+    // Sanity check: the seventh-week suppression must not bleed into
+    // normal blocks, where an accessory day exists by design and the
+    // user may legitimately have it empty (e.g. waiting for AI
+    // suggester to populate it).
+    const normalBlock = makeBlock({ kind: 'anchor' });
+    const schedule = makeSchedule({
+      dayGroups: [
+        { mainLifts: ['press'], weekday: 0, label: 'Mon' },
+        { mainLifts: ['bench'], weekday: 2, label: 'Wed' },
+        { mainLifts: ['squat'], weekday: 3, label: 'Thu' },
+        { mainLifts: [], weekday: 4, label: 'Accessory' },
+      ],
+      cursor: { blockId: 'b1', week: 1, groupIndex: 0 },
+    });
+    const from = new Date(2026, 4, 18);
+    const out = projectUpcomingWorkouts(normalBlock, schedule, from, {
+      horizonDays: 14,
+      maxItems: 20,
+    });
+    // Accessory day groupIndex 3 SHOULD project on a normal block.
+    expect(out.find((u) => u.dayIndex === 3)).toBeDefined();
+  });
 });

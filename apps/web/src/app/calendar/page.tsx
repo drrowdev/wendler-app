@@ -92,6 +92,8 @@ function weekLabelFor(week: UpcomingWorkout['week']): string {
   return `Week ${week}`;
 }
 
+const RACE_PRIORITY_ORDER: Record<string, number> = { A: 0, B: 1, C: 2 };
+
 export default function CalendarPage() {
   // High limit so the whole month is covered. useRecentWorkoutDays already
   // groups per-lift sessions into one entry per workout-day.
@@ -197,6 +199,30 @@ export default function CalendarPage() {
     }
     return s;
   }, [allCardio]);
+
+  // Race calendar by ISO date. Multiple races on the same date is rare
+  // but legal (an A-priority half-marathon morning + a club fun-run
+  // afternoon) — keep an array per day so we can render each as its
+  // own chip. Sort by priority (A first) so the most important shows
+  // at the top if there's overflow.
+  const racesByDay = useMemo(() => {
+    type RaceItem = NonNullable<typeof races>[number];
+    const m = new Map<string, RaceItem[]>();
+    for (const r of races ?? []) {
+      const iso = r.date.slice(0, 10);
+      const arr = m.get(iso) ?? [];
+      arr.push(r);
+      m.set(iso, arr);
+    }
+    for (const arr of m.values()) {
+      arr.sort(
+        (a, b) =>
+          (RACE_PRIORITY_ORDER[a.priority] ?? 99) -
+          (RACE_PRIORITY_ORDER[b.priority] ?? 99),
+      );
+    }
+    return m;
+  }, [races]);
 
   // Imported strength HR enrichments grouped by ISO day. Same accent as
   // Wendler strength sessions (violet) so the user gets one visual story
@@ -433,13 +459,15 @@ export default function CalendarPage() {
               c.date &&
               slotForDate(c.iso!, isoDayOfWeek(c.date)) !== undefined &&
               planFulfilledByDay.has(c.iso!);
+            const racesToday = racesByDay.get(c.iso!) ?? [];
             const hasContent =
               ws.length > 0 ||
               ups.length > 0 ||
               cs.length > 0 ||
               imp.length > 0 ||
               plannedRun !== null ||
-              fulfilledElsewhere;
+              fulfilledElsewhere ||
+              racesToday.length > 0;
             return (
               <div
                 key={i}
@@ -454,6 +482,30 @@ export default function CalendarPage() {
                 <span className={`text-[11px] leading-none ${isToday ? 'font-bold text-accent' : 'text-muted'}`}>
                   {c.date.getDate()}
                 </span>
+                {racesToday.length > 0 && (
+                  <div className="mt-1 flex flex-col gap-0.5">
+                    {racesToday.map((r) => {
+                      const tone =
+                        r.priority === 'A'
+                          ? 'border-red-500/60 bg-red-500/20 text-red-100'
+                          : r.priority === 'B'
+                            ? 'border-amber-500/60 bg-amber-500/15 text-amber-100'
+                            : 'border-zinc-500/60 bg-zinc-500/15 text-zinc-100';
+                      const title = `${r.priority} · ${r.name}${r.location ? ` — ${r.location}` : ''}`;
+                      return (
+                        <Link
+                          key={r.id}
+                          href={`/races#${r.id}`}
+                          title={title}
+                          className={`flex items-center gap-1 truncate rounded border px-1.5 py-0.5 text-[11px] font-semibold leading-tight md:text-xs ${tone}`}
+                        >
+                          <span aria-hidden>🏁</span>
+                          <span className="truncate">{r.name}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
                 {(() => {
                   const expanded = expandedDays.has(c.iso!);
                   const wsLimit = expanded ? ws.length : 3;

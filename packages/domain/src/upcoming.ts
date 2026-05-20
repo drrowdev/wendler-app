@@ -261,7 +261,22 @@ export function projectUpcomingWorkouts(
       ? isDaySkipped(plan, cursor.week, planDay.id)
       : false;
 
-    if (typeof weekday === 'number' && !isSkipped) {
+    // Suppress phantom accessory days on seventh-week (deload / TM-test /
+    // PR-test) blocks. Per Wendler 5/3/1 Forever p.21, the 7th-week
+    // protocol explicitly omits supplemental and runs only "limited
+    // assistance" alongside the main wave — an accessory-only day
+    // (mainLifts.length === 0) on such a block has nothing to anchor
+    // and renders as an empty "Accessory · 7w · Deload" cell. The bug
+    // surfaces when a normal block had an accessory day in its plan and
+    // a follow-up `schedule_deload` op created the new 7th-week block,
+    // which falls back to `schedule.dayGroups` (still 4 groups including
+    // the accessory). Skip emission; the cursor still advances past it
+    // so the rest of the projection stays aligned.
+    const isPhantomSeventhWeekAccessory =
+      activeBlock.kind === 'seventh-week' &&
+      (planDay?.mainLifts ?? scheduleDay?.mainLifts ?? []).length === 0;
+
+    if (typeof weekday === 'number' && !isSkipped && !isPhantomSeventhWeekAccessory) {
       // Project the slot. Default: next matching weekday at-or-after the
       // pointer. But for slots whose current-calendar-week date is today-
       // or-future AND not yet occupied by an emitted entry, use that

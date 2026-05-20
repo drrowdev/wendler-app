@@ -8,6 +8,22 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Phantom accessory day on 7th-week deload + race chip on calendar (SW v485)
+
+Two related calendar-rendering issues, both surfacing on the same screenshot of a Half-Marathon training cycle: an empty `Accessory · 7w · Deload` cell on a Friday with no main lifts and no assistance entries, and a Saturday cell showing `🔵 Long` instead of the actual race name on race day.
+
+**Bug 1 — phantom accessory day on the deload block.** The repro: a normal Leader/Anchor block had four day-groups in `schedule.dayGroups` (3 main lift days + 1 accessory day). The user later ran `schedule_deload`, which creates a fresh 7th-week block with `kind: 'seventh-week'` and **no `plan`** of its own. `effectivePlan` then falls back to `schedule.dayGroups`, so the deload block inherits the orphan accessory group. The upcoming projector dutifully emits an `Accessory · 7w · Deload` cell on its weekday — except the 7th-week protocol (Wendler 5/3/1 Forever p.21) explicitly skips supplemental and runs only "limited assistance" alongside the main wave. A pure accessory day on a deload week has literally zero work attached to it and renders as an empty card.
+
+Fix: `projectUpcomingWorkouts` (packages/domain/src/upcoming.ts) now suppresses any group where `block.kind === 'seventh-week'` AND `mainLifts.length === 0`. The cursor still advances past the group so subsequent days project on their correct weekdays. Normal (leader/anchor) blocks are unaffected — an empty accessory day on them might just mean the user hasn't filled in the AI suggestions yet, so it stays visible.
+
+Two domain tests added: one asserts the seventh-week suppression fires for the 4-group case (3 main + 1 empty accessory), one asserts the suppression does NOT bleed into a normal anchor block with the same shape.
+
+**Bug 2 — calendar shows `Long` on race day, not the race name.** `useRaces()` was being fetched and passed to `ProgramTimeline` (the horizontal macrocycle view), but the month-grid never looked at it. So a Half-Marathon scheduled on Saturday June 6 just rendered the planned-cardio chip (`Long`) the recurring cardio plan would otherwise project there. Race day is the most prominent thing that can happen on a calendar date — it needs its own chip.
+
+Fix: the calendar page (`apps/web/src/app/calendar/page.tsx`) now builds `racesByDay` (ISO date → races[], sorted A → B → C). Each cell renders a `🏁 [race name]` chip at the top, in a priority-tinted tone (A=red, B=amber, C=zinc). Clicking the chip deep-links to `/races#<id>`. The planned-cardio chip still renders below — useful if the user logs a shake-out warm-up jog distinct from the race itself. `hasContent` now also considers race-presence so the cell gets the proper border accent.
+
+SW v484 → v485. No data migration; both fixes are pure rendering changes.
+
 ### Fixed — Cross-device AI edit clobbering + snapshot staleness (SW v467)
 
 Two related sync bugs surfaced after the chat AI trimmed an assistance entry on desktop and a fresh mobile PWA session subsequently overwrote both the live plan and the day-page snapshot. The user reported: "AI changes were accurately reflected in the desktop but not in the PWA app. Now that I completed the workout the desktop also shows the old amounts."
