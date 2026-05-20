@@ -440,8 +440,15 @@ export default function CalendarPage() {
             const ups = showStrength && ws.length === 0 ? upcomingByDay.get(c.iso!) ?? [] : [];
             const cs = showCardio ? (cardioByDay.get(c.iso!) ?? []) : [];
             const imp = showStrength ? (importedStrengthByDay.get(c.iso!) ?? []) : [];
+            const racesToday = racesByDay.get(c.iso!) ?? [];
+            // Race day owns the cardio narrative — the race IS the cardio
+            // session, so suppress the recurring planned-cardio chip and
+            // any "fulfilled elsewhere" marker. Otherwise the cell reads
+            // as "Long Run + 🏁 Helsinki HM" which looks dumb.
+            const hasRaceToday = racesToday.length > 0;
             const plannedRun: RunPlannedKind | null =
               showCardio &&
+              !hasRaceToday &&
               cs.length === 0 &&
               c.date &&
               c.iso! >= backfillStartIso &&
@@ -455,11 +462,11 @@ export default function CalendarPage() {
             // chip so the user can see the slot was honored.
             const fulfilledElsewhere =
               showCardio &&
+              !hasRaceToday &&
               cs.length === 0 &&
               c.date &&
               slotForDate(c.iso!, isoDayOfWeek(c.date)) !== undefined &&
               planFulfilledByDay.has(c.iso!);
-            const racesToday = racesByDay.get(c.iso!) ?? [];
             const hasContent =
               ws.length > 0 ||
               ups.length > 0 ||
@@ -467,7 +474,7 @@ export default function CalendarPage() {
               imp.length > 0 ||
               plannedRun !== null ||
               fulfilledElsewhere ||
-              racesToday.length > 0;
+              hasRaceToday;
             return (
               <div
                 key={i}

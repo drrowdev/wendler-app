@@ -8,6 +8,14 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Race day suppresses the recurring planned-cardio chip (SW v486)
+
+Follow-up to v485. The Half-Marathon on Saturday June 6 now shows a `🏁 Helsinki HM` chip, but the recurring `🔵 Long Run` plan chip was still rendering underneath it. Reads as "the app doesn't know these are the same session" — a race IS the cardio for the day.
+
+Fix: on the calendar page, when `racesByDay` has any entry for the cell, both `plannedRun` and `fulfilledElsewhere` are forced to null/false. Only the race chip remains. Logged actual cardio sessions (`cs`) on race day are still shown — e.g. a Strava-imported race upload renders alongside the chip as confirmation. The strength side is also unaffected: a morning strength session before an evening 5K still shows both.
+
+SW v485 → v486. Pure rendering.
+
 ### Fixed — Phantom accessory day on 7th-week deload + race chip on calendar (SW v485)
 
 Two related calendar-rendering issues, both surfacing on the same screenshot of a Half-Marathon training cycle: an empty `Accessory · 7w · Deload` cell on a Friday with no main lifts and no assistance entries, and a Saturday cell showing `🔵 Long` instead of the actual race name on race day.
