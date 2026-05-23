@@ -1,0 +1,21 @@
+{
+  "name": "@wendler/eval",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval": "tsx src/run.ts",
+    "eval:refresh": "EVAL_REFRESH=1 tsx src/run.ts",
+    "eval:strict": "EVAL_STRICT=1 tsx src/run.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.1",
+    "@wendler/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

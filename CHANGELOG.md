@@ -8,6 +8,30 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Eval harness scaffold for specialist agents
+
+New `eval/` workspace (`@wendler/eval`) — replay-first regression harness for the Coach, Periodizer, Programmer, and Summarizer specialists. Pairs fixtures + golden assertions + cached LLM cassettes so prompt edits run a structural regression in ~10s offline (and ~1 min when refreshing cassettes from live Anthropic).
+
+**Scope:** specialists only (strict-JSON output). Chat orchestrator is out of scope for v1.
+
+**Modes:**
+- `pnpm eval` — pure replay against committed cassettes. Free, offline, fast. CI mode.
+- `pnpm eval:strict` — replay + fail on cassette hash drift (prompt edited but cassette not refreshed).
+- `pnpm eval:refresh` — recapture cassettes via the live Anthropic API (needs `ANTHROPIC_API_KEY`).
+
+**Three matchers** cover ~80% of regression cases: `assertResponseShape` (field presence + value enums + array length ranges + string mention checks), `assertElementRules` (per-element appearance/non-appearance + per-field constraints), `assertOrdering` (matching-first, descending-by-field).
+
+**Starter cases shipped:** one Coach (`01-right-adductor-bulgarian` — mechanism-overlap vs incidental-loading filter + in-block ordering) and one Periodizer (`01-deload-due-6-weeks` — verdict-vocabulary enum + evidence required). Cassettes not committed yet — first `pnpm eval:refresh` will populate them.
+
+**Workflow on prompt edits:**
+1. Edit the system prompt.
+2. `pnpm eval` — see what breaks against current cassettes.
+3. Fix the prompt OR update the golden assertions (PR description explains intent).
+4. `pnpm eval:refresh` — recapture under the new prompt.
+5. Commit prompt + goldens + cassettes together.
+
+Design document: `wendler-eval-harness-plan.md` in the Clawpilot scratchpad.
+
 ### Fixed — Chat AI now emits propose_edit for template switches (SW v487)
 
 The AI chat (Jarvis) would verbally recommend a template switch (e.g. "switch to BBB Forever") but then only emit a `schedule_followup` check-in chip — never calling `propose_edit{switch_to_template}`. The user saw the recommendation in prose but had no actionable chip to accept/decline.

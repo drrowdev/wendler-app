@@ -1,0 +1,7 @@
+{
+  "name": "01-deload-due-6-weeks",
+  "description": "User has completed 6 weeks (two Leader blocks) since last deload, no upcoming A-priority race, productive TSB. Expected verdict: deload-now or deload-soon — engine should not push for continued accumulation.",
+  "input": {
+    "userPrompt": "## Question\nShould I deload this week, push through, or change something?\n\n## Active block context\n- Current block: Leader 2 (BBB Forever variant)\n- Week within block: Week 3 (final loading week before any deload)\n- Weeks since last deload: 6\n- Sessions completed this block: 11/12\n\n## Load signals (computed)\n- TSB: -8 (productive load range)\n- ACWR: 1.15 (sweet spot)\n- CTL: 78 (rising, +4 vs 4w ago)\n- ATL: 86 (slight acute spike from recent run volume)\n\n## Race calendar\n- No A-priority races in next 12 weeks\n- One C-priority parkrun in 4 weeks\n\n## Training anchors\n- TM%: 85%\n- Goals: hypertrophy primary, marathon secondary\n- Lift days: 4/week\n- External cardio source: Runna (do not prescribe runs)\n\nProvide your structured verdict per the schema."
+  }
+}

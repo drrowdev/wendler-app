@@ -1,0 +1,52 @@
+{
+  "responseShape": {
+    "hasField": ["summary", "proposedAdjustments"],
+    "stringFieldMentions": {
+      "summary": ["adductor"]
+    },
+    "arrayLengthRange": {
+      "proposedAdjustments": { "min": 1, "max": 5 }
+    }
+  },
+  "elementRules": [
+    {
+      "collectionPath": "proposedAdjustments",
+      "matchField": "movementId",
+      "matchValue": "seed:bulgarian-split-squat",
+      "label": "BSS (user-tagged) must have adjustment",
+      "mustAppear": true,
+      "fieldOneOf": {
+        "field": "action",
+        "allowed": ["skip", "reduce-load", "modify-execution"]
+      }
+    },
+    {
+      "collectionPath": "proposedAdjustments",
+      "matchField": "movementId",
+      "matchValue": "seed:goblet-squat",
+      "label": "Goblet squat (incidental loading) must NOT appear",
+      "mustNotAppear": true
+    },
+    {
+      "collectionPath": "proposedAdjustments",
+      "matchField": "movementId",
+      "matchValue": "seed:standing-calf-raise",
+      "label": "Calf raise (no mechanism overlap) must NOT appear",
+      "mustNotAppear": true
+    }
+  ],
+  "orderingRules": [
+    {
+      "type": "matching-first",
+      "collectionPath": "proposedAdjustments",
+      "matchField": "movementId",
+      "matchValues": [
+        "seed:bulgarian-split-squat",
+        "seed:hip-thrust",
+        "seed:single-leg-rdl",
+        "seed:back-extension"
+      ],
+      "label": "in-block movements first"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "responseShape": {
+    "hasField": ["verdict", "headline", "explanation", "evidence", "nextSteps", "alternativeVerdicts", "shortReply"],
+    "fieldOneOf": {
+      "verdict": ["deload-now", "deload-soon"]
+    },
+    "arrayLengthRange": {
+      "evidence": { "min": 1 },
+      "nextSteps": { "min": 1 }
+    },
+    "stringFieldMentions": {
+      "explanation": ["deload"]
+    }
+  }
+}

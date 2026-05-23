@@ -12,7 +12,10 @@
     "dev": "pnpm --filter @wendler/web dev",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "eval": "pnpm --filter @wendler/eval eval",
+    "eval:refresh": "pnpm --filter @wendler/eval eval:refresh",
+    "eval:strict": "pnpm --filter @wendler/eval eval:strict"
   },
   "devDependencies": {
     "prettier": "^3.4.2",
