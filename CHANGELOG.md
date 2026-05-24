@@ -8,6 +8,22 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Removed — Automatic daily AI brief (SW v488)
+
+The "Daily training brief" auto-trigger that fired a fresh coach chat on the first app open of each day is gone. It was creating noise — a daily notification + chat that the user rarely actually wanted to read. The user-facing changes:
+
+- No more daily-brief chat created on app open.
+- The "AI Coach → Daily training brief" toggle is removed from `/settings`.
+- The chat sidebar will stop accumulating one new "Daily brief" row per day.
+
+What's preserved:
+- The `triggerKind: 'daily-brief'` literal stays in the schema union so historical daily-brief chats still type-check and render.
+- The `dailyBriefEnabled` settings field stays on the schema (no migration needed; existing values become silent dead-state).
+- The other proactive AI triggers — welcome-back (3-day return gap), AMRAP TM-bump, race-taper, block-completion debrief, injury-coach — are unchanged.
+- The welcome-back trigger previously re-used the daily-brief opt-out as its kill-switch; that coupling is gone. Welcome-back is now always-on (the 3-day gap gate already suppresses routine noise).
+
+Deleted: `apps/web/src/lib/daily-brief.ts`.
+
 ### Added — Eval harness scaffold for specialist agents
 
 New `eval/` workspace (`@wendler/eval`) — replay-first regression harness for the Coach, Periodizer, Programmer, and Summarizer specialists. Pairs fixtures + golden assertions + cached LLM cassettes so prompt edits run a structural regression in ~10s offline (and ~1 min when refreshing cassettes from live Anthropic).

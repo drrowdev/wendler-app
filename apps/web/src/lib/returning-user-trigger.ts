@@ -54,10 +54,11 @@ export async function maybeTriggerWelcomeBack(now: Date = new Date()): Promise<
 
   try {
     const db = getDb();
-    const settings = await db.settings.get('singleton');
-    // Re-use the daily-brief opt-out — same proactive-notification
-    // surface, same on/off toggle.
-    if (settings?.dailyBriefEnabled === false) return 'disabled';
+    // The welcome-back trigger is intentionally always-on; the
+    // gap-based gate (>= 3 days since last open) already suppresses
+    // routine daily-open noise. If we ever want a kill-switch, add
+    // a dedicated `welcomeBackEnabled` setting — don't re-use the
+    // removed daily-brief flag.
 
     const ymd = todayYmd(now);
     const notificationId = `welcome-back:${ymd}`;
