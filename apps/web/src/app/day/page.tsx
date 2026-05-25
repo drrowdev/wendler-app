@@ -224,6 +224,49 @@ function DayPage() {
     router.push('/');
   };
 
+  // Escape hatch for the "tapped Complete by mistake" or "marked complete just
+  // to clear a haunting hero card" case. Clears `workoutCompletedAt` on every
+  // session row for the day AND rewinds the schedule cursor to point back at
+  // this day, so the next NextUpCard refresh re-evaluates it. Keeps the logged
+  // sets intact — destructive removal goes through `deleteWorkout` instead.
+  const unmarkWorkoutComplete = async () => {
+    if (!workoutCompleted || !blockId || week == null) return;
+    if (!confirm('Unmark this workout complete? Logged sets are kept; the day will re-open for editing.')) {
+      return;
+    }
+    const db = getDb();
+    const nowIso = new Date().toISOString();
+    for (const s of daySessions) {
+      if (!s.workoutCompletedAt) continue;
+      // Strip the completion stamp + its paired assistance snapshot fields.
+      // Cast through Partial so the destructured drop survives strict types.
+      const next = { ...s, updatedAt: nowIso } as typeof s;
+      delete (next as Partial<typeof s>).workoutCompletedAt;
+      delete (next as Partial<typeof s>).assistanceSnapshot;
+      delete (next as Partial<typeof s>).assistanceSnapshotBlockUpdatedAt;
+      await db.sessions.put(next);
+    }
+    // Rewind the cursor to point back at this day so it re-enters the hero
+    // projection. The skip-aware self-heal in NextUpCard will walk it past any
+    // dayOverridesByWeek skip flags on the next render.
+    const schedule = await db.schedule.get('singleton');
+    if (schedule) {
+      const needsRewind =
+        !schedule.cursor ||
+        schedule.cursor.blockId !== blockId ||
+        schedule.cursor.week !== week ||
+        schedule.cursor.groupIndex !== dayIdx;
+      if (needsRewind) {
+        await db.schedule.put({
+          ...schedule,
+          cursor: { blockId, week, groupIndex: dayIdx },
+          updatedAt: nowIso,
+        });
+      }
+    }
+    router.push('/');
+  };
+
   const [rest, setRest] = useState<RestState | null>(null);
 
   const dayOrder = schedule?.dayOrder ?? (['press', 'deadlift', 'bench', 'squat'] as MainLift[]);
@@ -527,7 +570,20 @@ function DayPage() {
         </button>
       )}
 
-      {hasAnyDayData && !locked && (
+      {/* Escape-hatch row — visible whenever the day is locked OR has any
+          data the user might want to wipe. Unmark is non-destructive (keeps
+          logged sets, just clears the completion stamp + rewinds the cursor);
+          Delete is destructive (wipes the day entirely). */}
+      {locked && workoutCompleted && (
+        <button
+          onClick={unmarkWorkoutComplete}
+          className="mt-2 w-full rounded-lg py-2.5 text-sm font-semibold text-amber-200 ring-1 ring-amber-500/40 hover:bg-amber-500/10"
+        >
+          Unmark workout complete
+        </button>
+      )}
+
+      {hasAnyDayData && (
         <button
           onClick={deleteWorkout}
           className="mt-2 w-full rounded-lg py-2.5 text-sm font-semibold text-rose-300 ring-1 ring-rose-500/40 hover:bg-rose-500/10"

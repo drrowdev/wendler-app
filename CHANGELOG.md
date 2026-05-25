@@ -8,6 +8,24 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Escape hatches restored on completed day pages (SW v489)
+
+When a workout day was marked complete, the day page locked and **both** the Delete workout button and any other recovery affordance disappeared — leaving the user with no way to undo a mistaken Complete tap without browser dev tools or a chat-AI workaround. This bit when users tapped Complete on a day they hadn't actually trained (e.g. to clear a haunting hero card), then had no path to restore the day to its planned state.
+
+Two changes on `/day`:
+
+- **New "Unmark workout complete" button** — visible only when the day is locked AND `workoutCompletedAt` is set. Non-destructive: keeps any logged sets, strips the completion stamp from every session row in the day (plus the paired `assistanceSnapshot` fields), and rewinds the schedule cursor back to this day so `NextUpCard` re-evaluates it on next render. If a `dayOverridesByWeek` skip flag is in place, the existing skip-aware self-heal walks the cursor past it automatically.
+- **Delete workout & all logged data** is now visible whenever the day has data, regardless of lock state. Destructive but already confirm-gated.
+
+The two buttons cover the two real cases:
+
+| Case | Right button |
+|---|---|
+| "Tapped Complete by mistake; haven't actually trained" | **Unmark workout complete** |
+| "Wipe this day, treat it as if it never happened" | **Delete workout & all logged data** |
+
+Underlying UX gap (the conflation of "I did this" vs "I'm clearing the haunt") still calls for a proper "Skip this day" affordance — tracked separately.
+
 ### Removed — Automatic daily AI brief (SW v488)
 
 The "Daily training brief" auto-trigger that fired a fresh coach chat on the first app open of each day is gone. It was creating noise — a daily notification + chat that the user rarely actually wanted to read. The user-facing changes:
