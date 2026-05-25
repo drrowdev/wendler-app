@@ -8,6 +8,20 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Added — Manual "Skip this day" button on /day (SW v490)
+
+Long-overdue UX gap closed. Previously the only way for a user to clear a workout day they didn't train was to either (a) tap **Complete workout** — which created a bogus session row stamped with today's timestamp and corrupted the date projection, or (b) ask the chat AI to emit a `skip_day_in_week` propose_edit op. Option (a) created the very "haunted hero card → bogus complete → missing today's workout" cascade that v489 was patching; option (b) was overkill for a one-tap intent.
+
+New on `/day`:
+
+- **Skip this day** button — appears only when the day is open (not locked) AND has no logged sets. Once the user has data, the right paths are Complete (you trained) or Delete (wipe).
+- Tap opens an inline reason picker: Rest day · Travel · Fatigue · Pain · Did cardio instead · Other.
+- Tap a reason: writes `block.plan.dayOverridesByWeek[<week>|<dayId>] = { skipped: true, skipReason, ... }` — same write surface the chat-AI `skip_day_in_week` op uses (idempotent merge). Then `advanceScheduleAfterDay` walks the schedule cursor past the slot. Navigates home.
+
+The day stays in the plan as skipped (no session row created, no calendar lie). The hero card immediately moves to the next workout. Plan-stable: future blocks aren't affected.
+
+New helper: `skipDayInWeek` in `apps/web/src/lib/completeDayWorkout.ts` — re-uses the same `dayOverridesByWeek` merge logic the apply path uses, then advances the cursor.
+
 ### Fixed — Escape hatches restored on completed day pages (SW v489)
 
 When a workout day was marked complete, the day page locked and **both** the Delete workout button and any other recovery affordance disappeared — leaving the user with no way to undo a mistaken Complete tap without browser dev tools or a chat-AI workaround. This bit when users tapped Complete on a day they hadn't actually trained (e.g. to clear a haunting hero card), then had no path to restore the day to its planned state.

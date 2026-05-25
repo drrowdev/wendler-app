@@ -186,3 +186,51 @@ function nextSlotIsSkipped(
   if (!planDay) return false;
   return isDaySkipped(block.plan, week, planDay.id);
 }
+
+export type DaySkipReason =
+  | 'cardio-replacement'
+  | 'rest-day'
+  | 'travel'
+  | 'fatigue'
+  | 'pain'
+  | 'other';
+
+/**
+ * Mark a single (block, week, dayIdx) skipped — same write surface the
+ * chat-AI `skip_day_in_week` propose_edit op uses (idempotent merge into
+ * `block.plan.dayOverridesByWeek` keyed by `${week}|${dayId}`), then walk
+ * the schedule cursor past the skipped slot.
+ *
+ * Use this for the manual "I didn't train this day" affordance on the
+ * day page — the missing piece that previously forced users to either
+ * tap Complete (creating bogus history) or use the AI chat (overkill).
+ */
+export async function skipDayInWeek(opts: {
+  blockId: string;
+  week: WendlerWeek;
+  dayIdx: number;
+  skipReason: DaySkipReason;
+  skipNote?: string;
+}): Promise<'skipped' | 'no-block' | 'no-plan' | 'no-day'> {
+  const db = getDb();
+  const block = await db.blocks.get(opts.blockId);
+  if (!block) return 'no-block';
+  if (!block.plan) return 'no-plan';
+  const day = block.plan.days[opts.dayIdx];
+  if (!day) return 'no-day';
+  const key = `${opts.week}|${day.id}`;
+  const overrides = { ...(block.plan.dayOverridesByWeek ?? {}) };
+  overrides[key] = {
+    skipped: true,
+    skipReason: opts.skipReason,
+    ...(opts.skipNote ? { skipNote: opts.skipNote } : {}),
+  };
+  await db.blocks.put({
+    ...block,
+    plan: { ...block.plan, dayOverridesByWeek: overrides },
+    updatedAt: new Date().toISOString(),
+  });
+  // Walk the cursor past this slot (and any further already-skipped slots).
+  await advanceScheduleAfterDay(opts.blockId, opts.week, opts.dayIdx);
+  return 'skipped';
+}

@@ -22,7 +22,7 @@ import {
 } from '@wendler/domain';
 import type { MainLift, ProgramSchedule, SetRecord } from '@wendler/db-schema';
 import { fmtKg, liftLabel } from '@/lib/format';
-import { completeDayWorkout } from '@/lib/completeDayWorkout';
+import { completeDayWorkout, skipDayInWeek, type DaySkipReason } from '@/lib/completeDayWorkout';
 import { useDaySessionRow } from '@/lib/useDaySessionRow';
 import {
   useAllSessions,
@@ -221,6 +221,17 @@ function DayPage() {
       return;
     }
     await completeDayWorkout({ blockId, week, dayIdx });
+    router.push('/');
+  };
+
+  // "I didn't train this day" — manual entry point for the same skip
+  // primitive the AI uses. Writes `block.plan.dayOverridesByWeek[week|dayId]`
+  // and walks the cursor past the slot. Keeps the day off the hero card
+  // without creating a bogus session row.
+  const [showSkipPicker, setShowSkipPicker] = useState(false);
+  const onSkipDay = async (reason: DaySkipReason) => {
+    if (!blockId || week == null) return;
+    await skipDayInWeek({ blockId, week, dayIdx, skipReason: reason });
     router.push('/');
   };
 
@@ -568,6 +579,53 @@ function DayPage() {
         >
           {workoutCompleted ? '✓ Workout completed' : 'Complete workout'}
         </button>
+      )}
+
+      {/* "I didn't train this day" — only offered when the day is open
+          AND has no logged sets. Once data exists, the right path is
+          Complete (you trained) or Delete (wipe). */}
+      {!locked && !hasAnyDayData && !showSkipPicker && (
+        <button
+          onClick={() => setShowSkipPicker(true)}
+          className="mt-2 w-full rounded-lg py-2.5 text-sm font-semibold text-amber-200 ring-1 ring-amber-500/40 hover:bg-amber-500/10"
+        >
+          Skip this day
+        </button>
+      )}
+      {!locked && !hasAnyDayData && showSkipPicker && (
+        <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+          <div className="mb-2 text-sm font-medium text-amber-100">
+            Why skip this day?
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {([
+              { id: 'rest-day', label: 'Rest day' },
+              { id: 'travel', label: 'Travel' },
+              { id: 'fatigue', label: 'Fatigue' },
+              { id: 'pain', label: 'Pain' },
+              { id: 'cardio-replacement', label: 'Did cardio instead' },
+              { id: 'other', label: 'Other' },
+            ] as { id: DaySkipReason; label: string }[]).map((r) => (
+              <button
+                key={r.id}
+                onClick={() => void onSkipDay(r.id)}
+                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-100 hover:bg-amber-500/20"
+              >
+                {r.label}
+              </button>
+            ))}
+            <button
+              onClick={() => setShowSkipPicker(false)}
+              className="rounded-md border border-border bg-bg px-3 py-1.5 text-xs text-muted hover:text-fg"
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-muted">
+            The day stays in the plan as skipped; no session is created. Hero
+            card moves to your next workout.
+          </p>
+        </div>
       )}
 
       {/* Escape-hatch row — visible whenever the day is locked OR has any
