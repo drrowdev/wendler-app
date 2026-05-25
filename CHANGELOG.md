@@ -8,6 +8,17 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Skip-day button works after Unmark left an empty session (SW v491)
+
+Follow-up to v490. The Skip button was gated on `!hasAnyDayData`, which meant any leftover session row (e.g. from a prior `Mark complete → Unmark` cycle) blocked the button even when no real sets had been logged.
+
+Two fixes:
+
+- **UI gate relaxed.** Skip is now visible whenever the day is open (not locked), regardless of whether a session row exists. The reason picker (Rest day / Travel / Fatigue / Pain / Did cardio instead / Other) appears immediately.
+- **`skipDayInWeek` now sweeps stale empty sessions.** Before writing the `dayOverridesByWeek` flag, the helper scans for session rows on this `(block, week, dayIdx)` that have zero logged sets AND no `workoutCompletedAt` stamp, and deletes them. Real session data (logged sets OR a completion stamp) is preserved.
+
+This is the exact case that bit on the bogus-Thursday-haunting cascade: Mark complete created an empty session row, Unmark cleared the completion stamp but left the row, the row blocked Skip. Now Skip just works.
+
 ### Added — Manual "Skip this day" button on /day (SW v490)
 
 Long-overdue UX gap closed. Previously the only way for a user to clear a workout day they didn't train was to either (a) tap **Complete workout** — which created a bogus session row stamped with today's timestamp and corrupted the date projection, or (b) ask the chat AI to emit a `skip_day_in_week` propose_edit op. Option (a) created the very "haunted hero card → bogus complete → missing today's workout" cascade that v489 was patching; option (b) was overkill for a one-tap intent.

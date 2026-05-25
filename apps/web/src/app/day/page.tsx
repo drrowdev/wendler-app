@@ -581,10 +581,12 @@ function DayPage() {
         </button>
       )}
 
-      {/* "I didn't train this day" — only offered when the day is open
-          AND has no logged sets. Once data exists, the right path is
-          Complete (you trained) or Delete (wipe). */}
-      {!locked && !hasAnyDayData && !showSkipPicker && (
+      {/* "I didn't train this day" — visible whenever the day is open,
+          regardless of whether an (empty) session row exists. The
+          skipDayInWeek helper sweeps stale empty sessions so the Skip
+          button stays usable after a "Mark complete → Unmark" cycle
+          leaves a leftover row. */}
+      {!locked && !showSkipPicker && (
         <button
           onClick={() => setShowSkipPicker(true)}
           className="mt-2 w-full rounded-lg py-2.5 text-sm font-semibold text-amber-200 ring-1 ring-amber-500/40 hover:bg-amber-500/10"
@@ -592,7 +594,7 @@ function DayPage() {
           Skip this day
         </button>
       )}
-      {!locked && !hasAnyDayData && showSkipPicker && (
+      {!locked && showSkipPicker && (
         <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
           <div className="mb-2 text-sm font-medium text-amber-100">
             Why skip this day?

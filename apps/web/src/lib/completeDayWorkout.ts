@@ -201,6 +201,14 @@ export type DaySkipReason =
  * `block.plan.dayOverridesByWeek` keyed by `${week}|${dayId}`), then walk
  * the schedule cursor past the skipped slot.
  *
+ * Also sweeps up any **empty** session rows for the same (block, week,
+ * dayIdx) — rows with no logged sets AND no `workoutCompletedAt` stamp.
+ * These typically come from a prior bogus "Mark complete → Unmark"
+ * cycle and would otherwise leave the day looking dirty in the calendar
+ * (e.g. blocking the Skip affordance via the `hasAnyDayData` gate, and
+ * occupying a calendar slot with an empty session record). Real session
+ * rows — with logged sets OR a completion stamp — are LEFT intact.
+ *
  * Use this for the manual "I didn't train this day" affordance on the
  * day page — the missing piece that previously forced users to either
  * tap Complete (creating bogus history) or use the AI chat (overkill).
@@ -218,6 +226,23 @@ export async function skipDayInWeek(opts: {
   if (!block.plan) return 'no-plan';
   const day = block.plan.days[opts.dayIdx];
   if (!day) return 'no-day';
+
+  // Sweep empty leftover session rows for this slot before writing the
+  // skip flag. Only rows with zero logged sets AND no completion stamp
+  // qualify — anything with real data is preserved.
+  const candidateSessions = await db.sessions
+    .where('blockId')
+    .equals(opts.blockId)
+    .toArray();
+  for (const s of candidateSessions) {
+    if (s.week !== opts.week) continue;
+    if (s.dayIndex !== opts.dayIdx) continue;
+    if (s.workoutCompletedAt) continue;
+    const sets = await db.sets.where('sessionId').equals(s.id).count();
+    if (sets > 0) continue;
+    await db.sessions.delete(s.id);
+  }
+
   const key = `${opts.week}|${day.id}`;
   const overrides = { ...(block.plan.dayOverridesByWeek ?? {}) };
   overrides[key] = {
