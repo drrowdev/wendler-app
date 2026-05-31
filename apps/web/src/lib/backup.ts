@@ -48,11 +48,26 @@ export async function exportBackup(
 ): Promise<ExportResult> {
   const db = getDb();
   const data = {} as BackupData;
+  const missing: BackupTable[] = [];
   for (const name of BACKUP_TABLES) {
     const t = tableOf(db, name);
+    // Defensive: if BACKUP_TABLES drifts ahead of the Dexie schema
+    // (table renamed / dropped / not yet added), record it as empty
+    // and keep going rather than crashing the whole export.
+    if (!t || typeof t.toArray !== 'function') {
+      data[name] = [];
+      missing.push(name);
+      continue;
+    }
     const raw = await t.toArray();
     const sorted = sortRowsById(raw);
     data[name] = opts.redactNotes ? sorted.map(redactRow) : sorted;
+  }
+  if (missing.length > 0) {
+    console.warn(
+      `[backup] BACKUP_TABLES references tables not present in Dexie: ${missing.join(', ')}. ` +
+        `Exported as empty arrays. Reconcile packages/domain/src/backup.ts with apps/web/src/lib/db.ts.`,
+    );
   }
   const file = buildBackupFile({
     schemaVersion: SCHEMA_VERSION,

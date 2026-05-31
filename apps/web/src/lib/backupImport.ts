@@ -41,10 +41,19 @@ export async function importBackup(
 ): Promise<ImportResult> {
   const file = prepareBackup(raw, SCHEMA_VERSION);
   const db = getDb();
-  const tables = BACKUP_TABLES.map((name) => ({
-    name,
-    table: (db as unknown as Record<string, Table<unknown, unknown>>)[name]!,
-  }));
+  // Filter out any BACKUP_TABLES entries that don't exist on the live
+  // Dexie instance (drift between domain backup list and the runtime
+  // schema). Mirrors the defensive guard in exportBackup.
+  const tables = BACKUP_TABLES.flatMap((name) => {
+    const table = (db as unknown as Record<string, Table<unknown, unknown>>)[name];
+    if (!table || typeof (table as { toArray?: unknown }).toArray !== 'function') {
+      console.warn(
+        `[backup-import] BACKUP_TABLES references "${name}" but it's not on the Dexie instance — skipped.`,
+      );
+      return [];
+    }
+    return [{ name, table }];
+  });
 
   const conflicts: ImportConflict[] = [];
   let written = 0;

@@ -8,6 +8,20 @@ is bumped on every release so installed PWAs evict stale assets on next visit.
 
 ## [Unreleased]
 
+### Fixed — Export crashed on `runPlan` and silently skipped ~8 tables (SW v492)
+
+The "Export my data" flow threw `Cannot read properties of undefined (reading 'toArray')` and produced no file. Two coupled bugs in `packages/domain/src/backup.ts`'s `BACKUP_TABLES` list:
+
+1. **Stale entry:** `runPlan` was on the list but the Dexie schema dropped it at v20 (migrated → `cardioPlan`). `db.runPlan` is undefined → `.toArray()` crashes.
+2. **Stale list — missing recent tables:** every table added since ~v20 was missing from backups. Before this fix the export was silently dropping: `cardioPlan`, `wellness`, `notifications`, `aiGenerations`, `chats`, `userProfile`, `injuries`, `weeklyReviews`. Users restoring a backup would lose all of that data.
+
+Changes:
+
+- `BACKUP_TABLES` updated: `runPlan` removed; the 8 missing tables added. The validator (`prepareBackup`) defaults missing tables to `[]` on import, so older backup files continue to load — they just bring in empty arrays for the newer tables. No format-version bump needed.
+- **Defensive guards** added in `apps/web/src/lib/backup.ts` (`exportBackup`) and `apps/web/src/lib/backupImport.ts` (`importBackup`): when a `BACKUP_TABLES` entry isn't present on the live Dexie instance, the entry is skipped with a `console.warn` rather than crashing the whole flow. Prevents this class of drift from ever bricking export/import again.
+
+If you have prior backup files from before this fix, they're still valid — just incomplete. Take a fresh export after upgrading to v492 to capture the full set.
+
 ### Fixed — Skip-day button works after Unmark left an empty session (SW v491)
 
 Follow-up to v490. The Skip button was gated on `!hasAnyDayData`, which meant any leftover session row (e.g. from a prior `Mark complete → Unmark` cycle) blocked the button even when no real sets had been logged.

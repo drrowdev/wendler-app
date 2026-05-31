@@ -13,10 +13,15 @@
  * Excluded by design (see web layer):
  * - syncMeta   — per-device sync cursors
  * - pushSub    — browser-install-specific push endpoint
- * - strengthHr — Strava-derived HR cache, re-fetchable
+ * - strengthHr — Strava-derived HR cache, re-fetchable from Strava
  *
  * Tombstones are included so a restore preserves delete intent for the
  * sync engine.
+ *
+ * Forward compatibility: when a new table is added, append it here. The
+ * importer (`prepareBackup`) defaults missing tables to `[]`, so older
+ * backups continue to import with new tables starting empty — no
+ * breaking change to existing backup files.
  */
 export const BACKUP_TABLES = [
   'movements',
@@ -29,10 +34,17 @@ export const BACKUP_TABLES = [
   'schedule',
   'goals',
   'cardio',
+  'cardioPlan',
   'recovery',
   'tombstones',
-  'runPlan',
   'races',
+  'wellness',
+  'notifications',
+  'aiGenerations',
+  'chats',
+  'userProfile',
+  'injuries',
+  'weeklyReviews',
 ] as const;
 
 export type BackupTable = (typeof BACKUP_TABLES)[number];
